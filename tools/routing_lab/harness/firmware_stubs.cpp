@@ -21,6 +21,7 @@
 
 // --- streams and storage ----------------------------------------------------
 bool g_quiet = true;                 // lab_harness.cpp opens it for the b report
+FILE* g_out = stdout;                // ... and points it at a memory stream to capture one
 Stream Serial;                       // USB serial: stdout
 Stream Jerial;                       // the firmware's tee'd serial
 Stream USBSer3;                      // the backchannel port

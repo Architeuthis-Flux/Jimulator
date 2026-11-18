@@ -7,15 +7,23 @@
 // The netlist is built and routed by firmware code only. This file feeds the
 // bridge array, sets the policy inputs a case carries, and prints.
 //
-// stdin, one or more cases:
+// stdin, one or more cases, routed in order in this one process:
 //   case <name>
 //   stack <paths> <rails> <dacs> <gpio> <adcs>
 //   power <top> <bottom> <dac0> <dac1>
 //   probe <auto_connect> <power_source>
+//   block X <chip> <x>                    pin claimed for a phantom net
+//   block Y <chip> <y>
 //   bridge <node1> <node2> <dup>          node ids; dup -1 = default
 //   end
 // stdout, per case: "=== case <name>", then sections "--- rejected",
-// "--- b", "--- xbar", then "=== end". Exit 2 on a malformed line.
+// "--- trace" (with --trace), "--- b", "--- xbar", "--- repeat" (with
+// --repeat), then "=== end".
+//
+// flags:  --repeat N           route every case N times, report same/different
+//         --gnd-alternator N   starting value of the router's GND K/L counter
+//         --trace              the router's debug prints, under "--- trace"
+// Exit 2 on a malformed line or flag.
 #include <Arduino.h>
 #include "JumperlessDefines.h"
 #include "config.h"
@@ -29,13 +37,21 @@
 #include <string>
 #include <vector>
 
+extern bool debugNTCC3, debugNTCC5, debugNTCC6;   // NetsToChipConnections.cpp
+
+// A blocked pin is claimed for this net before routing. It is a valid net
+// index (printChipStatus looks the net up) that no netlist reaches.
+static const int kBlockNet = MAX_NETS - 1;
+
 struct Bridge { int a, b, dup; };
+struct Block { bool isX; int chip, pin; };
 
 struct Case {
     std::string name;
-    int stack[5] = {2, 3, 0, 0, 0};            // config.h defaults
+    int stack[5] = {2, 3, 0, 0, 0};             // config.h defaults
     float power[4] = {0.0f, 0.0f, 3.33f, 0.0f}; // PowerState defaults
-    int probe[2] = {1, 0};                     // auto_connect, power_source
+    int probe[2] = {1, 0};                      // auto_connect, power_source
+    std::vector<Block> blocks;
     std::vector<Bridge> bridges;
 };
 
@@ -72,6 +88,14 @@ static bool readCase(Case& c, int& lineNo) {
         } else if (!strcmp(word, "probe")) {
             if (sscanf(rest, "%d %d", &c.probe[0], &c.probe[1]) != 2)
                 die(lineNo, "expected 'probe <auto_connect> <power_source>'");
+        } else if (!strcmp(word, "block")) {
+            char axis;
+            Block b;
+            if (sscanf(rest, " %c %d %d", &axis, &b.chip, &b.pin) != 3 || (axis != 'X' && axis != 'Y'))
+                die(lineNo, "expected 'block X|Y <chip> <pin>'");
+            b.isX = axis == 'X';
+            if (b.chip < 0 || b.chip >= 12 || b.pin < 0 || b.pin >= (b.isX ? 16 : 8)) die(lineNo, "block pin out of range");
+            c.blocks.push_back(b);
         } else if (!strcmp(word, "bridge")) {
             Bridge b;
             if (sscanf(rest, "%d %d %d", &b.a, &b.b, &b.dup) != 3) die(lineNo, "expected 'bridge <node1> <node2> <dup>'");
@@ -123,6 +147,13 @@ static void routeCase(const Case& c, std::vector<Bridge>& rejected) {
     }
     infraEvaluate();
     clearAllNTCC();
+    // clearAllNTCC() is the only place the router resets chip status, so a
+    // claim made here stands for the whole rebuild.
+    for (const Block& b : c.blocks) {
+        chipStatus& chip = cs.chipStates[b.chip];
+        if (b.isX) chip.xStatus[b.pin] = kBlockNet;
+        else chip.yStatus[b.pin] = kBlockNet;
+    }
     loadBridgesFromState();
     getNodesToConnect();
     bridgesToPaths();
@@ -181,26 +212,88 @@ static void printXbar() {
     printf("}\n");
 }
 
-static void runCase(const Case& c) {
-    std::vector<Bridge> rejected;
-    applySettings(c);
-    g_quiet = true;
-    routeCase(c, rejected);
-    fillSentViewFromPaths();
-
-    printf("=== case %s\n--- rejected\n", c.name.c_str());
-    for (const Bridge& b : rejected) printf("%d %d\n", b.a, b.b);
-    printf("--- b\n");
+// Runs fn with the firmware's prints going into a string.
+template <typename F> static std::string captured(F fn) {
+    char* buf = nullptr;
+    size_t len = 0;
+    FILE* mem = open_memstream(&buf, &len);
+    FILE* saved = g_out;
+    bool savedQuiet = g_quiet;
+    g_out = mem;
     g_quiet = false;
-    printBReport();
-    g_quiet = true;
-    printf("\n--- xbar\n");
+    fn();
+    g_quiet = savedQuiet;
+    g_out = saved;
+    fclose(mem);
+    std::string s(buf, len);
+    free(buf);
+    return s;
+}
+
+struct Pass {
+    std::vector<Bridge> rejected;
+    std::string trace, b;
+};
+
+// One rebuild of one case, exactly what a second identical case block on
+// stdin would get: settings, infraEvaluate and all. Nothing is skipped on a
+// repeat, because the probe-feed code keeps state between rebuilds.
+static Pass runPass(const Case& c, bool trace) {
+    Pass p;
+    applySettings(c);
+    if (trace) {
+        p.trace = captured([&] { routeCase(c, p.rejected); });
+    } else {
+        g_quiet = true;
+        routeCase(c, p.rejected);
+    }
+    fillSentViewFromPaths();
+    p.b = captured(printBReport);
+    return p;
+}
+
+// The b report without its header (the five stack settings and the unrouted
+// list): what must be identical when one case is routed twice.
+static std::string afterHeader(const std::string& b) {
+    size_t at = b.find("Bridge Array");
+    return at == std::string::npos ? b : b.substr(at);
+}
+
+static void runCase(const Case& c, int repeat, bool trace) {
+    Pass first = runPass(c, trace);
+    printf("=== case %s\n--- rejected\n", c.name.c_str());
+    for (const Bridge& b : first.rejected) printf("%d %d\n", b.a, b.b);
+    if (trace) printf("--- trace\n%s\n", first.trace.c_str());
+    printf("--- b\n%s\n--- xbar\n", first.b.c_str());
     printXbar();
+    if (repeat > 1) {
+        bool same = true;
+        for (int i = 1; i < repeat; i++) {
+            if (afterHeader(runPass(c, false).b) != afterHeader(first.b)) same = false;
+        }
+        printf("--- repeat\n%s\n", same ? "same" : "different");
+    }
     printf("=== end\n");
     fflush(stdout);
 }
 
-int main() {
+int main(int argc, char** argv) {
+    int repeat = 1;
+    bool trace = false;
+    for (int i = 1; i < argc; i++) {
+        if (!strcmp(argv[i], "--repeat") && i + 1 < argc) {
+            repeat = atoi(argv[++i]);
+        } else if (!strcmp(argv[i], "--gnd-alternator") && i + 1 < argc) {
+            gndChipAlternator = atoi(argv[++i]);
+        } else if (!strcmp(argv[i], "--trace")) {
+            trace = true;
+        } else {
+            fprintf(stderr, "lab_harness: unknown flag %s\n", argv[i]);
+            return 2;
+        }
+    }
+    if (trace) debugNTCC = debugNTCC2 = debugNTCC3 = debugNTCC5 = debugNTCC6 = true;
+
     initNets();
     // A board boots with the probe's measure buffer wanted (Probing.cpp calls
     // this from routableBufferPower); probe.auto_connect then gates the feed.
@@ -208,6 +301,6 @@ int main() {
 
     Case c;
     int lineNo = 0;
-    while (readCase(c, lineNo)) runCase(c);
+    while (readCase(c, lineNo)) runCase(c, repeat, trace);
     return 0;
 }

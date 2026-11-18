@@ -21,6 +21,9 @@ typedef bool boolean;
 
 // true: firmware prints are dropped (their lengths are still returned)
 extern bool g_quiet;
+// where firmware prints go: stdout, or a memory stream while the harness
+// captures a report
+extern FILE* g_out;
 
 class Stream {
 public:
@@ -51,7 +54,7 @@ private:
     int emit(const char* s) {
         if (!s) s = "(null)";
         size_t n = strlen(s);
-        if (!g_quiet) fwrite(s, 1, n, stdout);
+        if (!g_quiet) fwrite(s, 1, n, g_out);
         return (int)n;
     }
     template <typename N> int num(const char* fmt, N v) {
