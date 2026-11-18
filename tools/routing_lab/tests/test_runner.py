@@ -75,6 +75,14 @@ class Runner(unittest.TestCase):
         r = runner.judge(CASE18, secs)
         self.assertEqual((r["status"], r["metrics"]["repeat_same"]), ("problems", False))
 
+    def test_bridge_the_firmware_leaves_out_of_every_net_is_noted(self):
+        # GND-1 then TOP_RAIL-1 would join two supplies through row 1: the
+        # firmware keeps the second bridge out of every net ("Net ?")
+        r = runner.run_case(BIN, cases.Case("c", "x", [(100, 1, -1), (101, 1, -1)]))
+        self.assertNotIn(r["status"], ("crash", "timeout"))
+        self.assertTrue(any("TOP_RAIL" in n and "left out" in n for n in r["notes"]), r["notes"])
+        self.assertFalse(any(p.startswith("SHORT") for p in r["problems"]), r["problems"])
+
     def test_battery_is_cached(self):
         v = variants.resolve("worktree")
         cs = [CASE18]

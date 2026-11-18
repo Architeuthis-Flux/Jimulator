@@ -76,6 +76,11 @@ def judge(case, sections, stderr=""):
                        rejected=rejected, b=b, xbar=xbar, stderr=stderr)
     problems = list(verdict.problems)
     notes += verdict.notes
+    # A bridge that would join two supplies through a shared node is kept out
+    # of every net by the firmware ("Net ?") and never routed.
+    for a, c in re.findall(r"\[([^,\]]+),([^,\]]+),Net \?\]", b):
+        notes.append("left out of every net by the firmware: %s-%s" % (
+            NODE_NAME.get(rc.node_of_name(a), a.strip()), NODE_NAME.get(rc.node_of_name(c), c.strip())))
 
     taps_text = sections.get("taps", "")
     routes = dict(re.findall(r"\[nvscan\] route (\d+):\s*(.*)", taps_text))
