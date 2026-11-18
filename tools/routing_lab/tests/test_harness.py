@@ -87,6 +87,18 @@ class Harness(unittest.TestCase):
         self.assertTrue(section(p.stdout, "trace").strip())
         self.assertIsNone(section(run(CASE % "bridge 1 8 -1\n").stdout, "trace"))
 
+    def test_taps_listed_for_every_scanned_node(self):
+        p = run(CASE % "bridge 1 8 -1\n")
+        routes = dict(re.findall(r"\[nvscan\] route (\d+):(.*)", section(p.stdout, "taps")))
+        # the two rows and the probe feed's BUF_IN. No GND auto-zero line: the
+        # firmware's rule adds it only when no net lists GND, and net 1 always does.
+        self.assertEqual(set(routes), {"1", "8", "139"})
+        self.assertTrue(all("->" in r for r in routes.values()), routes)
+
+    def test_taps_skipped_when_every_adc_is_a_user_net(self):
+        p = run(CASE % "bridge 110 1 -1\nbridge 111 2 -1\nbridge 112 3 -1\nbridge 113 4 -1\n")
+        self.assertEqual(section(p.stdout, "taps").strip(), "skipped: no free ADC")
+
 
 if __name__ == "__main__":
     unittest.main()

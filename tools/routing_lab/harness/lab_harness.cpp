@@ -17,8 +17,8 @@
 //   bridge <node1> <node2> <dup>          node ids; dup -1 = default
 //   end
 // stdout, per case: "=== case <name>", then sections "--- rejected",
-// "--- trace" (with --trace), "--- b", "--- xbar", "--- repeat" (with
-// --repeat), then "=== end".
+// "--- trace" (with --trace), "--- b", "--- xbar", "--- taps", "--- repeat"
+// (with --repeat), then "=== end".
 //
 // flags:  --repeat N           route every case N times, report same/different
 //         --gnd-alternator N   starting value of the router's GND K/L counter
@@ -32,12 +32,16 @@
 #include "NetManager.h"
 #include "NetsToChipConnections.h"
 #include "InfraPaths.h"
+#include "RouteSafety.h"
+#include "NetVoltageScan.h"
 #include "CH446Q.h"
 
+#include <algorithm>
 #include <string>
 #include <vector>
 
 extern bool debugNTCC3, debugNTCC5, debugNTCC6;   // NetsToChipConnections.cpp
+extern char routeTrace[64];                       // RouteSafety.cpp: why the last tap plan failed
 
 // A blocked pin is claimed for this net before routing. It is a valid net
 // index (printChipStatus looks the net up) that no netlist reaches.
@@ -212,6 +216,59 @@ static void printXbar() {
     printf("}\n");
 }
 
+// The net-voltage scan's node list. A COPY of one firmware rule: isScannable()
+// and rebuildScanList() in src/sensing/NetVoltageScan.cpp, which needs the ADC
+// ring and cannot be linked. Keep the two in step. (The display-bus exclusion
+// is left out: there is no breadboard display on the host.)
+static std::vector<int> harnessScanList(bool& gndInUse) {
+    std::vector<int> nodes;
+    gndInUse = false;
+    for (int i = 1; i < MAX_NETS; i++) {
+        const netStruct& net = globalState.connections.nets[i];
+        if (net.number <= 0 || net.specialFunction == EMPTY_NET) continue;
+        if (net.virtual_net) continue;
+        for (int n = 0; n < MAX_NODES; n++) {
+            int node = net.nodes[n];
+            if (node <= 0) break;
+            if (node == GND) gndInUse = true;
+            bool source = node == GND || node == TOP_RAIL || node == BOTTOM_RAIL || node == DAC0 || node == DAC1;
+            if (node >= NODE_VOLTAGE_MAX || source || (node >= ADC0 && node <= ADC4) || node == ADC7_PROBE) continue;
+            if (std::find(nodes.begin(), nodes.end(), node) == nodes.end()) nodes.push_back(node);
+        }
+    }
+    return nodes;
+}
+
+// One line per scanned node: the sense route the firmware's own planner
+// (planFastPath, RouteSafety.cpp) finds for it against the routing just made,
+// printed as NetVoltageScan.cpp's printSenseRoute prints it for `i!`. A dry
+// run: nothing is closed or claimed. The ADC is the first one the firmware
+// says is free, as in the scan's own report.
+static void printTaps() {
+    uint8_t freeMask = infraFreeAdcMask(0x0F);
+    if (!freeMask) {
+        printf("skipped: no free ADC\n");
+        return;
+    }
+    int adc = __builtin_ctz(freeMask);
+    bool gndInUse = false;
+    std::vector<int> nodes = harnessScanList(gndInUse);
+    if (!gndInUse) nodes.push_back(GND);            // the scan's auto-zero tap
+    for (int node : nodes) {
+        printf("[nvscan] route %d:", node);
+        pathStruct r;
+        if (!planFastPath(node, ADC0 + adc, &r)) {
+            printf(" (none - lanes busy, short, or node unknown) tier4:%s\n", routeTrace);
+            continue;
+        }
+        for (int h = 0; h < 4; h++) {
+            if (r.chip[h] < 0 || r.x[h] < 0 || r.y[h] < 0) continue;
+            printf(" %c(x%d,y%d)", 'A' + r.chip[h], r.x[h], r.y[h]);
+        }
+        printf(" -> ADC%d\n", adc);
+    }
+}
+
 // Runs fn with the firmware's prints going into a string.
 template <typename F> static std::string captured(F fn) {
     char* buf = nullptr;
@@ -266,6 +323,8 @@ static void runCase(const Case& c, int repeat, bool trace) {
     if (trace) printf("--- trace\n%s\n", first.trace.c_str());
     printf("--- b\n%s\n--- xbar\n", first.b.c_str());
     printXbar();
+    printf("--- taps\n");
+    printTaps();
     if (repeat > 1) {
         bool same = true;
         for (int i = 1; i < repeat; i++) {
