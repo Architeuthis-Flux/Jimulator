@@ -1,0 +1,53 @@
+# Board captures
+
+The harness is only worth trusting if it routes what a real board routes.
+This directory holds captures of the HIL dense suite taken on a V5, one
+directory per firmware commit, named `board_<commit hash>`. None is checked in
+yet: until one is, `lab.py run` ends with "not verified against a board".
+
+## Taking a capture (one bench run)
+
+1. Check out the commit to verify, with a clean tree, and note its hash:
+
+   ```bash
+   git rev-parse --short=12 HEAD
+   ```
+
+   The firmware's version string is not enough: several commits report the
+   same version.
+
+2. Build and flash it:
+
+   ```bash
+   ~/.platformio/penv/bin/pio run -e jumperless_v5 -t upload
+   ```
+
+3. Power-cycle the board.
+
+4. Run the dense suite once with captures on (it snapshots the bench first
+   and restores it afterwards):
+
+   ```bash
+   JL_ROUTING_SNAP_DIR=tools/routing_lab/fidelity/board_<hash> python3 test/hil/test_routing_dense.py
+   ```
+
+5. Compare:
+
+   ```bash
+   python3 tools/routing_lab/lab.py fidelity tools/routing_lab/fidelity/board_<hash>
+   ```
+
+6. Commit the capture directory.
+
+## What the comparison does
+
+It builds the harness from the commit in the directory's name, then routes
+the 21 dense cases in the suite's order in one process, each under the
+stacking settings printed at the top of its own capture. It compares, per
+case, every path row, every chip-status claim and every closed crosspoint.
+
+The board does not reboot between cases, and the router's GND alternator is
+never reset, so its value when the suite starts depends on what the board
+routed at boot. The replay is tried with both starting parities and passes if
+either matches exactly. Any other difference is a fidelity bug in the harness
+to chase, not to waive.

@@ -66,7 +66,8 @@ case routes the same when it is routed twice in one process.
 
 - **Not verified against a board yet.** The harness matches the sweep
   ledger's numbers, but the crosspoint-for-crosspoint comparison against a
-  board capture has not been run.
+  board capture has not been run. `fidelity/README.md` has the one bench run
+  it needs; `lab.py fidelity <capture>` then does the comparison.
 - **Crossbar sends.** `CH446Q.cpp` is not linked; the "sent" view is filled
   from the path table, so "sent equals planned" cannot fail here. The HIL
   suite keeps that check.

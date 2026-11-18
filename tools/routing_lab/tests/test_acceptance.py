@@ -41,7 +41,6 @@ class History(unittest.TestCase):
             v = variants.resolve(ref)
             variants.build(v)
             exact = True
-            print("\n  %s: built the router at %s" % (name, v.name))
         except variants.BuildError as e:
             with open(os.path.join(REPO, ROUTER)) as f:
                 source = f.read()

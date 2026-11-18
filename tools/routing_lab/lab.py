@@ -5,6 +5,7 @@ of netlists with it, and judge the result against the schematic.
 
     lab.py run [--variant V] [--baseline V0] [--classes dense,real,...] [--case NAME] [--jobs N] [--json FILE]
     lab.py build [--variant V]
+    lab.py fidelity CAPTURE_DIR [--variant V]
     lab.py import-state FILE.yaml --name NAME [--class real]
 
 A variant is "worktree" (this checkout), a directory that holds src/ (another
@@ -151,11 +152,27 @@ def cmd_run(args):
         print("against %s: %s" % (base_v.name, "no regressions" if not lines else "%d regressions" % len(lines)))
         for line in lines:
             print("  worse    " + line)
+    if not any((LAB / "fidelity").glob("board_*/*.b.txt")):
+        print("not verified against a board (see fidelity/README.md)")
     if args.json:
         with open(args.json, "w") as f:
             json.dump({"variant": {"name": v.name, "hash": v.hash}, "baseline": args.baseline,
                        "regressions": lines, "results": results}, f)
     return exit_code(results, case_list, lines)
+
+
+def cmd_fidelity(args):
+    import fidelity
+    ok, diffs = fidelity.check(args.capture_dir, args.variant)
+    if ok:
+        print("fidelity: PASS - the harness routes the dense suite as the board capture in %s does" % args.capture_dir)
+        return 0
+    print("fidelity: FAIL - %d differences from the board capture in %s" % (len(diffs), args.capture_dir))
+    for line in diffs[:40]:
+        print("  " + line)
+    if len(diffs) > 40:
+        print("  ... and %d more" % (len(diffs) - 40))
+    return 1
 
 
 def cmd_build(args):
@@ -189,6 +206,10 @@ def main(argv):
     build = sub.add_parser("build", help="build the harness for a variant and print its path")
     build.add_argument("--variant", default="worktree")
     build.set_defaults(fn=cmd_build)
+    fid = sub.add_parser("fidelity", help="compare the harness against a board capture of the dense suite")
+    fid.add_argument("capture_dir", help="a JL_ROUTING_SNAP_DIR capture, named board_<commit>")
+    fid.add_argument("--variant", help="default: the commit in the directory's name")
+    fid.set_defaults(fn=cmd_fidelity)
     imp = sub.add_parser("import-state", help="turn a firmware state document into a case")
     imp.add_argument("file")
     imp.add_argument("--name", required=True)
