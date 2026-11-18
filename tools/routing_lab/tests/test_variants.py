@@ -31,6 +31,11 @@ class Variants(unittest.TestCase):
     def test_git_ref_variant_builds(self):
         self.assertTrue(os.access(variants.build(variants.resolve("HEAD")), os.X_OK))
 
+    def test_a_router_from_before_the_tap_trace_still_builds(self):
+        # 2026-09-03, before RouteSafety.cpp had routeTrace: the harness must
+        # not need symbols an older router lacks
+        self.assertTrue(os.access(variants.build(variants.resolve("a1accf5^")), os.X_OK))
+
     def test_directory_spec_is_that_checkout(self):
         self.assertEqual(variants.resolve(REPO).hash, variants.resolve("worktree").hash)
         with self.assertRaises(ValueError):

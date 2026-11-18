@@ -59,6 +59,12 @@ FakeGpioInput fakeGpioInputs[MAX_FAKE_GP_IN];
 int fakeGpioInputAdcChannel = -1;
 TimeDomainMultiplexer tdmInputs;     // no multiplexed ADC channels
 
+// --- sense-tap planner ----------------------------------------------------------
+// RouteSafety.cpp's "why the last tap plan failed" text, which the taps
+// section prints. Weak: today's router defines the real one and wins; a
+// router from before it existed (2026-09-03) links against this empty one.
+__attribute__((weak)) char routeTrace[64] = "";
+
 // --- the rebuild itself ---------------------------------------------------------
 // infraNudge() / infraServiceTick() ask Commands.cpp for a rebuild; the harness
 // runs the rebuild explicitly for each case instead.
