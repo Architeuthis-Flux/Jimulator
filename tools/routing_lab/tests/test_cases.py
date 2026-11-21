@@ -81,6 +81,28 @@ class Cases(unittest.TestCase):
         self.assertEqual(cases.node_id(7), 7)
         self.assertEqual(cases.node_id("TOP_R"), 101)
 
+    def test_state_import_reads_fields_in_any_order(self):
+        doc = ("bridges:\n"
+               "  - {n2: GND, n1: 5}\n"
+               "  - {n1: 6, n2: TOP_RAIL, color: pink, dup: 4}\n"
+               "  - {n1: NANO_AREF, n2: 7}\n"
+               "config:\n  routing: {stackPaths: 2, stackRails: 3, stackDacs: 0}\n")
+        c = cases.import_state(self.tmp_yaml(doc), "any")
+        self.assertEqual(c.bridges, [(5, 100, -1), (6, 101, 4), (85, 7, -1)])
+
+    def test_state_import_refuses_a_bridge_line_it_cannot_read(self):
+        for doc in ("bridges:\n  - n1: 5\n    n2: 6\n",                  # block style
+                    "bridges:\n  - [5, 6]\n",                            # a list
+                    "bridges:\n  - {n1: 5}\n"):                          # no second node
+            with self.assertRaisesRegex(ValueError, "bridge line"):
+                cases.import_state(self.tmp_yaml(doc), "bad")
+
+    def test_case_names_are_safe_file_and_protocol_names(self):
+        for bad in ("a b", "../x", "x#y", "a/b", ".hidden", "", "n" * 101):
+            with self.assertRaises(ValueError, msg=bad):
+                cases.Case(bad, "x", [])
+        self.assertEqual(cases.Case("kevin_state_2026-09-07", "x", []).name, "kevin_state_2026-09-07")
+
     def test_checked_in_real_cases_load(self):
         names = sorted(os.listdir(os.path.join(LAB, "cases", "real")))
         self.assertEqual(names, ["kevin_state_2026-09-07.json", "slot3_snapshot_2026-08-26.json"])

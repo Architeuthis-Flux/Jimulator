@@ -24,6 +24,7 @@ BUILD_DIR = LAB / "build"
 SOURCE_SUFFIXES = (".h", ".hpp", ".cpp")
 
 _build_lock = threading.Lock()
+_materialize_lock = threading.Lock()      # one thread at a time unpacks or copies a variant tree
 
 
 class BuildError(Exception):
@@ -31,7 +32,8 @@ class BuildError(Exception):
 
     def __init__(self, stderr):
         self.stderr = stderr
-        first = next((line for line in stderr.splitlines() if "error" in line), "build failed")
+        lines = [line for line in stderr.splitlines() if line.strip()]
+        first = next((line for line in lines if "error" in line), lines[0] if lines else "build failed")
         super().__init__(first)
 
 
@@ -72,6 +74,18 @@ def _hash(src_root):
     return h.hexdigest()
 
 
+def harness_hash():
+    """Identifies the harness alone (its sources, stubs and build flags): what
+    a fidelity pass against a board capture vouches for."""
+    h = hashlib.sha256()
+    _update_with_tree(h, HARNESS_DIR)
+    return h.hexdigest()
+
+
+def _scratch_name(dest):
+    return dest.with_name("%s.tmp%d-%d" % (dest.name, os.getpid(), threading.get_ident()))
+
+
 def _git_ref_tree(spec):
     p = subprocess.run(["git", "-C", str(REPO), "rev-parse", "--verify", "--quiet", "--end-of-options",
                         spec + "^{commit}"], capture_output=True, text=True)
@@ -79,16 +93,17 @@ def _git_ref_tree(spec):
         raise ValueError("not a directory holding src/ and not a git ref: %r" % spec)
     sha = p.stdout.strip()
     dest = BUILD_DIR / "variants" / ("ref-" + sha[:12])
-    if not (dest / "src").is_dir():
-        tar = subprocess.run(["git", "-C", str(REPO), "archive", "--format=tar", sha, "src"],
-                             capture_output=True, check=True).stdout
-        tmp = dest.with_name(dest.name + ".tmp%d" % os.getpid())
-        shutil.rmtree(tmp, ignore_errors=True)
-        tmp.mkdir(parents=True)
-        with tarfile.open(fileobj=io.BytesIO(tar)) as archive:
-            archive.extractall(tmp, filter="data")
-        shutil.rmtree(dest, ignore_errors=True)
-        tmp.rename(dest)
+    with _materialize_lock:
+        if not (dest / "src").is_dir():
+            tar = subprocess.run(["git", "-C", str(REPO), "archive", "--format=tar", sha, "src"],
+                                 capture_output=True, check=True).stdout
+            tmp = _scratch_name(dest)
+            shutil.rmtree(tmp, ignore_errors=True)
+            tmp.mkdir(parents=True)
+            with tarfile.open(fileobj=io.BytesIO(tar)) as archive:
+                archive.extractall(tmp, filter="data")
+            shutil.rmtree(dest, ignore_errors=True)
+            tmp.rename(dest)
     return "%s@%s" % (spec, sha[:7]), dest / "src"
 
 
@@ -107,16 +122,17 @@ def resolve(spec, overrides=None):
         for rel in sorted(files):
             digest.update(rel.encode() + b"\0" + files[rel] + b"\0")
         dest = BUILD_DIR / "variants" / ("ovr-%s-%s" % (_hash(src_root)[:12], digest.hexdigest()[:12]))
-        if not (dest / "src").is_dir():
-            tmp = dest.with_name(dest.name + ".tmp%d" % os.getpid())
-            shutil.rmtree(tmp, ignore_errors=True)
-            shutil.copytree(src_root, tmp / "src")
-            for rel, data in files.items():
-                target = tmp / rel
-                target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_bytes(data)
-            shutil.rmtree(dest, ignore_errors=True)
-            tmp.rename(dest)
+        with _materialize_lock:
+            if not (dest / "src").is_dir():
+                tmp = _scratch_name(dest)
+                shutil.rmtree(tmp, ignore_errors=True)
+                shutil.copytree(src_root, tmp / "src")
+                for rel, data in files.items():
+                    target = tmp / rel
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_bytes(data)
+                shutil.rmtree(dest, ignore_errors=True)
+                tmp.rename(dest)
         name = "%s + %d file%s" % (name, len(files), "" if len(files) == 1 else "s")
         src_root = dest / "src"
     return Variant(name, src_root, _hash(src_root))
@@ -129,15 +145,23 @@ def build(v, sanitize=True):
         if out.exists():
             return out
         out.parent.mkdir(parents=True, exist_ok=True)
-        tmp = out.with_name(out.name + ".tmp%d" % os.getpid())
+        tmp = _scratch_name(out)
         env = dict(os.environ, SANITIZE="1" if sanitize else "0")
         p = subprocess.run([str(HARNESS_DIR / "build.sh"), str(v.src_root), str(tmp)],
                            capture_output=True, text=True, env=env)
         shutil.rmtree(str(tmp) + ".obj", ignore_errors=True)
+        error = None
         if p.returncode != 0:
+            error = p.stderr or p.stdout
+        elif BUILD_DIR not in v.src_root.parents and _hash(v.src_root) != v.hash:
+            # A live checkout was hashed at resolve() and compiled just now. If
+            # a file was saved in between, this binary is not the one the hash
+            # names, and filing it there would hand it to every later run.
+            error = "the sources changed while the harness was building; run again"
+        if error:
             tmp.unlink(missing_ok=True)
             if not any(out.parent.iterdir()):
                 out.parent.rmdir()
-            raise BuildError(p.stderr or p.stdout)
+            raise BuildError(error)
         os.replace(tmp, out)
         return out

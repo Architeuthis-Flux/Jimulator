@@ -16,13 +16,15 @@
 //   block Y <chip> <y>
 //   bridge <node1> <node2> <dup>          node ids; dup -1 = default
 //   end
-// stdout, per case: "=== case <name>", then sections "--- rejected",
-// "--- trace" (with --trace), "--- b", "--- xbar", "--- taps", "--- repeat"
-// (with --repeat), then "=== end".
+// stdout, per case: "=== case <name>", then sections "--- rejected" (bridges
+// the firmware's rules refuse outright), "--- refused" (paths its safety
+// check vetoed: node1 node2 duplicate a b), "--- trace" (with --trace),
+// "--- b", "--- xbar", "--- taps", "--- repeat" (with --repeat), "=== end".
 //
 // flags:  --repeat N           route every case N times, report same/different
 //         --gnd-alternator N   starting value of the router's GND K/L counter
 //         --trace              the router's debug prints, under "--- trace"
+//         --forbidden-pairs    print the firmware's do-not-intersect table
 // Exit 2 on a malformed line or flag.
 #include <Arduino.h>
 #include "JumperlessDefines.h"
@@ -143,6 +145,19 @@ static void routeCase(const Case& c, std::vector<Bridge>& rejected) {
             rejected.push_back(b);
             continue;
         }
+        // A pair the array already holds, in either order, is merged as the
+        // firmware's loader merges it (JumperlessState::addConnection in
+        // States.cpp): an explicit count replaces the stored one, a plain
+        // re-add (-1) leaves it.
+        bool merged = false;
+        for (int i = 0; i < cs.numBridges && !merged; i++) {
+            if ((cs.bridges[i][0] == b.a && cs.bridges[i][1] == b.b) ||
+                (cs.bridges[i][0] == b.b && cs.bridges[i][1] == b.a)) {
+                if (b.dup >= 0) cs.bridges[i][2] = (int16_t)b.dup;
+                merged = true;
+            }
+        }
+        if (merged) continue;
         cs.bridges[cs.numBridges][0] = (int16_t)b.a;
         cs.bridges[cs.numBridges][1] = (int16_t)b.b;
         cs.bridges[cs.numBridges][2] = (int16_t)b.dup;
@@ -287,8 +302,16 @@ template <typename F> static std::string captured(F fn) {
     return s;
 }
 
+// A path the firmware's safety check (validateAllPaths, RouteSafety.cpp)
+// refused because closing it would short two things it keeps apart. a and b
+// are the two ids its "short a/b" message names (nets, or the two driven
+// nodes). Not a routing miss: the router found a path and the validator
+// vetoed it. A refused primary's duplicates are refused and listed too.
+struct Refused { int node1, node2, duplicate, a, b; };
+
 struct Pass {
     std::vector<Bridge> rejected;
+    std::vector<Refused> refused;
     std::string trace, b;
 };
 
@@ -298,11 +321,22 @@ struct Pass {
 static Pass runPass(const Case& c, bool trace) {
     Pass p;
     applySettings(c);
-    if (trace) {
-        p.trace = captured([&] { routeCase(c, p.rejected); });
-    } else {
-        g_quiet = true;
-        routeCase(c, p.rejected);
+    // RouteSafety names each path it refuses only under debugNTCC, so the
+    // rebuild always runs with that one print flag on and its output caught.
+    bool savedDebug = debugNTCC;
+    debugNTCC = true;
+    std::string printed = captured([&] { routeCase(c, p.rejected); });
+    debugNTCC = savedDebug;
+    if (trace) p.trace = printed;
+    for (size_t at = 0; at < printed.size();) {
+        size_t end = printed.find('\n', at);
+        if (end == std::string::npos) end = printed.size();
+        int path, net, n1, n2, a, b;
+        if (sscanf(printed.substr(at, end - at).c_str(), "RouteSafety: skipped path %d net %d (%d-%d) short %d/%d",
+                   &path, &net, &n1, &n2, &a, &b) == 6 && path >= 0 && path < MAX_BRIDGES) {
+            p.refused.push_back({n1, n2, globalState.connections.paths[path].duplicate != 0, a, b});
+        }
+        at = end + 1;
     }
     fillSentViewFromPaths();
     p.b = captured(printBReport);
@@ -320,6 +354,8 @@ static void runCase(const Case& c, int repeat, bool trace) {
     Pass first = runPass(c, trace);
     printf("=== case %s\n--- rejected\n", c.name.c_str());
     for (const Bridge& b : first.rejected) printf("%d %d\n", b.a, b.b);
+    printf("--- refused\n");
+    for (const Refused& r : first.refused) printf("%d %d %d %d %d\n", r.node1, r.node2, r.duplicate, r.a, r.b);
     if (trace) printf("--- trace\n%s\n", first.trace.c_str());
     printf("--- b\n%s\n--- xbar\n", first.b.c_str());
     printXbar();
@@ -338,7 +374,7 @@ static void runCase(const Case& c, int repeat, bool trace) {
 
 int main(int argc, char** argv) {
     int repeat = 1;
-    bool trace = false;
+    bool trace = false, forbiddenPairs = false;
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--repeat") && i + 1 < argc) {
             repeat = atoi(argv[++i]);
@@ -346,6 +382,8 @@ int main(int argc, char** argv) {
             gndChipAlternator = atoi(argv[++i]);
         } else if (!strcmp(argv[i], "--trace")) {
             trace = true;
+        } else if (!strcmp(argv[i], "--forbidden-pairs")) {
+            forbiddenPairs = true;
         } else {
             fprintf(stderr, "lab_harness: unknown flag %s\n", argv[i]);
             return 2;
@@ -354,6 +392,25 @@ int main(int argc, char** argv) {
     if (trace) debugNTCC = debugNTCC2 = debugNTCC3 = debugNTCC5 = debugNTCC6 = true;
 
     initNets();
+    if (forbiddenPairs) {
+        // Every pair of nodes the firmware keeps out of one net, one
+        // "node node" line each, for the case generators to stay inside. Two
+        // tables in MatrixState.cpp: globalDoNotIntersects (connectionAllowed
+        // and the safety check read it) and each special net's own
+        // doNotIntersectNodes (NetManager reads it when nets merge).
+        for (int k = 0; k < 60; k++) {
+            if (globalDoNotIntersects[k][0] > 0 && globalDoNotIntersects[k][1] > 0)
+                printf("%d %d\n", globalDoNotIntersects[k][0], globalDoNotIntersects[k][1]);
+        }
+        for (int n = 1; n <= 5; n++) {
+            const netStruct& net = globalState.connections.nets[n];
+            for (int k = 0; k < 8; k++) {
+                if (net.doNotIntersectNodes[k] > 0 && net.doNotIntersectNodes[k] != EMPTY_NET)
+                    printf("%d %d\n", net.specialFunction, net.doNotIntersectNodes[k]);
+            }
+        }
+        return 0;
+    }
     // A board boots with the probe's measure buffer wanted (Probing.cpp calls
     // this from routableBufferPower); probe.auto_connect then gates the feed.
     infraSetProbePowerEnabled(true);

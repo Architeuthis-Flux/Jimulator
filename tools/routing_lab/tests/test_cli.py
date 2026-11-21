@@ -46,6 +46,38 @@ class Cli(unittest.TestCase):
         self.assertEqual(lab.regressions([short], [{**short, "problems": ["SHORT: nets 6 9 share copper via AC0"]}]), [])
         self.assertEqual(lab.regressions([ok], [{**ok, "case": "b"}]), [])
 
+    def test_fewer_routed_primaries_is_a_regression_even_when_the_baseline_was_not_complete(self):
+        base = {"case": "a", "status": "ok", "problems": [], "metrics": {"primaries": 10, "routed_primaries": 8}}
+        fewer = {**base, "metrics": {"primaries": 10, "routed_primaries": 7}}
+        more = {**base, "metrics": {"primaries": 10, "routed_primaries": 9}}
+        self.assertEqual(len(lab.regressions([base], [fewer])), 1)
+        self.assertEqual(lab.regressions([base], [more]), [])
+
+    def test_file_errors_are_usage_errors_not_routing_failures(self):
+        code, out = run(["import-state", "/nonexistent/state.yaml", "--name", "x"])
+        self.assertEqual(code, 2, out)
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(lab, "CASES_DIR", lab.Path(tmp)):
+            os.makedirs(os.path.join(tmp, "real"))
+            with open(os.path.join(tmp, "real", "broken.json"), "w") as f:
+                f.write('{"name": "broken"')
+            code, out = run(["run", "--classes", "real"])
+            self.assertEqual(code, 2, out)
+            self.assertIn("broken.json", out)
+
+    def test_a_baseline_that_does_not_build_is_named(self):
+        real_build = variants.build
+
+        def build(v, sanitize=True):
+            if v.name.startswith("HEAD"):
+                raise variants.BuildError("old.cpp:1: error: no")
+            return real_build(v, sanitize)
+
+        with mock.patch.object(variants, "build", side_effect=build):
+            code, out = run(["run", "--classes", "dense", "--case", "chain_all_chips", "--baseline", "HEAD"])
+        self.assertEqual(code, 3)
+        self.assertIn("baseline", out)
+        self.assertIn("old.cpp:1: error: no", out)
+
     def test_exit_1_on_a_short_or_a_crash(self):
         short = {"case": "a", "cls": "fuzz", "status": "problems", "problems": ["SHORT: x"], "notes": [],
                  "metrics": {"primaries": 1, "routed_primaries": 1, "taps_dead": []}}

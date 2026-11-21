@@ -26,6 +26,7 @@ from fabric_v5 import NODE_NAME  # noqa: E402
 
 RESULTS_DIR = variants.BUILD_DIR / "results"
 STDERR_TAIL = 4000
+BLOCK_NET = 59          # the phantom net a blocked pin is claimed for: kBlockNet (MAX_NETS - 1) in lab_harness.cpp
 
 
 def parse_sections(stdout):
@@ -50,17 +51,29 @@ def run_harness(binary, case, *, repeat=2, block=(), timeout=20.0):
 
 
 def _result(case, status, problems=(), notes=(), rejected=(), metrics=None, b="", xbar="", stderr=""):
-    base = {"primaries": 0, "routed_primaries": 0, "bounced": 0, "routed_duplicates": 0, "crosspoints": 0,
-            "taps": None, "taps_dead": [], "repeat_same": None}
+    base = {"primaries": 0, "routed_primaries": 0, "refused": 0, "bounced": 0, "routed_duplicates": 0,
+            "crosspoints": 0, "taps": None, "taps_dead": [], "repeat_same": None}
     base.update(metrics or {})
     return {"case": case.name, "cls": case.cls, "status": status, "problems": list(problems),
             "notes": list(notes), "rejected": [list(r) for r in rejected], "metrics": base,
             "b": b, "xbar": xbar, "stderr": stderr[-STDERR_TAIL:]}
 
 
-def judge(case, sections, stderr=""):
+def _without_block_claims(b):
+    """The b report with the phantom net's claims shown as free. A blocked
+    pin is a claim with no copper by design; it is the experiment, not a
+    bookkeeping fault of the router's."""
+    head, sep, status = b.partition("Chip Status")
+    lines = [re.sub(r"(?<!\d)%d(?!\d)" % BLOCK_NET, ".", line) if re.match(r"[A-L]\t", line) else line
+             for line in status.split("\n")]
+    return head + sep + "\n".join(lines)
+
+
+def judge(case, sections, stderr="", block=()):
     """A result from one case's harness sections."""
     b, xbar = sections.get("b", ""), sections.get("xbar", "")
+    if block:
+        b = _without_block_claims(b)
     rejected = [[int(v) for v in line.split()] for line in sections.get("rejected", "").splitlines() if line.strip()]
     notes = ["rejected by the firmware: %s-%s" % (NODE_NAME.get(a, a), NODE_NAME.get(c, c)) for a, c in rejected]
     if len(case.bridges) - len(rejected) <= 0:
@@ -76,11 +89,21 @@ def judge(case, sections, stderr=""):
                        rejected=rejected, b=b, xbar=xbar, stderr=stderr)
     problems = list(verdict.problems)
     notes += verdict.notes
-    # A bridge that would join two supplies through a shared node is kept out
-    # of every net by the firmware ("Net ?") and never routed.
+    # A bridge the firmware keeps out of every net ("Net ?") is never routed:
+    # it would join two nodes a special net keeps apart, or the net tables
+    # were already full.
     for a, c in re.findall(r"\[([^,\]]+),([^,\]]+),Net \?\]", b):
         notes.append("left out of every net by the firmware: %s-%s" % (
             NODE_NAME.get(rc.node_of_name(a), a.strip()), NODE_NAME.get(rc.node_of_name(c), c.strip())))
+
+    # A primary path the firmware's safety check vetoed is not a routing
+    # miss: the router found a path and RouteSafety refused to close it.
+    refused = [[int(v) for v in line.split()] for line in sections.get("refused", "").splitlines() if line.strip()]
+    metrics["refused"] = sum(1 for r in refused if r[2] == 0)
+    for n1, n2, duplicate, a, c in refused:
+        if not duplicate:
+            notes.append("refused by the firmware's safety check (RouteSafety: short %d/%d): %s-%s" % (
+                a, c, NODE_NAME.get(n1, n1), NODE_NAME.get(n2, n2)))
 
     taps_text = sections.get("taps", "")
     routes = dict(re.findall(r"\[nvscan\] route (\d+):\s*(.*)", taps_text))
@@ -90,6 +113,10 @@ def judge(case, sections, stderr=""):
         if dead:
             line = "no sense-tap route for " + " ".join(NODE_NAME.get(n, str(n)) for n in dead)
             (problems if case.taps_required else notes).append(line)
+    elif case.taps_required:
+        # the HIL suite's rule: a taps proof with no routes listed has failed
+        problems.append("no sense-tap routes were listed, and this case requires them (%s)" % (
+            taps_text.strip() or "no taps section"))
 
     repeat = sections.get("repeat", "").strip()
     if repeat:
@@ -110,7 +137,7 @@ def run_case(binary, case, *, repeat=2, block=(), timeout=20.0):
     sections = parse_sections(stdout).get(case.name)
     if sections is None:
         return _result(case, "crash", problems=["the harness printed nothing for this case"], stderr=stderr)
-    return judge(case, sections, stderr)
+    return judge(case, sections, stderr, block)
 
 
 def _judge_stamp():

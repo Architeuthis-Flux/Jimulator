@@ -33,6 +33,29 @@ class Generators(unittest.TestCase):
         self.assertFalse(generators.legal([(5, 5)]))
         self.assertTrue(generators.legal([(100, 1), (1, 2), (101, 3)]))
 
+    def test_forbidden_pairs_match_the_firmware(self):
+        import subprocess
+        binary = variants.build(variants.resolve("worktree"))
+        out = subprocess.run([str(binary), "--forbidden-pairs"], capture_output=True, text=True, check=True).stdout
+        firmware = {frozenset(int(v) for v in l.split()) for l in out.splitlines() if l.strip()}
+        self.assertEqual({frozenset(p) for p in generators.FORBIDDEN_PAIRS}, firmware)
+
+    def test_legal_refuses_what_the_firmware_refuses(self):
+        self.assertFalse(generators.legal([(5, 101), (5, 131)]))       # a GPIO and a rail through row 5
+        self.assertFalse(generators.legal([(116, 3), (3, 4), (4, 107)]))  # UART_TX and DAC1, two hops apart
+        self.assertFalse(generators.legal([(131, 101)]))               # directly
+        self.assertTrue(generators.legal([(100, 1), (106, 1)]))        # GND with DAC0: the firmware allows it
+        self.assertFalse(generators.legal([(106, 2), (107, 2)]))       # DAC0 with DAC1: the DAC nets keep them apart
+
+    def test_no_generated_case_is_refused_by_the_firmware(self):
+        # beyond() is left out: max_bridges_random overflows the firmware's net tables on purpose
+        every = generators.typical() + generators.fuzz() + generators.stress()
+        rs = runner.run_battery(variants.resolve("worktree"), every)
+        bad = [(r["case"], r["rejected"], r["metrics"]["refused"]) for r in rs
+               if r["rejected"] or r["metrics"]["refused"] or any("left out of every net" in n for n in r["notes"])]
+        self.assertEqual(bad, [])
+        self.assertEqual([r["case"] for r in rs if r["status"] == "empty"], [])
+
     def test_classes(self):
         self.assertEqual({c.cls for c in generators.fuzz(1, 5)}, {"fuzz"})
         self.assertEqual({c.cls for c in generators.typical(1, 5)}, {"typical"})

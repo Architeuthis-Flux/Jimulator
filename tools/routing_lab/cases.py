@@ -34,8 +34,12 @@ class Case:
     notes: str = ""
 
     def __post_init__(self):
-        if not self.name or len(self.name.split()) != 1:
-            raise ValueError("a case name is one word: %r" % (self.name,))
+        # A name is a word in the harness's protocol and a file name under
+        # cases/ and in a capture directory: nothing that splits, comments
+        # out, or walks out of a directory.
+        if not re.fullmatch(r"[A-Za-z0-9_+-][A-Za-z0-9_.+-]{0,99}", self.name or ""):
+            raise ValueError("a case name is up to 100 letters, digits, _ . + or -, not starting with a dot: %r"
+                             % (self.name,))
         self.bridges = [tuple(int(v) for v in b) for b in self.bridges]
         self.stack = tuple(int(v) for v in self.stack)
         self.power = tuple(float(v) for v in self.power)
@@ -92,6 +96,7 @@ for _i in range(14):
     _NAMES["NANO_D%d" % _i] = 70 + _i
 _NAMES["RP_UART_TX"] = 116
 _NAMES["RP_UART_RX"] = 117
+_NAMES["NANO_AREF"] = 85
 
 
 def node_id(token):
@@ -106,7 +111,16 @@ def node_id(token):
     raise ValueError("unknown node name %r" % text)
 
 
-_BRIDGE_LINE = re.compile(r"^\s*-\s*\{\s*n1:\s*([^,}]+?)\s*,\s*n2:\s*([^,}]+?)\s*(?:,\s*dup:\s*(-?\d+)\s*)?(?:,[^}]*)?\}")
+def _bridge_fields(line, line_no, path):
+    """(n1, n2, dup or None) from one "- {n1: .., n2: .., dup: ..}" line, the
+    fields in any order. A line that starts an entry but cannot be read is an
+    error: dropping it would import a different netlist without a word."""
+    m = re.match(r"^\s*-\s*\{(.*)\}\s*$", line)
+    fields = dict(re.findall(r"(\w+)\s*:\s*([^,}]+)", m.group(1))) if m else {}
+    if "n1" not in fields or "n2" not in fields:
+        raise ValueError("cannot read bridge line %d of %s (want '- {n1: .., n2: ..}'): %s"
+                         % (line_no, path, line.strip()))
+    return fields["n1"].strip(), fields["n2"].strip(), fields.get("dup")
 
 
 def import_state(path, name, cls="real"):
@@ -118,15 +132,14 @@ def import_state(path, name, cls="real"):
     """
     section, raw, power, routing, sections = None, [], {}, {}, set()
     with open(path, errors="replace") as f:
-        for line in f:
+        for line_no, line in enumerate(f, 1):
             top = re.match(r"^([A-Za-z_]\w*):", line)
             if top:
                 section = top.group(1)
                 sections.add(section)
             elif section == "bridges":
-                m = _BRIDGE_LINE.match(line)
-                if m:
-                    raw.append(m.groups())
+                if line.strip().startswith("-"):
+                    raw.append(_bridge_fields(line, line_no, path))
             elif section == "power":
                 m = re.match(r"^\s+(\w+):\s*(-?\d+(?:\.\d+)?)", line)
                 if m:
@@ -142,7 +155,7 @@ def import_state(path, name, cls="real"):
             a, b = node_id(n1), node_id(n2)
         except ValueError as e:
             raise ValueError("%s in %s" % (e, path)) from None
-        dup = -1 if dup is None else int(dup)
+        dup = -1 if dup is None else int(dup.strip())
         # The slot loader's rule (States.cpp, "the exact value that was
         # stamped"): a count equal to the document's stackPaths was never a
         # user request, so it goes back to default.

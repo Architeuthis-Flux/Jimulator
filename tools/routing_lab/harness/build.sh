@@ -7,6 +7,7 @@
 # The firmware's routing sources are compiled through symlinks in the object
 # directory (as test/test_routing_og/run.sh does), so the headers next to them
 # (States.h, LEDs.h, ...) lose to harness/stubs in include order.
+# Paths may hold spaces; every one is quoted.
 set -e
 [ $# -eq 2 ] || { echo "usage: build.sh <src_root> <out_binary>" >&2; exit 2; }
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -22,21 +23,32 @@ mkdir -p "$OBJ" "$(dirname "$OUT")"
 # would abort on that. Everything else UBSan and ASan check stays on.
 SAN="-fsanitize=address,undefined -fno-sanitize=enum,bool -fno-sanitize-recover=undefined -fno-omit-frame-pointer"
 [ "$SANITIZE" = "0" ] && SAN=""
-FLAGS="-std=c++17 -O1 -g $SAN -include config.h -I $HERE/stubs -I $SRC/routing -I $SRC -I $SRC/sensing"
 
-# name:path pairs; firmware files under routing/ go through a symlink
-UNITS="lab_harness:$HERE/lab_harness.cpp firmware_stubs:$HERE/firmware_stubs.cpp \
-board:$SRC/boards/board.cpp board_og:$SRC/boards/og/board_og.cpp board_v5:$SRC/boards/v5/board_v5.cpp"
-for f in NetsToChipConnections MatrixState NetManager RouteSafety InfraPaths; do
+FIRMWARE="NetsToChipConnections MatrixState NetManager RouteSafety InfraPaths"
+for f in $FIRMWARE; do
     ln -sf "$SRC/routing/$f.cpp" "$OBJ/fw_$f.cpp"
-    UNITS="$UNITS fw_$f:$OBJ/fw_$f.cpp"
 done
 
+# The source file behind a unit name.
+unit_path() {
+    case "$1" in
+        lab_harness|firmware_stubs) echo "$HERE/$1.cpp" ;;
+        board) echo "$SRC/boards/board.cpp" ;;
+        board_og) echo "$SRC/boards/og/board_og.cpp" ;;
+        board_v5) echo "$SRC/boards/v5/board_v5.cpp" ;;
+        *) echo "$OBJ/$1.cpp" ;;                      # fw_<name>: a symlinked firmware source
+    esac
+}
+
+UNITS="lab_harness firmware_stubs board board_og board_v5"
+for f in $FIRMWARE; do UNITS="$UNITS fw_$f"; done
+
 PIDS=""
-for u in $UNITS; do
-    name=${u%%:*}; path=${u#*:}
-    # shellcheck disable=SC2086
-    g++ $FLAGS -c "$path" -o "$OBJ/$name.o" 2> "$OBJ/$name.err" &
+for name in $UNITS; do
+    # shellcheck disable=SC2086  # $SAN is a flag list, split on purpose
+    g++ -std=c++17 -O1 -g $SAN -include config.h \
+        -I "$HERE/stubs" -I "$SRC/routing" -I "$SRC" -I "$SRC/sensing" \
+        -c "$(unit_path "$name")" -o "$OBJ/$name.o" 2> "$OBJ/$name.err" &
     PIDS="$PIDS $!"
 done
 FAIL=0

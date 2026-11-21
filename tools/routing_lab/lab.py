@@ -24,6 +24,7 @@ import variants
 
 LAB = Path(__file__).resolve().parent
 CASES_DIR = LAB / "cases"
+FIDELITY_DIR = LAB / "fidelity"
 GENERATED = {"dense": cases.dense_cases, "typical": generators.typical, "fuzz": generators.fuzz,
              "stress": generators.stress, "beyond": generators.beyond}
 CLASSES = ["dense", "real", "typical", "fuzz", "stress", "beyond"]
@@ -38,13 +39,33 @@ def battery(classes):
             raise ValueError("unknown class %r (have %s)" % (cls, ", ".join(CLASSES)))
         if cls in GENERATED:
             out += GENERATED[cls]()
-        out += [cases.load_json(p) for p in sorted((CASES_DIR / cls).glob("*.json"))]
+        for path in sorted((CASES_DIR / cls).glob("*.json")):
+            try:
+                out.append(cases.load_json(path))
+            except (ValueError, TypeError, KeyError) as e:     # bad JSON, or not a case
+                raise ValueError("cannot read the case file %s: %s" % (path, e)) from None
     return out
 
 
 def fully_routed(result):
+    """Every primary the firmware allowed is routed. A path its safety check
+    refused is the firmware saying no, not the router failing."""
     m = result["metrics"]
-    return result["status"] in ("ok", "problems") and m["primaries"] > 0 and m["routed_primaries"] == m["primaries"]
+    return (result["status"] in ("ok", "problems") and m["primaries"] > 0
+            and m["routed_primaries"] + m.get("refused", 0) == m["primaries"])
+
+
+def verified_against_a_board():
+    """True when lab.py fidelity has passed against a board capture with the
+    harness as it is now (the pass is recorded beside the capture)."""
+    for marker in FIDELITY_DIR.glob("board_*/verified.json"):
+        try:
+            with open(marker) as f:
+                if json.load(f).get("harness") == variants.harness_hash():
+                    return True
+        except (OSError, ValueError):
+            pass
+    return False
 
 
 def problem_kind(problem):
@@ -68,7 +89,7 @@ def regressions(base, new):
         if r["status"] in ("crash", "timeout") and b["status"] not in ("crash", "timeout"):
             out.append("%s: %s (the baseline did not)" % (r["case"], r["status"]))
             continue
-        if fully_routed(b) and not fully_routed(r):
+        if m["routed_primaries"] < bm["routed_primaries"] or (fully_routed(b) and not fully_routed(r)):
             out.append("%s: routed %d/%d, baseline %d/%d" % (
                 r["case"], m["routed_primaries"], m["primaries"], bm["routed_primaries"], bm["primaries"]))
         fresh = sorted({problem_kind(p) for p in r["problems"]} - {problem_kind(p) for p in b["problems"]})
@@ -91,17 +112,18 @@ def exit_code(results, case_list, regression_lines):
 
 def print_table(v, results):
     print("variant: %s  (%s)" % (v.name, v.hash[:12]))
-    print("%-9s %6s %13s %12s %9s %14s %10s" % (
-        "class", "cases", "fully routed", "primaries", "problems", "crash/timeout", "dead taps"))
+    print("%-9s %6s %13s %12s %8s %9s %14s %10s" % (
+        "class", "cases", "fully routed", "primaries", "refused", "problems", "crash/timeout", "dead taps"))
     order = []
     for r in results:
         if r["cls"] not in order:
             order.append(r["cls"])
     for cls in order:
         rs = [r for r in results if r["cls"] == cls]
-        print("%-9s %6d %13d %12s %9d %14d %10d" % (
+        print("%-9s %6d %13d %12s %8d %9d %14d %10d" % (
             cls, len(rs), sum(fully_routed(r) for r in rs),
             "%d/%d" % (sum(r["metrics"]["routed_primaries"] for r in rs), sum(r["metrics"]["primaries"] for r in rs)),
+            sum(r["metrics"].get("refused", 0) for r in rs),
             sum(1 for r in rs if r["status"] == "problems"),
             sum(1 for r in rs if r["status"] in ("crash", "timeout")),
             sum(len(r["metrics"]["taps_dead"]) for r in rs)))
@@ -114,7 +136,7 @@ def print_table(v, results):
             print("  problems %s/%s: %s%s" % (r["cls"], r["case"], r["problems"][0], more))
         elif r["status"] == "ok" and not fully_routed(r):
             print("  unrouted %s/%s: %d of %d primaries routed" % (
-                r["cls"], r["case"], m["routed_primaries"], m["primaries"]))
+                r["cls"], r["case"], m["routed_primaries"], m["primaries"] - m.get("refused", 0)))
 
 
 def print_case(result):
@@ -147,12 +169,16 @@ def cmd_run(args):
     lines = []
     if args.baseline:
         base_v = variants.resolve(args.baseline)
-        base = runner.run_battery(base_v, case_list, jobs=args.jobs)
+        try:
+            base = runner.run_battery(base_v, case_list, jobs=args.jobs)
+        except variants.BuildError as e:
+            print("the baseline %s does not build:\n%s" % (base_v.name, e.stderr), file=sys.stderr)
+            return 3
         lines = regressions(base, results)
         print("against %s: %s" % (base_v.name, "no regressions" if not lines else "%d regressions" % len(lines)))
         for line in lines:
             print("  worse    " + line)
-    if not any((LAB / "fidelity").glob("board_*/*.b.txt")):
+    if not verified_against_a_board():
         print("not verified against a board (see fidelity/README.md)")
     if args.json:
         with open(args.json, "w") as f:
@@ -165,6 +191,11 @@ def cmd_fidelity(args):
     import fidelity
     ok, diffs = fidelity.check(args.capture_dir, args.variant)
     if ok:
+        # Recorded beside the capture: which harness passed. lab.py run stops
+        # saying "not verified" only while the harness is still that one.
+        with open(Path(args.capture_dir) / "verified.json", "w") as f:
+            json.dump({"harness": variants.harness_hash(), "variant": args.variant or Path(args.capture_dir).name}, f)
+            f.write("\n")
         print("fidelity: PASS - the harness routes the dense suite as the board capture in %s does" % args.capture_dir)
         return 0
     print("fidelity: FAIL - %d differences from the board capture in %s" % (len(diffs), args.capture_dir))
@@ -221,7 +252,7 @@ def main(argv):
     except variants.BuildError as e:
         print("the variant does not build:\n" + e.stderr, file=sys.stderr)
         return 3
-    except ValueError as e:
+    except (ValueError, OSError) as e:          # a bad argument or an unreadable file: usage, not a routing failure
         print("lab.py: %s" % e, file=sys.stderr)
         return 2
 

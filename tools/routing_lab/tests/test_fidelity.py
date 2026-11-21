@@ -69,6 +69,48 @@ class Fidelity(unittest.TestCase):
         self.assertFalse(ok)
         self.assertTrue(any("gnd_spread" in d and "crosspoint" in d for d in diffs), diffs)
 
+    def test_the_other_parity_is_tried(self):
+        # Under stack_rails 0 every GND path takes K or L by the alternator, so the two
+        # starting parities route differently. A capture made at parity 1 must fail
+        # against parity 0 alone and pass check(), which tries both.
+        zero = self.tmp / "board_zero"
+        zero.mkdir()
+        header = "pathDuplicates: 0\ndacDuplicates: 0\nrailsDuplicates: 0\ngpioDuplicates: 0\nadcDuplicates: 0\n"
+        for c in cases.dense_cases():
+            (zero / f"{c.name}.b.txt").write_text(header)
+        for name, s in fidelity.replay(BIN, zero, alternator=1).items():
+            (zero / f"{name}.b.txt").write_text(s["b"])
+            (zero / f"{name}.xbar.txt").write_text(s["xbar"])
+        self.assertEqual(fidelity.stack_from_b((zero / "gnd_spread.b.txt").read_text()), (0, 0, 0, 0, 0))
+        self.assertTrue(fidelity.compare(zero, fidelity.replay(BIN, zero, alternator=0)))
+        self.assertEqual(fidelity.compare(zero, fidelity.replay(BIN, zero, alternator=1)), [])
+        self.assertEqual(fidelity.check(zero, "worktree"), (True, []))
+
+    def test_a_capture_without_its_chip_status_is_a_difference(self):
+        p = self.dir / "gnd_spread.b.txt"
+        text = p.read_text()
+        p.write_text(text[:text.index("Chip Status")])
+        ok, diffs = fidelity.check(self.dir, "worktree")
+        self.assertFalse(ok)
+        self.assertTrue(any("gnd_spread" in d and "chip status" in d for d in diffs), diffs)
+
+    def test_only_a_pass_for_this_harness_silences_the_warning(self):
+        def run_output():
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                lab.main(["run", "--classes", "dense", "--case", "chain_all_chips"])
+            return out.getvalue()
+
+        from unittest import mock
+        with mock.patch.object(lab, "FIDELITY_DIR", self.tmp):
+            self.assertIn("not verified against a board", run_output())       # a capture, but no pass yet
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(lab.main(["fidelity", str(self.dir), "--variant", "worktree"]), 0)
+            self.assertNotIn("not verified against a board", run_output())    # passed, for this harness
+            marker = self.dir / "verified.json"
+            marker.write_text(marker.read_text().replace(variants.harness_hash(), "0" * 64))
+            self.assertIn("not verified against a board", run_output())       # the harness has changed since
+
     def test_missing_capture_is_a_difference(self):
         (self.dir / "gnd_spread.b.txt").unlink()
         ok, diffs = fidelity.check(self.dir, "worktree")

@@ -87,6 +87,44 @@ class Harness(unittest.TestCase):
         self.assertTrue(section(p.stdout, "trace").strip())
         self.assertIsNone(section(run(CASE % "bridge 1 8 -1\n").stdout, "trace"))
 
+    def user_rows(self, p, a, b):
+        return [r for r in rc.parse_paths(section(p.stdout, "b")) if {r["node1"], r["node2"]} == {a, b}]
+
+    def test_a_repeated_pair_is_one_bridge_as_on_a_board(self):
+        # the firmware's loader merges a pair it already holds, in either order (States.cpp addConnection)
+        p = run(CASE % "bridge 1 8 -1\nbridge 8 1 -1\nbridge 1 8 -1\n")
+        pairs = [(a, b_) for a, b_, _ in rc.parse_bridge_array(section(p.stdout, "b")) if 139 not in (a, b_)]
+        self.assertEqual(pairs, [(1, 8)])
+        self.assertEqual(section(p.stdout, "rejected"), "")
+        self.assertEqual(len([r for r in self.user_rows(p, 1, 8) if r["dup"] == 0]), 1)
+
+    def test_an_explicit_count_on_a_repeat_replaces_and_a_default_leaves(self):
+        dups = lambda text: len([r for r in self.user_rows(run(CASE % text), 1, 8) if r["dup"] != 0])
+        self.assertGreater(dups("bridge 1 8 -1\n"), 0)                       # default stacking copies it
+        self.assertEqual(dups("bridge 1 8 -1\nbridge 8 1 0\n"), 0)           # explicit 0 replaces the default
+        self.assertEqual(dups("bridge 1 8 0\nbridge 1 8 -1\n"), 0)           # a plain re-add leaves the 0
+
+    def test_a_path_the_safety_check_refuses_is_listed(self):
+        # row 5 on TOP_RAIL and on GPIO_1 would join a rail to a GPIO: RouteSafety skips one path
+        p = run(CASE % "bridge 5 101 -1\nbridge 5 131 -1\n")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        lines = [l.split() for l in section(p.stdout, "refused").splitlines() if l.strip()]
+        self.assertTrue(all(len(l) == 5 for l in lines), lines)             # node1 node2 duplicate a b
+        primaries = [l for l in lines if l[2] == "0"]
+        self.assertEqual(len(primaries), 1, lines)                          # its duplicates are refused and listed too
+        self.assertIn({int(primaries[0][0]), int(primaries[0][1])}, ({5, 101}, {5, 131}))
+        self.assertEqual({(l[0], l[1]) for l in lines}, {(primaries[0][0], primaries[0][1])})
+        self.assertEqual(section(run(CASE % "bridge 1 8 -1\n").stdout, "refused"), "")
+
+    def test_forbidden_pairs_are_the_firmware_table(self):
+        p = run("", "--forbidden-pairs")
+        pairs = {tuple(int(v) for v in l.split()) for l in p.stdout.splitlines() if l.strip()}
+        self.assertIn((100, 101), pairs)                                    # GND, TOP_RAIL
+        self.assertIn((131, 101), pairs)                                    # GPIO_1, TOP_RAIL
+        self.assertNotIn((100, 106), pairs)                                 # GND with DAC0 is allowed
+        self.assertTrue({(106, 107), (107, 106)} & pairs)                   # DAC0 with DAC1: the DAC nets' own lists
+        self.assertTrue(all(a > 0 and b > 0 for a, b in pairs))
+
     def test_taps_listed_for_every_scanned_node(self):
         p = run(CASE % "bridge 1 8 -1\n")
         routes = dict(re.findall(r"\[nvscan\] route (\d+):(.*)", section(p.stdout, "taps")))

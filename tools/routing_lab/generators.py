@@ -9,7 +9,6 @@ import random
 from cases import Case, fabric_v5, routing_cases
 
 GND, TOP, BOT, DAC0, DAC1 = 100, 101, 102, 106, 107
-SUPPLIES = (GND, TOP, BOT, DAC0, DAC1)
 ADC = [110, 111, 112, 113]
 GPIO = list(range(131, 139))                    # GPIO_1..8
 NANO_D = list(range(70, 84))                    # D0..D13
@@ -26,10 +25,21 @@ SPECIALS = [n for n in USER_NODES if n > 60]
 CHIP_ROWS = {chip: [int(n) for n in fabric_v5.Y_NET[chip][1:]] for chip in "ABCDEFGH"}
 
 
+# Every pair of nodes the firmware keeps out of one net. Two tables in
+# src/routing/MatrixState.cpp: globalDoNotIntersects, and each special net's
+# own doNotIntersectNodes (which is what keeps DAC0 and DAC1 apart). A test
+# compares this copy with what the harness prints (--forbidden-pairs).
+FORBIDDEN_PAIRS = (
+    [(GND, TOP), (GND, BOT), (GND, DAC1), (TOP, DAC1), (TOP, DAC0), (BOT, DAC1), (BOT, DAC0), (TOP, BOT),
+     (DAC0, DAC1)]
+    + [(node, supply) for node in GPIO + UART + [140] for supply in (TOP, BOT, DAC1, DAC0)])
+
+
 def legal(bridges):
-    """True when no bridge has equal ends and no net would hold two of GND,
-    the rails and the DACs. Stricter than the firmware (which lets GND meet
-    DAC0), so nothing generated depends on how it refuses a conflict."""
+    """True when the firmware would take every bridge: none has equal ends,
+    and no net would hold a pair the firmware keeps apart (directly or through
+    shared nodes). The firmware refuses such a bridge or vetoes its path, and
+    a refusal must never be read as the router failing to route."""
     parent = {}
 
     def find(n):
@@ -43,8 +53,7 @@ def legal(bridges):
         if a == b:
             return False
         parent[find(a)] = find(b)
-    roots = [find(s) for s in SUPPLIES if s in parent]
-    return len(roots) == len(set(roots))
+    return not any(a in parent and b in parent and find(a) == find(b) for a, b in FORBIDDEN_PAIRS)
 
 
 def _case(name, cls, pairs, dup=-1, notes=""):

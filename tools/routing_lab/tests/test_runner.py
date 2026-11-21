@@ -75,6 +75,28 @@ class Runner(unittest.TestCase):
         r = runner.judge(CASE18, secs)
         self.assertEqual((r["status"], r["metrics"]["repeat_same"]), ("problems", False))
 
+    def test_a_safety_refusal_is_labelled_and_is_not_a_routing_miss(self):
+        r = runner.run_case(BIN, cases.Case("r", "x", [(5, 101, -1), (5, 131, -1)]))
+        self.assertEqual(r["metrics"]["refused"], 1)
+        self.assertTrue(any("refused by the firmware's safety check" in n for n in r["notes"]), r["notes"])
+        self.assertEqual(r["metrics"]["primaries"] - r["metrics"]["routed_primaries"], 1)
+        self.assertEqual(runner.run_case(BIN, CASE18)["metrics"]["refused"], 0)
+
+    def test_blocked_pins_are_not_judged(self):
+        chain = [c for c in cases.dense_cases() if c.name == "chain_all_chips"][0]     # strict claims
+        self.assertEqual(runner.run_case(BIN, chain)["status"], "ok")
+        blocked = runner.run_case(BIN, chain, block=[("X", 0, 2), ("X", 1, 0)])       # the first A-B lane
+        self.assertEqual((blocked["status"], blocked["problems"]), ("ok", []))
+
+    def test_required_taps_that_are_not_listed_are_a_problem(self):
+        need = dataclasses.replace(CASE18, taps_required=True)
+        secs = runner.parse_sections(runner.run_harness(BIN, need)[0])["t"]
+        self.assertEqual(runner.judge(need, dict(secs))["status"], "ok")
+        self.assertEqual(runner.judge(need, {**secs, "taps": "skipped: no free ADC\n"})["status"], "problems")
+        without = {k: v for k, v in secs.items() if k != "taps"}
+        self.assertEqual(runner.judge(need, without)["status"], "problems")
+        self.assertEqual(runner.judge(CASE18, {**secs, "taps": "skipped: no free ADC\n"})["status"], "ok")
+
     def test_bridge_the_firmware_leaves_out_of_every_net_is_noted(self):
         # GND-1 then TOP_RAIL-1 would join two supplies through row 1: the
         # firmware keeps the second bridge out of every net ("Net ?")

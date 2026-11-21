@@ -37,7 +37,10 @@ yet: until one is, `lab.py run` ends with "not verified against a board".
    python3 tools/routing_lab/lab.py fidelity tools/routing_lab/fidelity/board_<hash>
    ```
 
-6. Commit the capture directory.
+   A pass writes `verified.json` into the capture directory, naming the
+   harness that passed.
+
+6. Commit the capture directory, `verified.json` included.
 
 ## What the comparison does
 
@@ -51,3 +54,6 @@ never reset, so its value when the suite starts depends on what the board
 routed at boot. The replay is tried with both starting parities and passes if
 either matches exactly. Any other difference is a fidelity bug in the harness
 to chase, not to waive.
+
+Sense-tap routes are not part of the comparison: the suite's captures do not
+hold the `i!` report.

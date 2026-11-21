@@ -54,6 +54,11 @@ Only the dense cases that the HIL suite requires to route are required to
 route here. Everything else is scored. A JSON file dropped in `cases/<class>/`
 joins that class.
 
+Generated netlists are legal: no net holds a pair of nodes the firmware keeps
+apart (a rail and a GPIO, DAC0 and DAC1, and so on; the table is checked
+against the firmware's own). So an unrouted primary in `typical`, `fuzz` or
+`stress` is the router's doing. `beyond` overflows on purpose.
+
 ## What a result says
 
 Per case: primaries routed of total (the probe feed counts as one), routed
@@ -62,17 +67,60 @@ duplicates, crosspoints, the judge's problems (`SHORT`, `STRAY`,
 sense-tap reachability from the firmware's own tap planner, and whether the
 case routes the same when it is routed twice in one process.
 
+Three things are the firmware saying no, not the router failing, and are
+reported apart from routing misses:
+
+- **rejected**: a bridge the firmware's rules refuse outright (a forbidden
+  pair, a node that is not connectable, equal ends).
+- **left out of every net**: a bridge that would join two nodes a special net
+  keeps apart through a shared node, or that arrived when the net tables
+  were full.
+- **refused**: a path the router found and the safety check
+  (`validateAllPaths`) vetoed. It counts in the `refused` column, not against
+  "fully routed".
+
+A pair given twice is one bridge, merged as the firmware's loader merges it.
+
 ## What it does not check
 
 - **Not verified against a board yet.** The harness matches the sweep
   ledger's numbers, but the crosspoint-for-crosspoint comparison against a
   board capture has not been run. `fidelity/README.md` has the one bench run
-  it needs; `lab.py fidelity <capture>` then does the comparison.
+  it needs; `lab.py fidelity <capture>` then does the comparison and records
+  the pass. `lab.py run` says "not verified against a board" until a pass is
+  recorded for the harness as it is now.
+- **Sense taps against a board.** The taps column comes from the firmware's
+  own planner, but a board capture holds no tap routes, so the fidelity
+  comparison does not cover it. The list of scanned nodes is a hand copy of
+  one firmware rule.
 - **Crossbar sends.** `CH446Q.cpp` is not linked; the "sent" view is filled
   from the path table, so "sent equals planned" cannot fail here. The HIL
   suite keeps that check.
 - **Router debug traces.** `--trace` on the harness prints only the runtime
   flags' output; the macro traces are compiled out by default.
+
+## Findings so far (router at 5374d38, host only)
+
+Full battery, 2,247 cases: no short, stray, crash or hang. Every primary of
+every `typical`, `fuzz` and `stress` case routes.
+
+1. **A netlist with GND can route differently on the next rebuild.** 18 cases
+   do, including `slot3_snapshot_2026-08-26`. All flip with the starting
+   parity of `gndChipAlternator`, which `clearAllNTCC()` never resets (the
+   sweep ledger's F5).
+2. **A duplicate can close a pin it does not claim.** In 45 fuzz cases a
+   duplicate of a special-to-special path, bounced through a breadboard chip,
+   closes that chip's second SF-lane X pin while the chip status shows it
+   free. `setChipXStatus` refuses the claim when the tap-escape reservation
+   says it is the chip's last virgin SF lane; the bounce code ignores that and
+   writes the crosspoint anyway, so the reserved lane is used after all.
+   See it: `lab.py run --classes fuzz --case fuzz_1_1`.
+3. **An enum is read before it is set.** `NetsToChipConnections.cpp:2597`
+   reads `pathType` of a duplicate still holding `clearAllNTCC()`'s
+   `memset(-1)`. Harmless today (-1 is not `VIRTUAL`).
+4. **The scan's GND auto-zero tap looks unreachable.** In
+   `NetVoltageScan.cpp`, `gndInUse` is true whenever any net lists GND, and
+   the GND special net always does. Worth a check on a board.
 
 ## How it is built
 

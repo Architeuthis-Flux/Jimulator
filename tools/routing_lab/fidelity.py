@@ -79,6 +79,9 @@ def compare(capture_dir, replayed):
                     diffs.append("%s: path %s%s-%s: board %s, harness %s" % (
                         name, "dup " if key[0] else "", key[1], key[2], board_rows.get(key), lab_rows.get(key)))
             board_status, lab_status = rc.parse_chip_status(board_b), rc.parse_chip_status(sections["b"])
+            if len(board_status) != 12 or len(lab_status) != 12:
+                diffs.append("%s: chip status incomplete (board %d of 12 chips, harness %d)" % (
+                    name, len(board_status), len(lab_status)))
             for chip in rc.CHIPS:
                 for axis, board_pins, lab_pins in zip("XY", board_status.get(chip, ((), ())),
                                                       lab_status.get(chip, ((), ()))):
