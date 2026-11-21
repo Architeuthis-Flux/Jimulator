@@ -14,6 +14,7 @@ import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+import copper
 import variants
 
 LAB = Path(__file__).resolve().parent
@@ -52,11 +53,12 @@ def run_harness(binary, case, *, repeat=2, block=(), timeout=20.0):
 
 def _result(case, status, problems=(), notes=(), rejected=(), metrics=None, b="", xbar="", stderr=""):
     base = {"primaries": 0, "routed_primaries": 0, "refused": 0, "bounced": 0, "routed_duplicates": 0,
-            "crosspoints": 0, "taps": None, "taps_dead": [], "repeat_same": None}
+            "crosspoints": 0, "taps": None, "taps_dead": [], "repeat_same": None,
+            "worst_r": None, "median_r": None, "rail_worst_r": None}
     base.update(metrics or {})
     return {"case": case.name, "cls": case.cls, "status": status, "problems": list(problems),
-            "notes": list(notes), "rejected": [list(r) for r in rejected], "metrics": base,
-            "b": b, "xbar": xbar, "stderr": stderr[-STDERR_TAIL:]}
+            "notes": list(notes), "rejected": [list(r) for r in rejected], "left_out": [], "refused": [],
+            "metrics": base, "b": b, "xbar": xbar, "stderr": stderr[-STDERR_TAIL:]}
 
 
 def _without_block_claims(b):
@@ -92,9 +94,9 @@ def judge(case, sections, stderr="", block=()):
     # A bridge the firmware keeps out of every net ("Net ?") is never routed:
     # it would join two nodes a special net keeps apart, or the net tables
     # were already full.
-    for a, c in re.findall(r"\[([^,\]]+),([^,\]]+),Net \?\]", b):
-        notes.append("left out of every net by the firmware: %s-%s" % (
-            NODE_NAME.get(rc.node_of_name(a), a.strip()), NODE_NAME.get(rc.node_of_name(c), c.strip())))
+    left_out = copper.left_out_pairs(b)
+    for a, c in left_out:
+        notes.append("left out of every net by the firmware: %s-%s" % (NODE_NAME.get(a, a), NODE_NAME.get(c, c)))
 
     # A primary path the firmware's safety check vetoed is not a routing
     # miss: the router found a path and RouteSafety refused to close it.
@@ -124,7 +126,12 @@ def judge(case, sections, stderr="", block=()):
         if repeat != "same":
             problems.append("the same case routed twice gives different routes")
 
-    return _result(case, "problems" if problems else "ok", problems, notes, rejected, metrics, b, xbar, stderr)
+    result = _result(case, "problems" if problems else "ok", problems, notes, rejected, metrics, b, xbar, stderr)
+    # The two other ways the firmware says no, as data for the paint (the notes say the same in words).
+    result["left_out"] = left_out
+    result["refused"] = [[r[0], r[1]] for r in refused if r[2] == 0]
+    result["metrics"].update(copper.resistance_metrics(result))
+    return result
 
 
 def run_case(binary, case, *, repeat=2, block=(), timeout=20.0):
@@ -143,7 +150,7 @@ def run_case(binary, case, *, repeat=2, block=(), timeout=20.0):
 def _judge_stamp():
     """Changes when the judging code does, so cached results are not reused."""
     h = hashlib.sha256()
-    for path in (Path(__file__), HIL / "routing_check.py", HIL / "fabric_v5.py"):
+    for path in (Path(__file__), Path(copper.__file__), HIL / "routing_check.py", HIL / "fabric_v5.py"):
         h.update(path.read_bytes())
     return h.hexdigest()
 

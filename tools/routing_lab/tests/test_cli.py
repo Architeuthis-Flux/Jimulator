@@ -28,6 +28,19 @@ class Cli(unittest.TestCase):
         self.assertRegex(out, r"dense\s+21\s+20\s")           # 21 cases, 20 fully routed (the K overflow is not)
         self.assertIn("k_rows_overflow_metric", out)
 
+    def test_run_prints_what_separates_routers(self):
+        code, out = run(["run", "--classes", "dense"])
+        header = [l for l in out.splitlines() if l.startswith("class")][0]
+        for word in ("copies", "xpoints", "worst ohm"):
+            self.assertIn(word, header)
+
+        def worst(text):
+            row = [l for l in text.splitlines() if l.startswith("dense")][0]
+            return int(row.split()[-1])
+
+        self.assertGreater(worst(out), 0)
+        self.assertEqual(worst(run(["run", "--classes", "dense", "--ohms", "30"])[1]) * 2, worst(out))
+
     def test_battery_classes(self):
         self.assertEqual(len(lab.battery(["dense"])), 21)
         self.assertEqual({c.cls for c in lab.battery(["dense", "real", "stress"])}, {"dense", "real", "stress"})

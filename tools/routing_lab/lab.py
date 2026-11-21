@@ -110,23 +110,30 @@ def exit_code(results, case_list, regression_lines):
     return 1 if regression_lines else 0
 
 
-def print_table(v, results):
-    print("variant: %s  (%s)" % (v.name, v.hash[:12]))
-    print("%-9s %6s %13s %12s %8s %9s %14s %10s" % (
-        "class", "cases", "fully routed", "primaries", "refused", "problems", "crash/timeout", "dead taps"))
+def print_table(v, results, ohms=60.0):
+    """One row per class. Primaries say whether everything routed; copies,
+    xpoints and worst ohm are what tell two routers apart once it has."""
+    print("variant: %s  (%s)   %g ohm per crosspoint" % (v.name, v.hash[:12], ohms))
+    print("%-9s %6s %13s %12s %8s %9s %14s %10s %7s %8s %10s" % (
+        "class", "cases", "fully routed", "primaries", "refused", "problems", "crash/timeout", "dead taps",
+        "copies", "xpoints", "worst ohm"))
     order = []
     for r in results:
         if r["cls"] not in order:
             order.append(r["cls"])
     for cls in order:
         rs = [r for r in results if r["cls"] == cls]
-        print("%-9s %6d %13d %12s %8d %9d %14d %10d" % (
+        worst = [r["metrics"]["worst_r"] for r in rs if r["metrics"].get("worst_r") is not None]
+        print("%-9s %6d %13d %12s %8d %9d %14d %10d %7d %8d %10d" % (
             cls, len(rs), sum(fully_routed(r) for r in rs),
             "%d/%d" % (sum(r["metrics"]["routed_primaries"] for r in rs), sum(r["metrics"]["primaries"] for r in rs)),
             sum(r["metrics"].get("refused", 0) for r in rs),
             sum(1 for r in rs if r["status"] == "problems"),
             sum(1 for r in rs if r["status"] in ("crash", "timeout")),
-            sum(len(r["metrics"]["taps_dead"]) for r in rs)))
+            sum(len(r["metrics"]["taps_dead"]) for r in rs),
+            sum(r["metrics"]["routed_duplicates"] for r in rs),
+            sum(r["metrics"]["crosspoints"] for r in rs),
+            round(max(worst) * ohms) if worst else 0))
     for r in results:
         m = r["metrics"]
         if r["status"] in ("crash", "timeout"):
@@ -163,7 +170,7 @@ def cmd_run(args):
             return 2
     v = variants.resolve(args.variant)
     results = runner.run_battery(v, case_list, jobs=args.jobs)
-    print_table(v, results)
+    print_table(v, results, args.ohms)
     if args.case:
         print_case(results[0])
     lines = []
@@ -233,6 +240,7 @@ def main(argv):
     run.add_argument("--case", help="only this case, with its b report")
     run.add_argument("--jobs", type=int)
     run.add_argument("--json", help="write every result to this file")
+    run.add_argument("--ohms", type=float, default=60.0, help="ohms per crosspoint for the worst-ohm column (60)")
     run.set_defaults(fn=cmd_run)
     build = sub.add_parser("build", help="build the harness for a variant and print its path")
     build.add_argument("--variant", default="worktree")
