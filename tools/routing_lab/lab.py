@@ -4,6 +4,7 @@
 of netlists with it, and judge the result against the schematic.
 
     lab.py run [--variant V] [--baseline V0] [--classes dense,real,...] [--case NAME] [--jobs N] [--json FILE]
+    lab.py serve [--port 8765] [--tree DIR]... [--no-open]
     lab.py build [--variant V]
     lab.py fidelity CAPTURE_DIR [--variant V]
     lab.py import-state FILE.yaml --name NAME [--class real]
@@ -213,6 +214,23 @@ def cmd_fidelity(args):
     return 1
 
 
+def cmd_serve(args):
+    import webbrowser
+
+    import server
+    srv = server.make_server(args.port, args.tree or [])
+    print("routing lab: %s   (Ctrl-C stops it)" % srv.url, flush=True)
+    if not args.no_open:
+        webbrowser.open(srv.url)
+    try:
+        srv.serve_forever()
+    except KeyboardInterrupt:
+        print()
+    finally:
+        srv.server_close()
+    return 0
+
+
 def cmd_build(args):
     v = variants.resolve(args.variant)
     print("%s  (%s)" % (v.name, v.hash[:12]))
@@ -245,6 +263,12 @@ def main(argv):
     build = sub.add_parser("build", help="build the harness for a variant and print its path")
     build.add_argument("--variant", default="worktree")
     build.set_defaults(fn=cmd_build)
+    srv = sub.add_parser("serve", help="open the page: run variants and look at the copper")
+    srv.add_argument("--port", type=int, default=8765)
+    srv.add_argument("--tree", action="append", metavar="DIR",
+                     help="another checkout (a directory holding src/) the page may use as a variant; repeatable")
+    srv.add_argument("--no-open", action="store_true", help="do not open a browser")
+    srv.set_defaults(fn=cmd_serve)
     fid = sub.add_parser("fidelity", help="compare the harness against a board capture of the dense suite")
     fid.add_argument("capture_dir", help="a JL_ROUTING_SNAP_DIR capture, named board_<commit>")
     fid.add_argument("--variant", help="default: the commit in the directory's name")

@@ -107,13 +107,15 @@ def _git_ref_tree(spec):
     return "%s@%s" % (spec, sha[:7]), dest / "src"
 
 
-def resolve(spec, overrides=None):
+def resolve(spec, overrides=None, *, allow_directory=True):
     """A Variant for "worktree", a directory that holds src/, or a git ref,
-    optionally with files replaced ({"src/...": bytes})."""
+    optionally with files replaced ({"src/...": bytes}). With
+    allow_directory=False a spec is "worktree" or a git ref and nothing else
+    (the server decides which directories may be named)."""
     if spec == "worktree":
         name, src_root = "worktree", REPO / "src"
-    elif (Path(spec) / "src").is_dir():
-        name, src_root = spec, Path(spec).resolve() / "src"
+    elif allow_directory and (Path(spec).expanduser() / "src").is_dir():
+        name, src_root = spec, Path(spec).expanduser().resolve() / "src"
     else:
         name, src_root = _git_ref_tree(spec)
     if overrides:
