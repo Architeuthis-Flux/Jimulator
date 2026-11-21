@@ -5,6 +5,19 @@ This directory holds captures of the HIL dense suite taken on a V5, one
 directory per firmware commit, named `board_<commit hash>`. None is checked in
 yet: until one is, `lab.py run` ends with "not verified against a board".
 
+## Before the run
+
+- Leave the board's `[routing] stack_rails` at its default (3). The suite's
+  electrical proofs trigger extra rebuilds the replay does not repeat; with
+  `stack_rails` at 0 each of those moves the GND alternator and the
+  comparison could fail for that reason alone.
+- No OLED lock and no serial lock (`top_oled.lock_connection`,
+  `serial_1.lock_connection` at 0): they add bridges of their own. The probe
+  settings stay at their defaults.
+- `test/hil/test_routing_dense.py` now imports its cases from
+  `test/hil/routing_cases.py`. The data was moved unchanged and checked on
+  the host, but this run is the first time the edited test meets a board.
+
 ## Taking a capture (one bench run)
 
 1. Check out the commit to verify, with a clean tree, and note its hash:

@@ -1,6 +1,8 @@
 # Routing lab: design
 
-Written 2026-11-17. Status: awaiting Kevin's approval. Nothing is built.
+Written 2026-11-17, approved the same day. Piece 1 is built (2026-11-21,
+`tools/routing_lab/`); pieces 2 to 4 are not. "Learned building piece 1" at
+the end changes what the later pieces must do.
 
 ## Why
 
@@ -309,3 +311,33 @@ Four plans, each usable when it lands: (1) harness, battery, judge, CLI;
   the bench. The lab is usable before it, with the banner.
 - For the ranking: whether V6 keeps the probe feed on the crossbar.
 - Any real netlists beyond the two YAML snapshots in `test/hil/`.
+
+## Learned building piece 1
+
+These bind the later pieces.
+
+- **Primaries no longer separate routers.** On every legal `typical`, `fuzz`
+  and `stress` netlist today's router routes every primary. Two variants can
+  only be told apart by duplicates, crosspoints, resistance and taps, so the
+  page's table must lead with those, and `lab.py run` should print them
+  (it prints only routed primaries today).
+- **Three kinds of "not routed" are the firmware saying no.** A bridge it
+  rejects outright, a bridge it leaves out of every net, and a path its
+  safety check vetoes are not routing misses. The ceiling search (piece 3)
+  must drop them before asking whether the copper had a path, and the page
+  must draw them differently from a missed path.
+- **The lab models a state load.** One rebuild from a complete bridge list.
+  Incremental adds (`refreshLocalConnections`, where the probe feed is at
+  index 0 after boot) are not modelled.
+- **The server is a wider door than "localhost only".** Any web page open in
+  a browser on the same Mac can post to a localhost port. The server must
+  check the request's origin (or carry a token) before it compiles anything,
+  and a variant given as a directory should be limited to directories Kevin
+  has named.
+- **The cache grows without limit**: about 11 MB per variant tree and 28 MB
+  of results per variant battery. Piece 2 needs a way to clear it.
+- **Blocked pins work but are thinly tested.** One runner-level test. Piece 4
+  should add its own before trusting a ranking.
+- **Old routers build.** Commits back to 2026-09-03 link against today's
+  stubs; `routeTrace` is a weak symbol for that reason. Keep new harness code
+  from naming firmware symbols older commits lack, or make them weak too.

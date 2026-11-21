@@ -328,15 +328,16 @@ static Pass runPass(const Case& c, bool trace) {
     std::string printed = captured([&] { routeCase(c, p.rejected); });
     debugNTCC = savedDebug;
     if (trace) p.trace = printed;
-    for (size_t at = 0; at < printed.size();) {
-        size_t end = printed.find('\n', at);
-        if (end == std::string::npos) end = printed.size();
+    // Found anywhere in the output, not only at the start of a line: another
+    // debug print may have left a partial line in front of it, and a missed
+    // refusal would be counted as a routing miss.
+    static const char kRefusal[] = "RouteSafety: skipped path ";
+    for (size_t at = printed.find(kRefusal); at != std::string::npos; at = printed.find(kRefusal, at + 1)) {
         int path, net, n1, n2, a, b;
-        if (sscanf(printed.substr(at, end - at).c_str(), "RouteSafety: skipped path %d net %d (%d-%d) short %d/%d",
+        if (sscanf(printed.c_str() + at, "RouteSafety: skipped path %d net %d (%d-%d) short %d/%d",
                    &path, &net, &n1, &n2, &a, &b) == 6 && path >= 0 && path < MAX_BRIDGES) {
             p.refused.push_back({n1, n2, globalState.connections.paths[path].duplicate != 0, a, b});
         }
-        at = end + 1;
     }
     fillSentViewFromPaths();
     p.b = captured(printBReport);

@@ -108,13 +108,15 @@ every `typical`, `fuzz` and `stress` case routes.
    do, including `slot3_snapshot_2026-08-26`. All flip with the starting
    parity of `gndChipAlternator`, which `clearAllNTCC()` never resets (the
    sweep ledger's F5).
-2. **A duplicate can close a pin it does not claim.** In 45 fuzz cases a
+2. **A duplicate can close a pin it does not claim.** In 44 fuzz cases a
    duplicate of a special-to-special path, bounced through a breadboard chip,
    closes that chip's second SF-lane X pin while the chip status shows it
    free. `setChipXStatus` refuses the claim when the tap-escape reservation
    says it is the chip's last virgin SF lane; the bounce code ignores that and
    writes the crosspoint anyway, so the reserved lane is used after all.
-   See it: `lab.py run --classes fuzz --case fuzz_1_1`.
+   See it: `lab.py run --classes fuzz --case fuzz_1_1`. One more case,
+   `fuzz_1_288`, has an unclaimed lane of a different shape that has not been
+   traced.
 3. **An enum is read before it is set.** `NetsToChipConnections.cpp:2597`
    reads `pathType` of a duplicate still holding `clearAllNTCC()`'s
    `memset(-1)`. Harmless today (-1 is not `VIRTUAL`).
