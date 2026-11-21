@@ -180,7 +180,14 @@ needs no board while the capture's commit still describes the router.
 
 - **Only the dense suite, on one board, under default settings.** The
   comparison covers the 21 dense cases, with the top OLED unlocked, the
-  serial lock off and DAC0 at 0 V. Other settings were not compared.
+  serial lock off and DAC0 at 0 V. Other settings were not compared. In
+  particular the suite zeroes DAC0, so every compared case has its probe
+  feed on a GPIO; the 1,992 battery cases that feed the probe from DAC0
+  (DAC0 at 3.33 V) have no board run behind them.
+- **A slot's own OLED lock.** A state whose config says `oled:
+  {lockConnection: true}` gets two more bridges on a board (D2 to GPIO 7, D3
+  to GPIO 8). The lab reads bridges, stacking and power from a state and
+  does not add them. Neither `real` case has the flag set.
 - **Sense taps against a board.** The taps column comes from the firmware's
   own planner, but a board capture holds no tap routes, so the fidelity
   comparison does not cover it. The list of scanned nodes is a hand copy of

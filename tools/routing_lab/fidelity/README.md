@@ -20,10 +20,14 @@ The board was rebooted by the upload, not by pulling its power.
   comparison could fail for that reason alone.
 - No OLED lock and no serial lock (`top_oled.lock_connection`,
   `serial_1.lock_connection` at 0): they add bridges of their own. The probe
-  settings stay at their defaults.
-- `test/hil/test_routing_dense.py` now imports its cases from
-  `test/hil/routing_cases.py`. The data was moved unchanged and checked on
-  the host, but this run is the first time the edited test meets a board.
+  settings stay at their defaults. A slot can lock the OLED too (`oled:
+  {lockConnection: true}` in its own config); that one does not reach the
+  capture, because every case pastes a state of its own that leaves it off.
+- Let the board boot normally. Boot runs `oled.init()`, which sets
+  `top_oled.enabled` in RAM, and the harness assumes exactly that.
+- `test/hil/test_routing_dense.py` imports its cases from
+  `test/hil/routing_cases.py`. In that form it has run on a V5 (2026-11-21,
+  78 checks, pass).
 
 ## Taking a capture (one bench run)
 
@@ -36,11 +40,19 @@ The board was rebooted by the upload, not by pulling its power.
    The firmware's version string is not enough: several commits report the
    same version.
 
-2. Build and flash it:
+2. Build and flash it (a fresh worktree needs its flash-layer submodule
+   first, or the build stops at `FlashInterfaceRP2040.h`):
+
+   ```bash
+   git submodule update --init lib/FatFS/lib/SPIFTL
+   ```
 
    ```bash
    ~/.platformio/penv/bin/pio run -e jumperless_v5 -t upload
    ```
+
+   The build rewrites the tracked `.pio/build/jumperless_v5/firmware.uf2`;
+   put it back with `git restore` afterwards and never commit it here.
 
 3. Power-cycle the board.
 
