@@ -238,6 +238,16 @@ def cmd_build(args):
     return 0
 
 
+def cmd_sheet(args):
+    import sheet
+    try:
+        where = sheet.build(args.schematic or sheet.DEFAULT_SCH, args.theme)
+    except sheet.SheetUnavailable as e:
+        raise ValueError("%s\n  then: %s" % (e, e.hint))
+    print("%s: overlay.json, backdrop.svg  (reload the page)" % where)
+    return 0
+
+
 def cmd_import_state(args):
     case = cases.import_state(args.file, args.name, args.cls)
     dest = CASES_DIR / args.cls
@@ -278,6 +288,10 @@ def main(argv):
     imp.add_argument("--name", required=True)
     imp.add_argument("--class", dest="cls", default="real", choices=CLASSES)
     imp.set_defaults(fn=cmd_import_state)
+    sht = sub.add_parser("sheet", help="read the board's KiCad schematic for the page's KiCad sheet tab")
+    sht.add_argument("schematic", nargs="?", help="a .kicad_sch (default: the V5 r7 sheet beside this repository)")
+    sht.add_argument("--theme", help="a KiCad colour theme for the backdrop")
+    sht.set_defaults(fn=cmd_sheet)
     args = ap.parse_args(argv)
     try:
         return args.fn(args)

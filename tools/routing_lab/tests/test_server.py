@@ -223,6 +223,19 @@ class Server(unittest.TestCase):
             self.assertEqual(r.status, 404)
             self.assertIn("lab.py sheet", r.json["hint"])
 
+    def test_sheet_is_served_once_it_is_built(self):
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(server, "SHEET_DIR", Path(tmp)):
+            (Path(tmp) / "overlay.json").write_text(json.dumps({"size": [841.0, 594.0], "nets": {}, "pins": {"A.X0": [1, 2]},
+                                                                "bodies": {}}))
+            (Path(tmp) / "backdrop.svg").write_text("<svg xmlns='http://www.w3.org/2000/svg'/>")
+            self.assertEqual(self.c.get("/api/sheet").json["pins"], {"A.X0": [1, 2]})
+            r = self.c.get("/sheet/backdrop.svg", token=None)
+            self.assertEqual(r.status, 200)
+            self.assertIn("svg", r.headers["Content-Type"])
+            self.assertIs(self.c.get("/api/info").json["sheet"], True)
+
     def test_unknown_api_path_is_404_and_bad_json_is_400(self):
         self.assertEqual(self.c.get("/api/nope").status, 404)
         self.assertEqual(self.c.request("POST", "/api/run", raw=b"{not json").status, 400)
