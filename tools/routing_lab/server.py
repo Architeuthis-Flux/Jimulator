@@ -18,6 +18,7 @@ import http.server
 import json
 import os
 import secrets
+import subprocess
 import urllib.parse
 from pathlib import Path
 
@@ -225,6 +226,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def api_get_watch(self, query, body):
         return {"hash": self.resolve(query.get("spec", "worktree")).hash}
+
+    def api_get_paths(self, query, body):
+        """Where a dropped file belongs: the tracked files under src/ with that file name."""
+        name = query.get("name", "")
+        if not name or "/" in name or "\\" in name:
+            return {"paths": []}
+        listed = subprocess.run(["git", "-C", str(variants.REPO), "ls-files", "src"],
+                                capture_output=True, text=True).stdout.splitlines()
+        return {"paths": [p for p in listed if p.rsplit("/", 1)[-1] == name]}
 
     def api_get_sheet(self, query, body):
         overlay = SHEET_DIR / "overlay.json"

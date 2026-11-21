@@ -17,6 +17,11 @@ const state = {
   ohms: 60,          // ohms per crosspoint; resistance arrives in crosspoint units
   closed: {},        // class name -> collapsed in the table
   tab: "fabric",
+  upload: {},        // dropped file name -> {path, text, choices}
+  busy: false,       // a run is in flight
+  liveTried: null,   // the last tree hash live mode ran, good build or not
+  compare: false,    // draw the selected case against the baseline's routing of it
+  base: null,        // {result, paint} of the selected case as the baseline routed it
 };
 
 const $ = (id) => document.getElementById(id);
@@ -194,14 +199,87 @@ function renderBattery() {
 
 // ---------------------------------------------------------------- running
 
-function variantSpec() {
+function baseSpec() {
   return $("variant").value.trim() || "worktree";
+}
+
+// What Run sends as the router: a name, or a name plus the dropped files that replace files in it.
+function variantSpec() {
+  const files = {};
+  for (const f of Object.values(state.upload)) files[f.path] = f.text;
+  return Object.keys(files).length ? { base: baseSpec(), files: files } : baseSpec();
+}
+
+// ---------------------------------------------------------------- dropped files
+
+async function addUpload(name, text) {
+  let choices = [];
+  try { choices = (await api("/api/paths?name=" + encodeURIComponent(name))).paths; } catch (e) { /* offer a guess */ }
+  state.upload[name] = { path: choices[0] || ("src/" + name), text: text, choices: choices };
+  renderUploads();
+}
+
+function renderUploads() {
+  const box = $("uploads");
+  const names = Object.keys(state.upload);
+  box.hidden = names.length === 0;
+  box.replaceChildren();
+  if (!names.length) return;
+  box.append(el("div", { class: "hint", text: "Run uses these in place of the router's own files:" }));
+  for (const name of names) {
+    const f = state.upload[name];
+    const path = el("input", { value: f.path, spellcheck: "false", title: "the file under src/ this replaces" });
+    path.addEventListener("input", () => { f.path = path.value.trim(); });
+    box.append(el("div", { class: "file" }, path,
+      el("button", { type: "button", text: "x", title: "drop this file",
+        onclick: () => { delete state.upload[name]; renderUploads(); } })));
+    if (f.choices.length > 1) {
+      box.append(el("div", { class: "hint", text: "also: " + f.choices.slice(1).join(", ") }));
+    }
+  }
+}
+
+function installDrop() {
+  let depth = 0;
+  window.addEventListener("dragenter", (event) => {
+    event.preventDefault();
+    depth += 1;
+    document.body.classList.add("dropping");
+  });
+  window.addEventListener("dragleave", () => {
+    depth -= 1;
+    if (depth <= 0) document.body.classList.remove("dropping");
+  });
+  window.addEventListener("dragover", (event) => event.preventDefault());
+  window.addEventListener("drop", async (event) => {
+    event.preventDefault();
+    depth = 0;
+    document.body.classList.remove("dropping");
+    for (const file of event.dataTransfer.files) await addUpload(file.name, await file.text());
+  });
+}
+
+// ---------------------------------------------------------------- live: re-run when the router's tree changes
+
+function installLive() {
+  setInterval(async () => {
+    if (!$("live").checked || state.busy || !state.run || Object.keys(state.upload).length) return;
+    let hash;
+    try { hash = (await api("/api/watch?spec=" + encodeURIComponent(baseSpec()))).hash; } catch (e) { return; }
+    // one try per new hash: a tree that does not build is not rebuilt every tick
+    if (hash !== state.run.variant.hash && hash !== state.liveTried) {
+      state.liveTried = hash;
+      await runBattery();
+    }
+  }, 1500);
 }
 
 function showBuildError(data) {
   const box = $("build-error");
   const text = String(data.build_error || "");
-  const first = text.split("\n").find((line) => line.includes("error")) || text.split("\n")[0] || "the build failed";
+  // the compiler's first error, without the long build path in front of the file name
+  const first = (text.split("\n").find((line) => line.includes("error")) || text.split("\n")[0] || "the build failed")
+    .replace(/^\S*\/(?:fw_)?/, "");
   const what = data.which === "baseline" ? "The baseline" : data.which === "request" ? "The request" : "The router";
   box.replaceChildren(
     el("div", { text: what + (data.variant && data.variant.name ? " (" + data.variant.name + ")" : "") + " did not build: " + first }),
@@ -226,6 +304,7 @@ async function runBattery() {
   const classes = [...document.querySelectorAll("#classes input:checked")].map((box) => box.value);
   const body = { variant: variantSpec(), baseline: $("baseline").value.trim() || null, classes: classes };
   $("busy").hidden = false;
+  state.busy = true;
   try {
     const data = await api("/api/run", body);
     if (data.build_error) {
@@ -235,6 +314,11 @@ async function runBattery() {
     $("build-error").hidden = true;
     state.run = data;
     state.cases = {};
+    $("compare-box").hidden = !data.baseline;
+    if (!data.baseline) {
+      state.compare = false;
+      $("compare").checked = false;
+    }
     renderRegressions();
     renderBattery();
     const names = data.rows.map((r) => r.case);
@@ -247,25 +331,35 @@ async function runBattery() {
     return false;
   } finally {
     $("busy").hidden = true;
+    state.busy = false;
   }
+}
+
+async function caseOf(variant, name) {
+  const key = variant.hash + "/" + name;
+  if (!state.cases[key]) {
+    state.cases[key] = await api("/api/case?variant=" + encodeURIComponent(variant.hash)
+      + "&case=" + encodeURIComponent(name));
+  }
+  return state.cases[key];
 }
 
 async function selectCase(name) {
   if (!state.run) return;
-  const key = state.run.variant.hash + "/" + name;
-  if (!state.cases[key]) {
-    state.cases[key] = await api("/api/case?variant=" + encodeURIComponent(state.run.variant.hash)
-      + "&case=" + encodeURIComponent(name));
-  }
+  const current = await caseOf(state.run.variant, name);
+  // with compare on, the same case as the baseline routed it
+  const base = state.compare && state.run.baseline ? await caseOf(state.run.baseline, name) : null;
   state.selected = name;
-  state.current = state.cases[key];
+  state.current = current;
+  state.base = base;
   state.isolated = null;
   for (const tr of document.querySelectorAll("#battery tr.case")) {
     tr.classList.toggle("on", tr.dataset.case === name);
   }
-  $("view-title").textContent = name + "   " + state.run.variant.name;
+  $("view-title").textContent = name + "   " + state.run.variant.name
+    + (base ? "   against " + state.run.baseline.name : "");
   renderCase();
-  drawFabric(state.current.paint);
+  drawFabric(state.current.paint, base && base.paint);
 }
 
 // ---------------------------------------------------------------- the case panel
@@ -318,15 +412,23 @@ function renderCase() {
   box.append(el("h2", { text: "bridges" }));
   const bridges = el("table", { class: "bridges" },
     el("tr", {}, ["bridge", "copies", "hops", "ohm"].map((h) => el("th", { text: h }))));
+  // with compare on, the baseline's value follows in brackets where it differs
+  const before = {};
+  for (const b of (state.base ? state.base.paint.bridges : [])) before[b.n1 + "-" + b.n2] = b;
+  const versus = (now, was) => (was === undefined || was === now || was === "" ? []
+    : [el("span", { class: "was", text: " (" + (was === "" ? "-" : was) + ")" })]);
   for (const b of paint.bridges) {
     const routed = b.state === "routed";
+    const old = before[b.n1 + "-" + b.n2];
+    const oldRouted = old && old.state === "routed";
     const tr = el("tr", { class: routed ? "" : (b.state === "unrouted" ? "unrouted" : "no") },
       el("td", {}, b.net == null ? null : el("span", { class: "swatch", style: "display:inline-block;margin-right:5px;background:" + netColour(b.net) }),
         nodeName(b.n1) + " - " + nodeName(b.n2) + (b.infra ? "  (probe feed)" : ""),
-        routed ? null : el("div", { class: "state", text: STATE_WORDS[b.state] })),
-      el("td", { text: routed ? String(b.copies) : "" }),
+        routed ? null : el("div", { class: "state", text: STATE_WORDS[b.state] }),
+        old && old.state !== b.state ? el("div", { class: "state", text: "baseline: " + STATE_WORDS[old.state] }) : null),
+      el("td", {}, routed ? String(b.copies) : "", versus(routed ? String(b.copies) : "", oldRouted ? String(old.copies) : undefined)),
       el("td", { text: routed ? String(b.hops) : "" }),
-      el("td", { text: ohmsText(b.r) }));
+      el("td", {}, ohmsText(b.r), versus(ohmsText(b.r), oldRouted ? ohmsText(old.r) : undefined)));
     if (b.net != null) tr.addEventListener("click", () => isolate(b.net));
     bridges.append(tr);
   }
@@ -480,7 +582,31 @@ function drawFabricBase() {
   panZoom(view, [0, 0, f.size[0], f.size[1]]);
 }
 
-function drawFabric(paint) {
+// With a baseline's paint of the same case: copper only this router closes is
+// outlined, copper only the baseline closes is drawn dashed grey.
+function drawCompare(paint, base) {
+  const key = (c) => c.chip + "." + c.x + "." + c.y;
+  const mine = new Set(paint.crosspoints.map(key));
+  const theirs = new Set(base.crosspoints.map(key));
+  for (const dot of fabric.dots.children) {
+    if (!theirs.has(dot.dataset.key)) dot.classList.add("only-a");
+  }
+  for (const c of base.crosspoints) {
+    if (mine.has(key(c))) continue;
+    const [x, y] = cellCentre(c.chip, c.x, c.y);
+    const ghost = svg("circle", { class: "xp only-b", cx: x, cy: y, r: 3.6 });
+    hover(ghost, () => c.chip + "  x" + c.x + " y" + c.y + "\nclosed only by the baseline");
+    fabric.dots.append(ghost);
+  }
+  for (const [name, path] of Object.entries(fabric.wires)) {
+    const a = paint.wires[name] && paint.wires[name].nets.length > 0;
+    const b = base.wires[name] && base.wires[name].nets.length > 0;
+    if (a && !b) path.classList.add("only-a");
+    if (b && !a) path.classList.add("only-b");
+  }
+}
+
+function drawFabric(paint, base) {
   for (const path of Object.values(fabric.wires)) {
     path.setAttribute("class", "wire");
     path.style.stroke = "";
@@ -530,7 +656,7 @@ function drawFabric(paint) {
     const [x, y] = cellCentre(c.chip, c.x, c.y);
     const colour = netColour(c.net);
     const dot = svg("circle", { class: "xp" + (c.dup ? " dup" : ""), cx: x, cy: y, r: 3.3, fill: colour,
-      "data-net": c.net });
+      "data-net": c.net, "data-key": c.chip + "." + c.x + "." + c.y });
     if (c.dup) dot.style.stroke = colour;        // a duplicate path's crosspoint: a ring, not a dot
     hover(dot, () => c.chip + "  x" + c.x + " y" + c.y + "\nnet " + netLabel(c.net) + ", path " + c.path
       + (c.dup ? " (a duplicate)" : ""));
@@ -549,6 +675,7 @@ function drawFabric(paint) {
         stroke: b.state === "unrouted" ? netColour(b.net) : GREY }));
     }
   }
+  if (base) drawCompare(paint, base);
   applyIsolation();
 }
 
@@ -587,9 +714,17 @@ async function start() {
   for (const button of document.querySelectorAll("#tabs button")) {
     button.addEventListener("click", () => showTab(button.dataset.tab));
   }
+  $("compare").addEventListener("change", () => {
+    state.compare = $("compare").checked;
+    if (state.selected) selectCase(state.selected);
+  });
+  if (!STATIC) {
+    installDrop();
+    installLive();
+  }
 
   if (STATIC) {
-    for (const id of ["variant", "baseline", "run"]) $(id).disabled = true;
+    for (const id of ["variant", "baseline", "run", "live"]) $(id).disabled = true;
     $("classes").hidden = true;
     $("exported").hidden = false;
     $("exported").textContent = "exported " + STATIC.when + " from " + STATIC.run.variant.name;

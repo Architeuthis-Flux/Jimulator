@@ -88,6 +88,19 @@ svg.isolating .held:not(.iso) { opacity: .12; }
 #tip { position: absolute; pointer-events: none; background: #0f1017; border: 1px solid var(--line); border-radius: 4px;
   padding: 5px 8px; max-width: 340px; white-space: pre-wrap; z-index: 5; }
 
+/* dropped files, compare */
+#uploads { border: 1px dashed var(--line); border-radius: 4px; padding: 5px 7px; margin: 4px 0 6px; }
+#uploads .file { display: flex; gap: 5px; align-items: center; margin: 2px 0; }
+#uploads .file input { flex: 1; min-width: 0; }
+#uploads .file button { padding: 1px 6px; }
+body.dropping #left { outline: 2px dashed var(--changed); outline-offset: -4px; }
+#compare-box { color: var(--dim); white-space: nowrap; }
+.wire.only-a { filter: drop-shadow(0 0 2.5px #fff); }
+.wire.only-b { stroke: var(--dim); stroke-width: 2; stroke-dasharray: 6 4; }
+.xp.only-a { stroke: #fff !important; stroke-width: 1.8; }
+.xp.only-b { fill: none !important; stroke: var(--dim) !important; stroke-width: 1.5; stroke-dasharray: 2 1.6; }
+.bridges .was { color: var(--dim); }
+
 /* right: the case */
 #case { padding: 10px; border-left: 1px solid var(--line); background: var(--panel); }
 #case h1 { word-break: break-all; }

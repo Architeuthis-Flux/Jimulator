@@ -15,9 +15,11 @@
       <label>Router <input id="variant" list="variant-list" value="worktree" spellcheck="false" autocomplete="off"></label>
       <label>Baseline <input id="baseline" list="variant-list" placeholder="none" spellcheck="false" autocomplete="off"></label>
       <datalist id="variant-list"></datalist>
+      <div id="uploads" hidden></div>
       <div id="classes"></div>
       <div class="row">
         <button id="run" type="submit">Run</button>
+        <label class="inline" title="re-run when a file under the router's src/ is saved"><input id="live" type="checkbox"> live</label>
         <label class="inline">ohms per crosspoint <input id="ohms" type="number" min="1" step="1" value="60"></label>
       </div>
       <p id="verified" hidden>not verified against a board</p>
@@ -38,6 +40,7 @@
       <button type="button" data-tab="fabric" class="on">Fabric</button>
       <button type="button" data-tab="sheet">KiCad sheet</button>
       <span id="view-title"></span>
+      <label id="compare-box" hidden title="copper only this router closes is outlined; copper only the baseline closes is dashed grey"><input id="compare" type="checkbox"> compare with baseline</label>
       <span id="legend">
         <span class="key"><i class="dot"></i> closed</span>
         <span class="key"><i class="dot hollow"></i> duplicate path</span>

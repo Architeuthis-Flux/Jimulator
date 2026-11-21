@@ -201,6 +201,19 @@ class Server(unittest.TestCase):
         self.assertNotIn("build_error", r)
         self.assertEqual(len(calls), 2)
 
+    def test_paths_lists_tracked_files_by_basename(self):
+        self.assertEqual(self.c.get("/api/paths?name=NetsToChipConnections.cpp").json["paths"],
+                         ["src/routing/NetsToChipConnections.cpp"])
+        self.assertEqual(self.c.get("/api/paths?name=nope.cpp").json["paths"], [])
+        self.assertEqual(self.c.get("/api/paths?name=../../etc/passwd").json["paths"], [])
+        self.assertEqual(self.c.get("/api/paths").json["paths"], [])
+        self.assertGreater(len(self.c.get("/api/paths?name=board.h").json["paths"]), 0)
+
+    def test_the_page_has_what_task_5_adds(self):
+        page = self.c.get("/", token=None).body
+        for anchor in ('id="live"', 'id="uploads"', 'id="compare"'):
+            self.assertIn(anchor, page)
+
     def test_watch_reports_the_tree_hash(self):
         self.assertEqual(self.c.get("/api/watch?spec=worktree").json["hash"], variants.resolve("worktree").hash)
 
