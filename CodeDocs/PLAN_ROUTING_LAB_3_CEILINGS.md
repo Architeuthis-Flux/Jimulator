@@ -30,11 +30,12 @@
 - It costs 1.5 s for the whole battery. The spare-copy search costs about 9 ms a case, so it is done when a case is painted, not for every case in a run.
 - OR-tools 9.15.6755 installs with `pip` into a virtual environment under Python 3.13 here. With the model of Tasks 5 and 6 and a 20 s limit, over the 21 dense and 3 beyond cases:
   - 17 dense cases are proved routable with the fewest crosspoints proved, in 0.2 to 9 s, under both rules. Three more (`chain_all_chips`, `gnd_spread`, `big_net_thirteen_nodes`) are proved routable but their fewest is not proved in 20 s.
-  - `k_rows_overflow_metric` is proved not routable in 1.2 s under both rules, the probe feed counted: its overflow is the fabric's, as the suite has always assumed.
+  - `k_rows_overflow_metric` is proved not routable in 1.2 s under both rules. That is its netlist as the firmware built it, with the probe feed on GPIO 6; it says nothing of the same bridges with the feed elsewhere or off.
   - `every_nano_pin` and `nine_k_nets` are proved not routable in 1 to 2.4 s. `max_bridges_random` (64 bridges, the router routes 61) can be routed as any-copper trees (90 crosspoints or fewer); for firmware-shaped paths nothing is known after 20 s.
   - Where the fewest is proved it is never above the router's count, and on some cases it is below (`corner_rows`: 16 against the router's 20). The router's count here includes its duplicates; Task 7 compares against its primaries alone.
 - So 20 s is the default limit, and a verdict of "unknown" is a real outcome the page and the commands must show.
-- Random netlists longer than the `fuzz` class's twelve bridges are where the router and the ceiling part. For two seeds, prefixes of one legal random list: at 20 bridges the router routes all and the fewest is proved; at 30 it leaves one bridge unrouted, at 40 two or three, at 50 five or six, and each of those netlists is proved routable with firmware-shaped paths. At 60 one seed is still proved routable (the router routes 54 of 61) and the other is not known after 20 s. At 80 the firmware itself keeps fewer bridges in nets than at 60 for one seed (53: the rest it leaves out), so "more bridges" is not always "harder". The edge the solver can prove lies around 50 to 60 bridges, and "one more bridge" will usually read "not known", seldom "proved not routable".
+- Random netlists longer than the `fuzz` class's twelve bridges are where the router and the ceiling part. For two seeds, prefixes of one legal random list: at 20 bridges the router routes all and the fewest is proved; at 30 it leaves one bridge unrouted, at 40 two or three, at 50 five or six, and each of those netlists is proved routable with firmware-shaped paths. At 60 one seed is not known after 20 s; the other came out routable in one run and not known in the next, so an answer near the limit is not repeatable. At 80 the firmware itself leaves 28 of one seed's bridges and 6 of the other's out of every net, though `generators.legal` passes them (why was not looked into; its net tables filling is the README's stated cause of "left out"). The edge the solver can prove lies around 50 to 60 bridges, and "one more bridge" will usually read "not known", seldom "proved not routable".
+- Two of those "routable" answers (30 and 50 bridges, seed 1) were checked with the judge's own `check_electrical` and a four-crosspoint walk: no problem, no bridge over four. A routing is its own proof once checked, which is why Task 9 keeps each edge case's routing in a file.
 - In the 40-bridge netlist of seed 1 one failed bridge (`ISENSE_PLUS-UART_TX`) needs a single new crosspoint through copper its net already has: a miss of the kind Task 1 draws, on today's router. In the 30-bridge one the failed bridge has no free path with the rest where the router put it; only moving other paths frees one, which is what the solver's routing shows.
 - These came from throwaway prototypes. The numbers are for sizing; the tasks' tests are what must hold.
 
@@ -45,7 +46,7 @@
 | `tools/routing_lab/ceiling.py` (new) | The copper graph; `missed`, `spare`, `painted`; the problem a solver is given; asking the solver and checking its answer |
 | `tools/routing_lab/solver/solve.py` (new) | CP-SAT model for both rule sets. Reads one JSON problem on stdin, writes one JSON answer. Knows nothing of the lab or of V5 |
 | `tools/routing_lab/edge.py` (new) | Growing a netlist to the edge of what provably fits |
-| `tools/routing_lab/cases/edge/*.json` (new) | The edge cases found, as ordinary case files |
+| `tools/routing_lab/cases/edge/*.json`, `cases/edge/proof/*.json` (new) | The edge cases found, as ordinary case files, and for each the routing that proves it fits |
 | `tools/routing_lab/runner.py`, `lab.py`, `server.py`, `export.py` (modify) | The `missed` metric and column; `solver-setup`, `ceiling`, `edge` commands; `/api/ceiling`; exports carry missed paths and spare copies |
 | `tools/routing_lab/web/lab.js`, `lab.css`, `index.html` (modify) | Dashed missed paths, the spare column, the solver's verdict and overlay |
 | `tools/routing_lab/tests/test_ceiling.py`, `test_solver.py`, `test_edge.py` (new) | Tests, on small made-up fabrics and on real results |
@@ -59,6 +60,7 @@ The inputs the design is silent on that are most likely to bite. Each has its te
 3. **A result with nothing to search**: a crash or timeout (no report), a case whose every bridge was refused, or one with no failed bridge. The searches return empty answers and the page shows nothing extra (Task 1, Task 2, Task 5).
 4. **A bridge whose two nodes are one piece of copper, or a node the fabric model does not hold.** Zero crosspoints needed in the first case, no search in the second, no exception in either (Task 1).
 5. **A path that is free in copper but passes a node in no net** would be a stray on a board. The searches must never offer one, and a solver answer that does is rejected (Task 1, Task 7).
+6. **A solver answer near its time limit is not the same from run to run.** Nothing that is committed or tested may rest on one: the edge search asks only "is there a routing" and keeps the routing as a file that is checked without the solver (Task 5's `fewest`, Task 9).
 
 ---
 
@@ -301,8 +303,8 @@ In `test_server.py`: `/api/case` answers a paint with `missed` and a `spare` on 
   - `ceiling.SOLVER_PYTHON = variants.BUILD_DIR / "solver-venv" / "bin" / "python"`; `ceiling.solver_installed() -> bool`.
   - `ceiling.problem(paint, g=None) -> dict | None`: what a solver is given, or `None` when the paint has no bridge in a state of `routed`, `unrouted` or `broken`:
     `{"bridges": [[wire_a, wire_b, net], ...], "terminals": {wire: net}, "crosspoints": [[chip, x, y, x_wire, y_wire], ...]}`.
-    A wire is offered when it is a terminal or no node's copper; a crosspoint is offered when both its wires are, and it does not join the terminals of two nets. The probe feed is a bridge like any other.
-  - `ceiling.ask(problem, rule, seconds=20.0, fewest=True) -> dict`: runs `solve.py` under `SOLVER_PYTHON` and returns its answer. Raises `ceiling.SolverMissing` (a `ValueError` whose text ends with `python3 tools/routing_lab/lab.py solver-setup`) when the environment is not there. Anything else that goes wrong (non-zero exit, no JSON, the process outliving `seconds + 30`) returns `{"verdict": "unknown", "error": "<what happened>"}`.
+    A wire is offered when it is a terminal or no node's copper; a crosspoint is offered when both its wires are, and it does not join the terminals of two nets. The probe feed is a bridge like any other. A bridge whose two nodes are one piece of copper has nothing to close and is left out of `bridges` (its wire stays a terminal); if that leaves none, the answer is `None`.
+  - `ceiling.ask(problem, rule, seconds=20.0, fewest=True) -> dict`: runs `solve.py` under `SOLVER_PYTHON` and returns its answer. Raises `ceiling.SolverMissing` (a `ValueError` whose text ends with `python3 tools/routing_lab/lab.py solver-setup`) when the environment is not there. Anything else that goes wrong (non-zero exit, no JSON, the process outliving `seconds + ceiling.GRACE`, with `GRACE = 30.0`) returns `{"verdict": "unknown", "error": "<what happened>"}`.
   - `lab.py solver-setup`: `python3 -m venv build/solver-venv`, then `pip install ortools==9.15.6755` in it; prints the version it can import. Needs the network once.
 - Produces, `solve.py` (run as `python solve.py`, problem on stdin, answer on stdout, exit 0; a malformed problem is exit 2 with a line on stderr):
   - in: the problem's three keys plus `"rule": "copper" | "firmware"`, `"seconds": float`, and `"fewest": bool` (default true). With `fewest` false it stops at the first routing it finds (`stop_after_first_solution`): a routable netlist whose fewest cannot be proved otherwise runs to the limit, and the edge search of Task 9 only needs "routable".
@@ -332,6 +334,11 @@ class Problem(unittest.TestCase):
         self.assertFalse([c for c in p["crosspoints"] if "2" in c or "4" in c])
     def test_nothing_to_route(self):                                 # Review Focus 3
         self.assertIsNone(ceiling.problem(tiny_paint([(1, 3, 6, "refused")]), ceiling.graph(TINY)))
+    def test_two_nodes_on_one_wire_are_not_a_bridge_to_route(self):  # Review Focus 4
+        same = types.SimpleNamespace(**{**vars(TINY), "NODE_NET": {1: "1", 9: "1", 3: "3"}})
+        p = ceiling.problem(tiny_paint([(1, 9, 6, "unrouted"), (1, 3, 6, "unrouted")], fabric=same), ceiling.graph(same))
+        self.assertEqual(p["bridges"], [["1", "3", 6]])
+        self.assertIsNone(ceiling.problem(tiny_paint([(1, 9, 6, "unrouted")], fabric=same), ceiling.graph(same)))
 
 class Asking(unittest.TestCase):                                     # Review Focus 1
     def test_no_environment_says_how_to_get_one(self):
@@ -340,7 +347,7 @@ class Asking(unittest.TestCase):                                     # Review Fo
         self.assertIn("lab.py solver-setup", str(cm.exception))
     def test_a_solver_that_dies_or_prints_rubbish_is_unknown(self):
         for script in ("import sys; sys.exit(3)", "print('not json')", "import time; time.sleep(60)"):
-            with fake_solver(script):                                # SOLVER_PYTHON -> a python that runs this instead
+            with fake_solver(script), mock.patch.object(ceiling, "GRACE", 0.5):     # the sleeper is given up on in 0.7 s
                 a = ceiling.ask(PROBLEM, "copper", seconds=0.2)
             self.assertEqual(a["verdict"], "unknown"); self.assertTrue(a["error"])
 
@@ -407,6 +414,10 @@ class FirmwareShaped(unittest.TestCase):
         self.assertEqual(len(solve(mid, [(1, 2, 6), (1, 4, 6)], "copper")["closed"]), 6)              # the same tree
     def test_one_lane_two_nets(self):
         self.assertEqual(solve(ONE_LANE, [(1, 3, 6), (2, 4, 7)], "firmware")["verdict"], "not_routable")
+    def test_a_bridge_on_one_wire_does_not_make_a_netlist_unroutable(self):          # Review Focus 4
+        same = types.SimpleNamespace(**{**vars(TINY), "NODE_NET": {1: "1", 9: "1", 3: "3"}})
+        for rule in ("firmware", "copper"):
+            self.assertEqual(solve(same, [(1, 9, 6), (1, 3, 6)], rule)["verdict"], "routable", rule)
 ```
 
 - [ ] **Step 2: Run to see them fail.**
@@ -422,14 +433,14 @@ class FirmwareShaped(unittest.TestCase):
 - Modify: `tools/routing_lab/ceiling.py`, `tools/routing_lab/lab.py` (`ceiling` command; `clean` also removes `build/ceiling`), `tools/routing_lab/tests/test_solver.py`, `tests/test_cli.py`
 
 **Interfaces:**
-- Consumes: `ceiling.problem`, `ceiling.ask`, `copper.paint`, `lab.fully_routed`.
+- Consumes: `ceiling.problem`, `ceiling.ask`, `copper.paint`. `ceiling.py` imports `copper` and `variants` and neither `runner` nor `lab` (both import it).
 - Produces:
-  - `ceiling.faults(problem, closed, rule) -> list[str]`: what is wrong with an answer by the lab's own model, empty when it holds: a crosspoint that was not offered; a wire closed for two nets; a bridge whose wires the closed crosspoints of its net do not join; under `firmware`, a bridge whose shortest way through its net's closed crosspoints is more than four.
+  - `ceiling.faults(problem, closed, rule) -> list[str]`: what is wrong with an answer by the lab's own model, empty when it holds. It reads the closed crosspoints as copper and ignores the net each is tagged with: a crosspoint that was not offered (this is what keeps nodes in no net untouched); a piece of joined copper holding terminals of two nets; a bridge whose two wires are not joined; under `firmware`, a bridge whose two wires are more than four crosspoints apart.
   - `ceiling.verdict(result, rule="firmware", seconds=20.0, use_cache=True, fewest=True) -> dict`:
     `{"verdict": "routable" | "not_routable" | "unknown" | "nothing", "fewest_proved": bool, "crosspoints": int | None, "router_crosspoints": int, "closed": [...], "seconds": float, "error": str | None}`.
     - `nothing`: `problem` is `None`.
     - A `routable` answer with faults becomes `unknown` with `error` = "the solver's answer fails the lab's own check: <first fault>".
-    - A `not_routable` answer for a result with `lab.fully_routed(result)` and no problems becomes `unknown` with `error` = "the solver says this cannot be routed, yet the router routed it: the model is wrong" (Review Focus 2).
+    - A `not_routable` answer for a result whose status is `ok` and whose every bridge given to the solver is `routed` in the paint becomes `unknown` with `error` = "the solver says this cannot be routed, yet the router routed it: the model is wrong" (Review Focus 2).
     - `router_crosspoints` counts the closed crosspoints of primary paths in the paint (`dup` false).
     - Cached in `build/ceiling/<sha256 of problem, rule, seconds, fewest and solve.py>.json`; an answer with an `error` is not cached.
   - `lab.py ceiling [--variant V] [--classes dense,real] [--case NAME] [--rule firmware|copper] [--seconds 20]`: one line per case (router routed/primaries, the router's primary crosspoints, the verdict, the fewest when routable, `=` when proved and `<=` when not), then: `provably routable: N of M; the router routes K of those in full`, `the router uses X more crosspoints than the fewest over the P cases where both are known`, and any case with an `error`. Exit 1 if any verdict has an `error` or the solver is missing (with the setup line), else 0.
@@ -443,8 +454,15 @@ class Standing(unittest.TestCase):
         good = [["A", 0, 0, 6], ["B", 0, 0, 6], ["A", 1, 1, 7], ["B", 1, 1, 7]]
         self.assertEqual(ceiling.faults(p, good, "firmware"), [])
         self.assertTrue(ceiling.faults(p, good[:3], "copper"))                              # 2-4 not joined
-        self.assertTrue(ceiling.faults(p, good[:2] + [["A", 0, 1, 7], ["B", 0, 1, 7]], "copper"))   # L0 in two nets
+        self.assertTrue(ceiling.faults(p, good[:2] + [["A", 0, 1, 7], ["B", 0, 1, 7]], "copper"))   # L0 joins two nets
         self.assertTrue(ceiling.faults(p, good + [["Z", 0, 0, 6]], "copper"))               # not offered
+        relabelled = [[c, x, y, 99] for c, x, y, _ in good]                                 # the tags are not trusted
+        self.assertEqual(ceiling.faults(p, relabelled, "firmware"), [])
+    def test_four_crosspoints_at_most_under_the_firmware_rule(self):
+        p = ceiling.problem(unrouted(CHAIN, [(1, 4, 6)]), ceiling.graph(CHAIN))
+        six = [["A", 0, 0, 6], ["B", 0, 0, 6], ["B", 1, 0, 6], ["C", 0, 0, 6], ["C", 1, 0, 6], ["D", 0, 0, 6]]
+        self.assertEqual(ceiling.faults(p, six, "copper"), [])
+        self.assertTrue(ceiling.faults(p, six, "firmware"))
     def test_a_wrong_answer_is_unknown_with_the_reason(self):
         with mock.patch.object(ceiling, "ask", return_value={"verdict": "routable", "fewest_proved": True, "closed": [], "seconds": 0.1}):
             v = ceiling.verdict(ROUTED_RESULT, use_cache=False)
@@ -475,13 +493,14 @@ class OnTheBoardsFabric(unittest.TestCase):
         for rule in ("firmware", "copper"):
             self.assertEqual(ceiling.verdict(over, rule)["verdict"], "not_routable", rule)
         # 64 bridges: any copper can carry them. Nothing is asserted of firmware-shaped paths (not known in 20 s).
-        self.assertEqual(ceiling.verdict(by["max_bridges_random"], "copper")["verdict"], "routable")
+        # fewest=False: the answer must not hang on how far the search for the fewest gets inside the limit.
+        self.assertEqual(ceiling.verdict(by["max_bridges_random"], "copper", fewest=False)["verdict"], "routable")
     def test_a_case_with_a_proved_fewest(self):
         v = ceiling.verdict(runner.run_case(NEW, dense("same_chip_pairs")), "firmware")
         self.assertEqual((v["verdict"], v["fewest_proved"], v["crosspoints"], v["router_crosspoints"]), ("routable", True, 16, 16))
 ```
 
-The first run of this class takes about two minutes (the dense suite twice at up to 5 s a case, and `max_bridges_random` runs its full 20 s); after that the answers come from `build/ceiling`.
+The first run of this class takes about two minutes (the dense suite twice at up to 5 s a case); after that the answers come from `build/ceiling`.
 
 `ROUTED_RESULT` is `runner.run_case(NEW, dense("same_chip_pairs"))` and `CRASHED_RESULT` the crashed result of Task 2's test. In `test_cli.py`: `lab.py ceiling --case same_chip_pairs` prints `routable` and `= 16`, exit 0; with `ceiling.SOLVER_PYTHON` patched away it prints the setup line and exits 1. In `test_export.py` the clean test also makes `ceiling` and `solver-venv` directories: `clean` removes the first and keeps the second.
 
@@ -526,14 +545,15 @@ The first run of this class takes about two minutes (the dense suite twice at up
 
 **Files:**
 - Create: `tools/routing_lab/edge.py`, `tools/routing_lab/tests/test_edge.py`, `tools/routing_lab/cases/edge/*.json`
-- Modify: `tools/routing_lab/lab.py` (`edge` command, `CLASSES`), `tools/routing_lab/README.md`, `CodeDocs/DESIGN_ROUTING_LAB.md` (status), `tools/routing_lab/web/lab.js` (the `edge` class ticked by default)
+- Modify: `tools/routing_lab/lab.py` (`edge` command, `CLASSES`, the `export` command's default classes), `tools/routing_lab/export.py` (default classes gain `edge`), `tools/routing_lab/README.md`, `CodeDocs/DESIGN_ROUTING_LAB.md` (status), `tools/routing_lab/web/lab.js` (the `edge` class ticked by default), `tools/routing_lab/tests/test_server.py` (`test_info` pins the class list: it gains `edge` at the end)
 
 **Interfaces:**
 - Consumes: `generators.legal`, `generators.fuzz`'s way of drawing ends, `runner.run_case`, `ceiling.verdict`, `cases.Case`, `cases.save_json`.
 - Produces:
-  - `edge.draw(rng, longest=80) -> list[(int, int)]`: `longest` random bridges, ends drawn as `generators.fuzz` draws them (a row 60 times in 100, else a special node), a pair kept only if the list stays `generators.legal`. Every prefix is then legal too.
-  - `edge.grow(binary, rng, name, seconds=20.0, longest=80, rule="firmware") -> (cases.Case, dict) | None`: draws one list, then finds by bisection the longest prefix the solver proves routable. Each probe routes the prefix with the harness (so the netlist is the firmware's: its nets, its probe feed, its refusals) and asks `ceiling.verdict(result, rule, seconds, fewest=False)`. `unknown` and `nothing` count as "not proved" and the search goes shorter. Returns the case for that prefix (class `edge`, `must_route` false, bridges with `dup` -1) and `{"bridges": k, "next_is": "not_routable" | "unknown" | "end"}` (`end`: all `longest` were proved), or `None` when not even one bridge is proved routable.
-  - `lab.py edge --seed 1 --count 12 [--seconds 20] [--longest 80]`: writes `cases/edge/edge_<seed>_<i>.json`, with notes "proved routable with firmware-shaped paths (K bridges); one more bridge: not routable, proved" or "...; one more bridge: not known after 20 s". Skips a file that exists. Exits 1 with the setup line when the solver is not installed. By the measurements above this takes about two minutes a case.
+  - `edge.draw(rng, longest=80) -> list[(int, int)]`: `longest` random bridges, ends drawn as `generators.fuzz` draws them (a row 60 times in 100, else a special node), a pair kept only if it is not already in the list (in either order; the firmware would merge it) and the list stays `generators.legal`. Every prefix is then legal too.
+  - `edge.grow(binary, rng, name, seconds=20.0, longest=80, rule="firmware") -> (cases.Case, dict) | None`: draws one list, then finds by bisection the longest prefix the solver proves routable. Each probe routes the prefix with the harness (so the netlist is the firmware's: its nets, its probe feed) and asks `ceiling.verdict(result, rule, seconds, fewest=False)`. A prefix of which the firmware rejected, left out or refused any bridge (`result["rejected"]`, `["left_out"]`, `["refused"]` not all empty) is not asked about and counts, like `unknown` and `nothing`, as "not proved": the search goes shorter, so an edge case holds only bridges the firmware took. Returns the case for the longest proved prefix (class `edge`, `must_route` false, bridges with `dup` -1) and `{"bridges": k, "closed": [...], "next_is": "not_routable" | "unknown" | "dropped" | "end"}` (`closed`: the solver's routing of it; `dropped`: the firmware would not take the next prefix whole; `end`: all `longest` were proved), or `None` when not even one bridge is proved routable.
+  - `lab.py edge --seed 1 --count 12 [--seconds 20] [--longest 80]`: writes `cases/edge/edge_<seed>_<i>.json`, with notes "proved routable with firmware-shaped paths (K bridges); one more bridge: not routable, proved" (or "not known after 20 s", or "the firmware drops a bridge"), and beside it the proof, `cases/edge/proof/edge_<seed>_<i>.json`: `{"rule": "firmware", "closed": [[chip, x, y, net], ...]}`. Skips a case whose file exists. Exits 1 with the setup line when the solver is not installed. By the measurements above this takes about two minutes a case.
+  - The proof is what makes "provably routable" hold without the solver and without luck with its time limit: a test runs every edge case through the harness and `ceiling.faults(problem, proof["closed"], "firmware")` must be empty.
   - `"edge"` joins `lab.CLASSES` (cases from files only, no generator). `lab.py run --classes edge` is the headline: the share of provably routable netlists at the edge that the router routes in full.
 
 A kept case is proved routable in its own right; bisection only decides where to look, so the edge may sit a bridge short of the true one where routability is not monotone (a refused bridge, a probe feed that moves). "Provably routable with firmware-shaped paths" is a ceiling for any router that keeps the firmware's path shape, not a claim that this router's method could reach it: the model does not hold the copper the firmware reserves for sense taps.
@@ -541,20 +561,27 @@ A kept case is proved routable in its own right; bisection only decides where to
 - [ ] **Step 1: Write the failing tests** in `tests/test_edge.py`:
 
 ```python
-def pretend(verdict_of):
-    """No harness, no solver: a 'result' is the number of bridges, and the verdict is verdict_of(that number)."""
-    return (mock.patch.object(runner, "run_case", side_effect=lambda binary, case, **kw: len(case.bridges)),
-            mock.patch.object(ceiling, "verdict", side_effect=lambda n, *a, **kw: {"verdict": verdict_of(n), "error": None}))
+def pretend(verdict_of, takes=10 ** 6):
+    """No harness, no solver. A 'result' holds the number of bridges; the firmware leaves one out of any prefix
+    longer than `takes`; the verdict is verdict_of(the number)."""
+    result = lambda binary, case, **kw: {"n": len(case.bridges), "rejected": [], "refused": [],
+                                         "left_out": [[1, 2]] if len(case.bridges) > takes else []}
+    answer = lambda r, *a, **kw: {"verdict": verdict_of(r["n"]), "closed": [["A", 0, 0, 6]], "error": None}
+    return (mock.patch.object(runner, "run_case", side_effect=result), mock.patch.object(ceiling, "verdict", side_effect=answer))
 
 class Edge(unittest.TestCase):
-    def grown(self, verdict_of, longest=20):
-        run, ask = pretend(verdict_of)
+    def grown(self, verdict_of, longest=20, takes=10 ** 6):
+        run, ask = pretend(verdict_of, takes)
         with run, ask:
             return edge.grow(None, random.Random(1), "edge_t", longest=longest)
 
     def test_bisection_keeps_the_longest_prefix_proved_routable(self):
         case, info = self.grown(lambda n: "routable" if n <= 7 else "not_routable")
-        self.assertEqual((len(case.bridges), info), (7, {"bridges": 7, "next_is": "not_routable"}))
+        self.assertEqual((len(case.bridges), info["bridges"], info["next_is"], info["closed"]),
+                         (7, 7, "not_routable", [["A", 0, 0, 6]]))
+    def test_a_prefix_the_firmware_drops_a_bridge_of_is_not_an_edge_case(self):
+        case, info = self.grown(lambda n: "routable", takes=9)
+        self.assertEqual((len(case.bridges), info["next_is"]), (9, "dropped"))
         self.assertEqual((case.name, case.cls, case.must_route), ("edge_t", "edge", False))
         self.assertTrue(all(dup == -1 for _, _, dup in case.bridges))
     def test_unknown_is_not_proof(self):
@@ -572,7 +599,7 @@ class Edge(unittest.TestCase):
         self.assertLessEqual(asked.call_count, 9)
     def test_the_bridges_are_legal_and_every_prefix_is(self):
         pairs = edge.draw(random.Random(3), longest=80)
-        self.assertEqual(len(pairs), 80)
+        self.assertEqual(len({frozenset(p) for p in pairs}), 80)                  # 80 bridges, none twice
         self.assertTrue(all(a != b for a, b in pairs))
         self.assertTrue(all(generators.legal(pairs[:k]) for k in range(1, 81)))
         self.assertEqual(pairs, edge.draw(random.Random(3), longest=80))          # the seed decides the list
@@ -581,11 +608,13 @@ class Edge(unittest.TestCase):
         self.assertEqual(len(found), 12)
         self.assertTrue(all(c.cls == "edge" and "proved routable" in c.notes for c in found))
 
-    @unittest.skipUnless(ceiling.solver_installed(), NEEDS_SOLVER)
-    def test_a_committed_edge_case_is_still_proved_routable(self):    # one case, so the suite stays quick
+    def test_every_committed_edge_case_carries_a_routing_that_holds(self):        # no solver needed
         binary = variants.build(variants.resolve("worktree"))
-        v = ceiling.verdict(runner.run_case(binary, lab.battery(["edge"])[0]), "firmware", seconds=20, fewest=False)
-        self.assertEqual((v["verdict"], v["error"]), ("routable", None))
+        for c in lab.battery(["edge"]):
+            result = runner.run_case(binary, c)
+            self.assertEqual((result["rejected"], result["left_out"], result["refused"]), ([], [], []), c.name)
+            proof = json.loads((lab.CASES_DIR / "edge" / "proof" / (c.name + ".json")).read_text())
+            self.assertEqual(ceiling.faults(ceiling.problem(ceiling.painted(result)), proof["closed"], proof["rule"]), [], c.name)
 ```
 
 - [ ] **Step 2: Run to see them fail.**
