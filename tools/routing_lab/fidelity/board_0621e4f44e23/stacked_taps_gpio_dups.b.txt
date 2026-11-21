@@ -1,0 +1,78 @@
+b
+
+pathDuplicates: 2
+dacDuplicates: 0
+railsDuplicates: 3
+gpioDuplicates: 0
+adcDuplicates: 0
+
+Bridge Array
+
+0  [1,TOP_R,Net 2],     1  [38,GND,Net 1],      2  [2,ADC_0,Net 6],     3  [5,ADC_3,Net 7],     
+4  [6,GP_1,Net 8],      5  [7,GP_2,Net 9],      6  [GP_3,8,Net 10],     7  [ADC_3,D0,Net 7],    
+8  [18,23,Net 2],       9  [41,45,Net 11],      10 [48,51,Net 12],      11 [56,58,Net 1],       
+12 [56,GND,Net 1],      13 [18,TOP_R,Net 2],    14 [D7,18,Net 2],       15 [24,28,Net 13],      
+16 [BUF_IN,GP_6,Net 14],
+
+
+Paths
+numberOfPaths: 47
+numberOfNets: 15
+
+path	net	node1	chip0	x0	y0	node2	chip1	x1	y1	altPath	sameChp	dup	pathType	chip2	x2	y2
+0	14	BUF_IN	K	2	4	GP_6	L	9	4	1	1	0	NANO to SF 	K 	12 	4 	14 	4 	L 	 
+1	Gn	38	F	7	1	GND	L	15	5	0	0	0	BB to SF 
+2	Gn	56	H	3	5	GND	L	15	7	0	0	0	BB to SF 
+3	Gn	56	H	0	5	58	H	0	7	0	1	0	BB to BB 
+4	T	1	A	9	1	TOP_R	K	4	0	0	0	0	BB to SF 
+5	T	18	C	13	4	TOP_R	K	4	2	0	0	0	BB to SF 
+6	T	18	C	6	4	23	D	4	2	0	0	0	BB to BB 
+7	T	18	C	4	4	D7	I	7	2	0	0	0	BB to NANO 
+8	6	2	A	2	2	ADC_0	K	8	1	0	1	0	BB to SF 	B 	0 	0 	11 	0 	B 	 
+9	7	5	A	6	5	ADC_3	K	11	3	0	1	0	BB to SF 	D 	0 	0 	15 	0 	D 	 
+10	7	ADC_3	K	11	3	D0	J	0	4	1	1	0	NANO to SF 	K 	14 	3 	14 	4 	J 	 
+11	8	6	A	13	6	GP_1	L	4	0	0	0	0	BB to SF 
+12	9	7	A	4	7	GP_2	L	5	2	0	1	0	BB to SF 	C 	0 	0 	9 	0 	C 	 
+13	10	8	B	15	1	GP_3	L	6	1	0	0	0	BB to SF 
+14	11	41	F	12	4	45	G	10	1	0	0	0	BB to BB 
+15	12	48	G	2	4	51	G	2	7	0	1	0	BB to BB 
+16	13	24	D	2	3	28	D	2	7	0	1	0	BB to BB 
+
+duplicates
+18	Gn	38	F	3	1	GND	K	15	5	0	0	1	BB to SF 
+19	T	18	C	7	4	23	D	5	2	0	0	1	BB to BB 
+20	Gn	56	H	8	5	58	H	8	7	0	1	1	BB to BB 
+21	Gn	56	H	7	5	GND	K	15	7	0	0	1	BB to SF 
+23	T	18	C	10	4	D7	I	7	5	0	0	1	BB to NANO 	F 	4 	0 	10 	0 	F 	 
+26	T	18	C	1	4	23	D	1	2	0	1	1	BB to BB 	A 	5 	0 	7 	0 	A 	 
+27	Gn	56	H	10	5	58	H	10	7	0	1	1	BB to BB 
+30	T	18	C	14	4	D7	I	7	7	0	0	1	BB to NANO 	H 	4 	0 	14 	0 	H 	 
+38	11	41	F	13	4	45	G	11	1	0	0	1	BB to BB 
+39	12	48	G	6	4	51	G	6	7	0	1	1	BB to BB 
+40	13	24	D	8	3	28	D	8	7	0	1	1	BB to BB 
+44	11	41	F	8	4	45	G	8	1	0	1	1	BB to BB 	E 	10 	0 	12 	0 	E 	 
+45	12	48	G	14	4	51	G	14	7	0	1	1	BB to BB 
+46	13	24	D	10	3	28	D	10	7	0	1	1	BB to BB 
+rail dup bounce skips: p17 BK CK DK EK FK GK HK BK DK EK FK GK HK BK CK DK EK FK GK 
+
+
+Chip Status
+
+chip	0    1    2    3    4    5    6    7    8    9    10   11   12   13   14   15		0    1    2    3    4    5    6    7
+A	.    .    6    .    9    T    7    T    .    T    .    .    .    8    Gn   .    	T    T    6    .    .    7    8    9     
+B	6    .    .    .    .    .    13   .    .    .    .    6    12   .    .    10   	6    10   .    .    .    .    .    .     
+C	9    T    .    .    T    .    T    T    .    9    T    .    .    T    T    .    	9    .    .    .    T    .    .    .     
+D	7    T    13   .    T    T    .    .    13   .    13   .    12   .    .    7    	7    .    T    13   .    .    .    13    
+E	.    14   .    .    .    14   13   .    .    7    11   .    11   .    Gn   .    	11   .    .    .    .    .    .    .     
+F	.    .    .    Gn   T    .    13   Gn   11   .    T    .    11   11   Gn   .    	T    Gn   .    .    11   .    .    .     
+G	.    .    12   .    .    .    12   .    11   .    11   11   .    .    12   .    	.    11   .    .    12   .    .    12    
+H	Gn   .    .    Gn   T    .    .    Gn   Gn   .    Gn   .    12   .    T    .    	T    .    .    .    .    Gn   .    Gn   
+
+chip	0    1    2    3    4    5    6    7    8    9    10   11   12   13   14   15		0    1    2    3    4    5    6    7 
+I	.    .    .    .    .    .    .    T    .    .    .    .    .    .    .    .    	.    .    T    .    .    T    .    T     
+J	7    .    .    .    .    .    .    .    .    .    .    .    .    .    7    .    	.    .    .    .    7    .    .    .     
+K	.    .    14   .    T    .    .    .    6    .    .    7    14   .    7    Gn   	T    6    T    7    14   Gn   .    Gn    
+L	.    .    .    .    8    9    10   .    .    14   .    .    .    .    14   Gn   	8    10   9    .    14   Gn   .    Gn    
+
+
+

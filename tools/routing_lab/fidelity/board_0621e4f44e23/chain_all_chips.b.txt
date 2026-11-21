@@ -1,0 +1,52 @@
+b
+
+pathDuplicates: 2
+dacDuplicates: 0
+railsDuplicates: 3
+gpioDuplicates: 0
+adcDuplicates: 0
+
+Bridge Array
+
+0  [1,8,Net 6],         1  [8,15,Net 6],        2  [15,22,Net 6],       3  [22,31,Net 6],       
+4  [31,38,Net 6],       5  [38,45,Net 6],       6  [45,52,Net 6],       7  [BUF_IN,GP_6,Net 7], 
+
+
+
+Paths
+numberOfPaths: 8
+numberOfNets: 8
+
+path	net	node1	chip0	x0	y0	node2	chip1	x1	y1	altPath	sameChp	dup	pathType	chip2	x2	y2
+0	7	BUF_IN	K	2	0	GP_6	L	9	1	1	1	0	NANO to SF 	K 	12 	0 	14 	1 	L 	 
+1	6	1	A	2	1	8	B	0	1	0	0	0	BB to BB 
+2	6	8	B	4	1	15	C	2	1	0	0	0	BB to BB 
+3	6	15	C	6	1	22	D	4	1	0	0	0	BB to BB 
+4	6	22	D	8	1	31	E	6	1	0	0	0	BB to BB 
+5	6	31	E	10	1	38	F	8	1	0	0	0	BB to BB 
+6	6	38	F	12	1	45	G	10	1	0	0	0	BB to BB 
+7	6	45	G	14	1	52	H	12	1	0	0	0	BB to BB 
+
+duplicates
+
+
+Chip Status
+
+chip	0    1    2    3    4    5    6    7    8    9    10   11   12   13   14   15		0    1    2    3    4    5    6    7
+A	.    .    6    .    .    .    .    .    .    7    .    .    .    .    .    .    	.    6    .    .    .    .    .    .     
+B	6    .    .    .    6    .    .    .    .    .    .    .    .    .    .    7    	.    6    .    .    .    .    .    .     
+C	.    .    6    .    .    .    6    .    .    .    .    .    .    .    .    .    	.    6    .    .    .    .    .    .     
+D	.    .    .    .    6    .    .    .    6    .    .    .    .    .    .    .    	.    6    .    .    .    .    .    .     
+E	.    .    .    .    .    .    6    .    .    .    6    .    .    .    .    .    	.    6    .    .    .    .    .    .     
+F	.    .    .    .    .    .    .    .    6    .    .    .    6    .    .    .    	.    6    .    .    .    .    .    .     
+G	.    .    .    .    .    .    .    .    .    .    6    .    .    .    6    .    	.    6    .    .    .    .    .    .     
+H	.    .    .    .    .    .    .    .    .    .    .    .    6    .    .    .    	.    6    .    .    .    .    .    .    
+
+chip	0    1    2    3    4    5    6    7    8    9    10   11   12   13   14   15		0    1    2    3    4    5    6    7 
+I	.    .    .    .    .    .    .    .    .    .    .    .    .    .    .    .    	.    .    .    .    .    .    .    .     
+J	.    .    .    .    .    .    .    .    .    .    .    .    .    .    .    .    	.    .    .    .    .    .    .    .     
+K	.    .    7    .    .    .    .    .    .    .    .    .    7    .    .    .    	7    .    .    .    .    .    .    .     
+L	.    .    .    .    .    .    .    .    .    7    .    .    .    .    7    .    	.    7    .    .    .    .    .    .     
+
+
+

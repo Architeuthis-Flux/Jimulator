@@ -415,6 +415,13 @@ int main(int argc, char** argv) {
     // A board boots with the probe's measure buffer wanted (Probing.cpp calls
     // this from routableBufferPower); probe.auto_connect then gates the feed.
     infraSetProbePowerEnabled(true);
+    // ... and with its top OLED initialised: main.cpp calls oled.init() when
+    // top_oled.connect_on_boot is 1 (the default), and init() sets
+    // top_oled.enabled whether or not a panel answers. The config file can
+    // still say 0; RAM says 1. That keeps the OLED's two GPIOs (7 and 8) out
+    // of the probe feed's scan in InfraPaths (seen on a V5, 2026-11-21: the
+    // feed sits on GPIO 6 where this harness had put it on GPIO 8).
+    if (jumperlessConfig.top_oled.connect_on_boot == 1) jumperlessConfig.top_oled.enabled = 1;
 
     Case c;
     int lineNo = 0;

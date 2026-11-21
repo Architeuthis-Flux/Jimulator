@@ -2,8 +2,15 @@
 
 The harness is only worth trusting if it routes what a real board routes.
 This directory holds captures of the HIL dense suite taken on a V5, one
-directory per firmware commit, named `board_<commit hash>`. None is checked in
-yet: until one is, `lab.py run` ends with "not verified against a board".
+directory per firmware commit, named `board_<commit hash>`. While none of
+them has passed for the harness as it is now, `lab.py run` ends with "not
+verified against a board".
+
+`board_0621e4f44e23` (2026-11-21) passes. Its `board_live_config.txt` is the
+terminal's `~` print taken right after the run: the settings in RAM, which
+are not always the ones in `config.txt` (`top_oled.enabled` is 1 there and 0
+in the file, and that difference is what the first comparison tripped on).
+The board was rebooted by the upload, not by pulling its power.
 
 ## Before the run
 
@@ -43,6 +50,11 @@ yet: until one is, `lab.py run` ends with "not verified against a board".
    ```bash
    JL_ROUTING_SNAP_DIR=tools/routing_lab/fidelity/board_<hash> python3 test/hil/test_routing_dense.py
    ```
+
+   Then, before anything reboots the board, save what the terminal prints
+   for `~` (the live config) into the capture directory as
+   `board_live_config.txt`. The comparison does not read it; whoever chases
+   a mismatch will.
 
 5. Compare:
 

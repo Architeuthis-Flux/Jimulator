@@ -153,14 +153,34 @@ reported apart from routing misses:
 
 A pair given twice is one bridge, merged as the firmware's loader merges it.
 
+## Checked against a board
+
+On 2026-11-21 a V5 was flashed with this tree's firmware (commit 0621e4f,
+whose `src/` is main's 5374d38) and ran the HIL dense suite with captures on
+(`fidelity/board_0621e4f44e23/`; the suite passed, 78 checks). The harness
+routes all 21 cases as the board did: every path row, every chip-status
+claim, every closed crosspoint.
+
+The first comparison failed, on one thing. A board that has booted has run
+`oled.init()` (`top_oled.connect_on_boot` defaults to 1), and that sets
+`top_oled.enabled` in RAM whether or not a panel answers, while
+`config.txt` can still say 0. From then on the probe feed's GPIO scan skips
+the OLED's GPIO 7 and 8, so with DAC0 outside the probe window the feed sits
+on GPIO 6. The harness had booted with the OLED off and put it on GPIO 8.
+It now boots as the board does. No routed count and no finding below
+changed with it.
+
+The pass is recorded for the harness as it is (`verified.json` holds its
+hash). Change anything under `harness/` and `lab.py run` says "not verified
+against a board" again until `lab.py fidelity <capture>` is re-run, which
+needs no board while the capture's commit still describes the router.
+`fidelity/README.md` has the bench procedure for a new capture.
+
 ## What it does not check
 
-- **Not verified against a board yet.** The harness matches the sweep
-  ledger's numbers, but the crosspoint-for-crosspoint comparison against a
-  board capture has not been run. `fidelity/README.md` has the one bench run
-  it needs; `lab.py fidelity <capture>` then does the comparison and records
-  the pass. `lab.py run` says "not verified against a board" until a pass is
-  recorded for the harness as it is now.
+- **Only the dense suite, on one board, under default settings.** The
+  comparison covers the 21 dense cases, with the top OLED unlocked, the
+  serial lock off and DAC0 at 0 V. Other settings were not compared.
 - **Sense taps against a board.** The taps column comes from the firmware's
   own planner, but a board capture holds no tap routes, so the fidelity
   comparison does not cover it. The list of scanned nodes is a hand copy of
@@ -175,7 +195,7 @@ A pair given twice is one bridge, merged as the firmware's loader merges it.
   (crossbars on a sub-sheet, for instance) may light less than it should;
   the fabric tab does not depend on it.
 
-## Findings so far (router at 5374d38, host only)
+## Findings so far (router at 5374d38, from the host harness)
 
 Full battery, 2,247 cases: no short, stray, crash or hang. Every primary of
 every `typical`, `fuzz` and `stress` case routes.

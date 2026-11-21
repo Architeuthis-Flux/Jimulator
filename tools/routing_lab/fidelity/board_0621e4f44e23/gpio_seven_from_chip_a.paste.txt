@@ -1,0 +1,25 @@
+
+Applying state...
+[infra] probe_power: no viable candidate (all resources claimed)
+State applied successfully!
+78
+
+		Menu
+
+	h = help, or [command]?
+
+	m = show this menu
+	e = show extra options (0)
+	n = show net list
+
+	K = click menu
+	`/~ = edit / print config
+	p = microPython REPL
+	> = send Python formatted command
+	/ = show filesystem / run script
+	U/u = enable/disable USB Mass Storage
+
+	x = clear all connections
+	+ = add connections
+	- = remove connections
+

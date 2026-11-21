@@ -1,0 +1,58 @@
+b
+
+pathDuplicates: 2
+dacDuplicates: 0
+railsDuplicates: 3
+gpioDuplicates: 0
+adcDuplicates: 0
+
+Bridge Array
+
+0  [D0,1,Net 6],        1  [D1,2,Net 7],        2  [D2,3,Net 8],        3  [D3,4,Net 9],        
+4  [D4,5,Net 10],       5  [D5,6,Net 11],       6  [A0,15,Net 12],      7  [A1,16,Net 13],      
+8  [A2,17,Net 14],      9  [A3,18,Net 15],      10 [A4,19,Net 16],      11 [A5,20,Net 17],      
+12 [BUF_IN,GP_6,Net 18],
+
+
+Paths
+numberOfPaths: 13
+numberOfNets: 19
+
+path	net	node1	chip0	x0	y0	node2	chip1	x1	y1	altPath	sameChp	dup	pathType	chip2	x2	y2
+0	18	BUF_IN	K	2	1	GP_6	L	9	1	1	1	0	NANO to SF 	K 	12 	1 	14 	1 	L 	 
+1	6	1	A	1	1	D0	J	0	0	0	0	0	BB to NANO 
+2	7	2	A	0	2	D1	I	1	0	0	0	0	BB to NANO 
+3	8	3	A	2	3	D2	J	2	1	0	0	0	BB to NANO 	B 	0 	0 	3 	0 	B 	 
+4	9	4	A	6	4	D3	I	3	3	0	0	0	BB to NANO 	D 	0 	0 	6 	0 	D 	 
+5	10	5	A	8	5	D4	J	4	4	0	0	0	BB to NANO 	E 	0 	0 	9 	0 	E 	 
+6	11	6	A	10	6	D5	I	5	5	0	0	0	BB to NANO 	F 	0 	0 	10 	0 	F 	 
+7	12	15	C	4	1	A0	I	0	2	0	0	0	BB to NANO 
+8	13	16	C	5	2	A1	J	1	2	0	0	0	BB to NANO 
+9	14	17	C	12	3	A2	I	2	6	0	0	0	BB to NANO 	G 	4 	0 	12 	0 	G 	 
+10	15	18	C	14	4	A3	J	3	7	0	0	0	BB to NANO 	H 	4 	0 	15 	0 	H 	 
+11	16	19	C	13	5	A4	I	4	1	0	1	0	BB to NANO 	K 	13 	2 	14 	1 	I 	 
+12	17	20	C	9	6	A5	J	5	3	0	1	0	BB to NANO 	L 	13 	2 	12 	3 	J 	 
+
+duplicates
+
+
+Chip Status
+
+chip	0    1    2    3    4    5    6    7    8    9    10   11   12   13   14   15		0    1    2    3    4    5    6    7
+A	7    6    8    .    .    .    9    .    10   .    11   .    .    .    .    .    	.    6    7    8    9    10   11   .     
+B	8    .    16   8    .    .    .    .    .    .    .    18   .    .    .    18   	8    .    .    .    .    .    .    .     
+C	.    .    .    .    12   13   .    .    .    17   .    .    14   16   15   .    	.    12   13   14   15   16   17   .     
+D	9    .    .    .    .    .    9    17   .    .    .    .    .    .    .    .    	9    .    .    .    .    .    .    .     
+E	10   .    .    .    .    .    .    .    .    10   .    .    .    .    .    .    	10   .    .    .    .    .    .    .     
+F	11   .    .    .    .    .    .    .    .    .    11   .    .    .    .    .    	11   .    .    .    .    .    .    .     
+G	.    .    .    .    14   .    .    .    .    .    .    .    14   .    .    .    	14   .    .    .    .    .    .    .     
+H	.    .    .    .    15   .    .    .    .    .    .    .    .    .    .    15   	15   .    .    .    .    .    .    .    
+
+chip	0    1    2    3    4    5    6    7    8    9    10   11   12   13   14   15		0    1    2    3    4    5    6    7 
+I	12   7    14   9    16   11   .    .    .    .    .    .    .    .    16   .    	7    16   12   9    .    11   14   .     
+J	6    13   8    15   10   17   .    .    .    .    .    .    17   .    .    .    	6    8    13   17   10   .    .    15    
+K	.    .    18   .    .    .    .    .    .    .    .    .    18   16   .    .    	.    18   16   .    .    .    .    .     
+L	.    .    .    .    .    .    .    .    .    18   .    .    .    17   18   .    	.    18   17   .    .    .    .    .     
+
+
+

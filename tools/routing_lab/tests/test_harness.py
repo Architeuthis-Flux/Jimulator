@@ -31,6 +31,16 @@ class Harness(unittest.TestCase):
         self.assertTrue(v.ok(), v.problems)
         self.assertEqual((m["primaries"], m["routed_primaries"]), (2, 2))  # 1-8 plus the probe feed
 
+    def test_the_probe_feed_leaves_the_top_oleds_gpios_alone_as_a_booted_board_does(self):
+        # With DAC0 outside the probe window the feed falls to a GPIO, scanned 8 down to 1. A board that has
+        # booted has run oled.init() (connect_on_boot defaults to 1), which sets top_oled.enabled and so keeps
+        # the OLED's GPIO 7 and 8 out of that scan: the feed is GPIO 6 (node 136). Seen on a V5, 2026-11-21.
+        feed = lambda p: [(a, c) for a, c, _ in rc.parse_bridge_array(section(p.stdout, "b")) if 139 in (a, c)]
+        zero_dac = CASE.replace("power 0 0 3.33 0", "power 0 0 0 0")
+        self.assertEqual(feed(run(zero_dac % "bridge 1 8 -1\n")), [(139, 136)])
+        self.assertEqual(feed(run(zero_dac % "bridge 1 136 -1\n")), [(139, 135)])       # GPIO 6 taken: on to 5
+        self.assertEqual(feed(run(CASE % "bridge 1 8 -1\n")), [(139, 106)])             # DAC0 in the window: DAC0
+
     def test_forbidden_and_degenerate_bridges_are_rejected_not_routed(self):
         p = run(CASE % "bridge 100 101 -1\nbridge 5 5 -1\nbridge 61 2 -1\nbridge 1 8 -1\n")
         self.assertEqual(p.returncode, 0, p.stderr)

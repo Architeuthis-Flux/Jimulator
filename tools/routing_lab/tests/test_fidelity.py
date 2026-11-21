@@ -138,8 +138,10 @@ class Fidelity(unittest.TestCase):
         self.assertIn("gnd_spread", out.getvalue())
 
     def test_run_says_when_no_board_capture_exists(self):
+        from unittest import mock
         out = io.StringIO()
-        with contextlib.redirect_stdout(out):
+        # an empty place to look: the real fidelity/ may hold a capture that passed
+        with mock.patch.object(lab, "FIDELITY_DIR", self.tmp / "none"), contextlib.redirect_stdout(out):
             lab.main(["run", "--classes", "dense", "--case", "chain_all_chips"])
         self.assertIn("not verified against a board", out.getvalue())
 

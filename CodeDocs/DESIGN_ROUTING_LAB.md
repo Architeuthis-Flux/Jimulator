@@ -8,6 +8,11 @@ r7 sheet draws its breadboard-to-breadboard lanes as buses and nearly
 everything else as a label on the pin, so the sheet view follows buses and
 lights labels and pin ends, not long wires.
 
+The fidelity gate passed on 2026-11-21 against a V5 (21 of 21 dense cases
+identical), after one correction: a booted board has `top_oled.enabled` set
+in RAM, which moves the probe feed from GPIO 8 to GPIO 6. The tools README,
+"Checked against a board", has the account.
+
 ## Why
 
 A change to the V5 router can only be judged today with a board on the bench

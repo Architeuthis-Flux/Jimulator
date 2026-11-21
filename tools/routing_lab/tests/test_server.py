@@ -121,7 +121,9 @@ class Server(unittest.TestCase):
         self.assertEqual(info["variants"][0], {"spec": "worktree", "name": "worktree"})
         self.assertEqual(info["ohms"], 60)
         self.assertIn("A", info["fabric"]["chips"])
-        self.assertIs(info["verified"], False)
+        self.assertIn(info["verified"], (True, False))                  # True once a board capture has passed
+        with mock.patch.object(server.lab, "FIDELITY_DIR", server.LAB / "no-captures-here"):
+            self.assertIs(self.c.get("/api/info").json["verified"], False)
         self.assertIn(info["sheet"], (True, False))
 
     def test_page_files_are_served_and_parse(self):
