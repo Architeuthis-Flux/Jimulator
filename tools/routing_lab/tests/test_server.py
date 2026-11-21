@@ -3,6 +3,7 @@ import contextlib
 import http.client
 import json
 import os
+import subprocess
 import threading
 import unittest
 from unittest import mock
@@ -122,6 +123,25 @@ class Server(unittest.TestCase):
         self.assertIn("A", info["fabric"]["chips"])
         self.assertIs(info["verified"], False)
         self.assertIn(info["sheet"], (True, False))
+
+    def test_page_files_are_served_and_parse(self):
+        for path, kind in (("/lab.js", "javascript"), ("/lab.css", "css")):
+            r = self.c.get(path, token=None)
+            self.assertEqual(r.status, 200, path)
+            self.assertIn(kind, r.headers["Content-Type"])
+        self.assertEqual(subprocess.run(["node", "--check", str(server.WEB_DIR / "lab.js")]).returncode, 0)
+        page = self.c.get("/", token=None).body
+        self.assertNotRegex(page, r'(src|href)="https?://')          # nothing from the network
+        for anchor in ('id="battery"', 'id="fabric"', 'id="case"', 'id="build-error"'):
+            self.assertIn(anchor, page)
+        for text in (self.c.get("/lab.js", token=None).body, self.c.get("/lab.css", token=None).body):
+            self.assertNotRegex(text, r"https?://(?!www\.w3\.org/)")  # only the SVG namespace
+
+    def test_info_names_every_node(self):
+        nodes = self.c.get("/api/info").json["nodes"]
+        self.assertEqual(nodes["1"], {"wire": "1", "name": "1"})
+        self.assertEqual(nodes["131"], {"wire": "GPIO_20", "name": "GPIO_1"})
+        self.assertEqual(nodes["100"]["wire"], "GND")
 
     def test_run_and_case(self):
         r = self.c.post("/api/run", {"variant": "worktree", "baseline": None, "classes": ["dense"]}).json

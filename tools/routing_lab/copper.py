@@ -19,7 +19,7 @@ if str(HIL) not in sys.path:
     sys.path.insert(0, str(HIL))
 
 import routing_check as rc                                              # noqa: E402
-from fabric_v5 import BOUNCE, CHIPS, LANES, NODE_NET, X_NET, Y_NET      # noqa: E402
+from fabric_v5 import BOUNCE, CHIPS, LANES, NODE_NAME, NODE_NET, X_NET, Y_NET      # noqa: E402
 
 HUBS = {"IJ", "IK", "IL", "JK", "JL", "KL"}
 RAIL_NODES = (100, 101, 102)                # GND, TOP_RAIL, BOTTOM_RAIL
@@ -92,6 +92,23 @@ def effective_resistance(edges, a, b):
     return round(v[index[a]], 6)
 
 
+def _pin_mark(w, claim, closed_here):
+    """How a pin's claim sits with the copper, by the checker's own rules.
+    "mismatch": the wire carries one net and this pin is claimed for another
+    (WRONG CLAIM), or is free although a crosspoint is closed on it
+    (UNCLAIMED X/Y), or is the free far end of a lane a net rides (UNCLAIMED
+    WIRE: another net could close onto it). "held": claimed, but no net rides
+    the wire (a reservation, a culled duplicate's leftover, a blocked pin)."""
+    riding = w["nets"]
+    if len(riding) == 1:
+        if claim is not None:
+            return None if claim == riding[0] else "mismatch"
+        return "mismatch" if closed_here or w["kind"] in ("lane", "hub", "bounce") else None
+    if not riding and claim is not None:
+        return "held"
+    return None
+
+
 def _empty(result):
     return {"nets": {}, "crosspoints": [], "wires": {}, "bridges": [], "problems": list(result.get("problems", [])),
             "notes": list(result.get("notes", [])), "status": result.get("status"), "stderr": result.get("stderr", "")}
@@ -122,6 +139,7 @@ def paint(result):
             riding.setdefault(w, set()).add(c["net"])
         edges.setdefault(c["net"], []).append((wx, wy))
 
+    closed_pins = {(c["chip"], "X", c["x"]) for c in crosspoints} | {(c["chip"], "Y", c["y"]) for c in crosspoints}
     wires = {}
     for chip in CHIPS:
         xs, ys = status.get(chip, ([None] * 16, [None] * 8))
@@ -129,7 +147,8 @@ def paint(result):
             for pin, claim in enumerate(claims):
                 name = wire(chip, axis, pin)
                 w = wires.setdefault(name, {"kind": wire_kind(name), "nets": sorted(riding.get(name, ())), "pins": []})
-                w["pins"].append({"chip": chip, "axis": axis, "pin": pin, "claim": claim})
+                w["pins"].append({"chip": chip, "axis": axis, "pin": pin, "claim": claim,
+                                  "mark": _pin_mark(w, claim, (chip, axis, pin) in closed_pins)})
 
     array = rc.parse_bridge_array(b)                # the bridges the firmware put in a net
     nets = {}

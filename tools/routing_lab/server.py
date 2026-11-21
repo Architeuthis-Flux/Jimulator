@@ -187,9 +187,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
     # --- API -----------------------------------------------------------------------
     def api_get_info(self, query, body):
         named = [{"spec": t, "name": os.path.basename(t)} for t in self.server.trees]
+        nodes = {str(n): {"wire": wire, "name": copper.NODE_NAME.get(n, str(n))}
+                 for n, wire in copper.NODE_NET.items()}
         return {"classes": lab.CLASSES, "variants": [{"spec": "worktree", "name": "worktree"}] + named,
                 "verified": lab.verified_against_a_board(), "ohms": 60, "fabric": fabric_view.layout(),
-                "sheet": (SHEET_DIR / "overlay.json").is_file()}
+                "nodes": nodes, "sheet": (SHEET_DIR / "overlay.json").is_file()}
 
     def api_post_run(self, query, body):
         classes = body.get("classes") or ["dense", "real"]

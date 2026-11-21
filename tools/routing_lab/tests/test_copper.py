@@ -54,6 +54,19 @@ class Copper(unittest.TestCase):
         self.assertEqual(p["status"], "ok")
         self.assertTrue([x for x in p["bridges"] if x["infra"]])                        # the probe feed is there, marked
 
+    def test_pin_marks(self):
+        marks = lambda p: {(pin["chip"], pin["axis"], pin["pin"]): pin["mark"]
+                           for w in p["wires"].values() for pin in w["pins"] if pin["mark"]}
+        clean = copper.paint(runner.run_case(BIN, cases.Case("t", "x", [(1, 8, 0)])))
+        self.assertNotIn("mismatch", marks(clean).values())
+        # a path that fails late keeps its claims (sweep finding F7): held pins, claimed with no copper
+        over = [c for c in cases.dense_cases() if c.name == "k_rows_overflow_metric"][0]
+        self.assertIn("held", marks(copper.paint(runner.run_case(BIN, over))).values())
+        # the router's own finding: a duplicate closes A.X0 without claiming it
+        import generators
+        fuzz = [c for c in generators.fuzz() if c.name == "fuzz_1_1"][0]
+        self.assertEqual(marks(copper.paint(runner.run_case(BIN, fuzz)))[("A", "X", 0)], "mismatch")
+
     def test_copies_lower_the_resistance(self):
         one = copper.paint(runner.run_case(BIN, cases.Case("t", "x", [(1, 8, 0)])))
         three = copper.paint(runner.run_case(BIN, cases.Case("t", "x", [(1, 8, 2)])))

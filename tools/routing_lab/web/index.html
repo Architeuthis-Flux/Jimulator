@@ -2,10 +2,57 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Routing lab</title>
+<link rel="stylesheet" href="lab.css">
 <script>window.LAB_TOKEN = "__LAB_TOKEN__";</script>
 </head>
 <body>
-<p>Routing lab. The page is not built yet.</p>
+<main>
+  <section id="left">
+    <h1>Routing lab</h1>
+    <form id="controls">
+      <label>Router <input id="variant" list="variant-list" value="worktree" spellcheck="false" autocomplete="off"></label>
+      <label>Baseline <input id="baseline" list="variant-list" placeholder="none" spellcheck="false" autocomplete="off"></label>
+      <datalist id="variant-list"></datalist>
+      <div id="classes"></div>
+      <div class="row">
+        <button id="run" type="submit">Run</button>
+        <label class="inline">ohms per crosspoint <input id="ohms" type="number" min="1" step="1" value="60"></label>
+      </div>
+      <p id="verified" hidden>not verified against a board</p>
+      <p id="exported" hidden></p>
+    </form>
+    <div id="build-error" hidden></div>
+    <div id="regressions" hidden></div>
+    <div id="filters">
+      <label><input id="filter-unclean" type="checkbox"> not clean</label>
+      <label><input id="filter-changed" type="checkbox"> changed from baseline</label>
+      <span id="busy" hidden>running...</span>
+    </div>
+    <div id="battery"></div>
+  </section>
+
+  <section id="centre">
+    <nav id="tabs">
+      <button type="button" data-tab="fabric" class="on">Fabric</button>
+      <button type="button" data-tab="sheet">KiCad sheet</button>
+      <span id="view-title"></span>
+      <span id="legend">
+        <span class="key"><i class="dot"></i> closed</span>
+        <span class="key"><i class="dot hollow"></i> duplicate path</span>
+        <span class="key"><i class="ring"></i> claim does not match copper</span>
+        <span class="key"><i class="dash"></i> unrouted</span>
+        <span class="key"><i class="dash grey"></i> firmware said no</span>
+      </span>
+    </nav>
+    <div id="fabric" class="view"></div>
+    <div id="sheet" class="view" hidden></div>
+    <div id="tip" hidden></div>
+  </section>
+
+  <section id="case"><p class="hint">Run a battery, then pick a case.</p></section>
+</main>
+<script src="lab.js"></script>
 </body>
 </html>
