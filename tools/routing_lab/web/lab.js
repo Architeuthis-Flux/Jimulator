@@ -359,6 +359,7 @@ async function selectCase(name) {
   $("view-title").textContent = name + "   " + state.run.variant.name
     + (base ? "   against " + state.run.baseline.name : "");
   renderCase();
+  drawSheet(state.current.paint);
   drawFabric(state.current.paint, base && base.paint);
 }
 
@@ -450,7 +451,8 @@ function renderCase() {
 
 // ---------------------------------------------------------------- pan, zoom, hover
 
-function panZoom(view, full) {
+// full: the box a double-click returns to; widest: how far out the wheel may go
+function panZoom(view, full, widest = full[2] * 1.5) {
   let box = full.slice();
   const apply = () => view.setAttribute("viewBox", box.join(" "));
   const scale = () => {
@@ -467,7 +469,7 @@ function panZoom(view, full) {
     event.preventDefault();
     const [x, y] = at(event);
     const k = event.deltaY < 0 ? 0.85 : 1 / 0.85;
-    if (box[2] * k > full[2] * 1.5 || box[2] * k < full[2] / 60) return;
+    if (box[2] * k > widest || box[2] * k < full[2] / 60) return;
     box = [x - (x - box[0]) * k, y - (y - box[1]) * k, box[2] * k, box[3] * k];
     apply();
   }, { passive: false });
@@ -679,6 +681,117 @@ function drawFabric(paint, base) {
   applyIsolation();
 }
 
+// ---------------------------------------------------------------- the KiCad sheet view
+//
+// The board's own schematic as the backdrop, and over it, in the sheet's
+// millimetres: the wires and labels of each net-carrying piece of copper, and
+// each closed crosspoint as a curve inside its chip from the X pin to the Y pin.
+
+const sheet = { data: null, live: null };
+
+async function drawSheetBase() {
+  let why = "The KiCad sheet is not part of an exported page.";
+  if (!STATIC) {
+    why = "The KiCad sheet has not been built. Build it once with:\n\n    python3 tools/routing_lab/lab.py sheet"
+      + "\n\nand reload. The fabric view needs nothing.";
+    if (state.info.sheet) {
+      try { sheet.data = await api("/api/sheet"); } catch (err) { why = err.message; }
+    }
+  }
+  if (!sheet.data) {
+    $("sheet").replaceChildren(el("pre", { class: "hint", style: "padding:16px; white-space:pre-wrap", text: why }));
+    return;
+  }
+  const s = sheet.data;
+  const view = svg("svg", { id: "sheet-svg", preserveAspectRatio: "xMidYMid meet" });
+  sheet.live = svg("g", {});
+  view.append(svg("image", { href: "sheet/backdrop.svg", x: 0, y: 0, width: s.size[0], height: s.size[1],
+    class: s.theme ? null : "light" }), sheet.live);
+  $("sheet").replaceChildren(view);
+  const bodies = Object.values(s.bodies);                    // a double-click fits the crossbar blocks
+  const x0 = Math.min(...bodies.map((b) => b[0])) - 40;
+  const y0 = Math.min(...bodies.map((b) => b[1])) - 30;
+  const x1 = Math.max(...bodies.map((b) => b[2])) + 50;
+  const y1 = Math.max(...bodies.map((b) => b[3])) + 20;
+  panZoom(view, bodies.length ? [x0, y0, x1 - x0, y1 - y0] : [0, 0, s.size[0], s.size[1]], s.size[0] * 1.2);
+}
+
+function sheetDot(cls, [x, y], attrs) {                      // a dot that stays one size on screen
+  return svg("path", Object.assign({ class: cls, d: "M" + x + " " + y + "l0.001 0" }, attrs));
+}
+
+function drawSheet(paint) {
+  const s = sheet.data;
+  if (!s) return;
+  sheet.live.replaceChildren();
+  if (!paint) return;
+  const copper = svg("g", {});
+  const curves = svg("g", {});
+  const marks = svg("g", {});
+
+  for (const [name, w] of Object.entries(paint.wires)) {
+    const drawn = s.nets[name] || { segments: [], labels: [] };
+    if (w.nets.length) {
+      const short = w.nets.length > 1;
+      const look = short ? {} : { stroke: netColour(w.nets[0]), "data-net": w.nets[0] };
+      const parts = drawn.segments.map(([ax, ay, bx, by]) => svg("path",
+        Object.assign({ class: "s-wire" + (short ? " short" : ""), d: "M" + ax + " " + ay + "L" + bx + " " + by }, look)));
+      const points = new Map();                              // labels and pin ends, once each
+      for (const p of drawn.labels) points.set(p.join(","), p);
+      for (const pin of w.pins) {
+        const p = s.pins[pin.chip + "." + pin.axis + pin.pin];
+        if (p) points.set(p.join(","), p);
+      }
+      for (const p of points.values()) parts.push(sheetDot("s-tag" + (short ? " short" : ""), p, look));
+      for (const part of parts) {
+        hover(part, () => wireTip(name));
+        if (!short) part.addEventListener("click", () => isolate(w.nets[0]));
+        copper.append(part);
+      }
+    }
+    for (const pin of w.pins) {
+      const p = pin.mark && s.pins[pin.chip + "." + pin.axis + pin.pin];
+      if (!p) continue;
+      if (pin.mark === "mismatch") {
+        const ring = svg("circle", { class: "s-ring", cx: p[0], cy: p[1], r: 2.2 });
+        hover(ring, () => wireTip(name));
+        marks.append(ring);
+      } else {                                               // held: claimed, but no net rides the wire
+        marks.append(svg("rect", { class: "s-held", x: p[0] - 0.9, y: p[1] - 0.9, width: 1.8, height: 1.8,
+          stroke: netColour(pin.claim), "data-net": pin.claim }));
+      }
+    }
+  }
+
+  for (const c of paint.crosspoints) {
+    const a = s.pins[c.chip + ".X" + c.x];
+    const b = s.pins[c.chip + ".Y" + c.y];
+    const body = s.bodies[c.chip];
+    if (!a || !b || !body) continue;
+    // bow into the body, away from the side the pins leave it on
+    const width = body[2] - body[0];
+    const deep = a[0] > (body[0] + body[2]) / 2 ? body[0] + width * 0.15 : body[2] - width * 0.15;
+    const curve = svg("path", { class: "s-curve" + (c.dup ? " dup" : ""), stroke: netColour(c.net), "data-net": c.net,
+      d: "M" + a[0] + " " + a[1] + "C" + deep + " " + a[1] + " " + deep + " " + b[1] + " " + b[0] + " " + b[1] });
+    hover(curve, () => c.chip + "  x" + c.x + " y" + c.y + "\nnet " + netLabel(c.net) + ", path " + c.path
+      + (c.dup ? " (a duplicate)" : ""));
+    curve.addEventListener("click", () => isolate(c.net));
+    curves.append(curve);
+  }
+
+  for (const b of paint.bridges) {                           // what was asked for and is not there
+    if (b.state === "routed") continue;
+    for (const node of [b.n1, b.n2]) {
+      const known = state.info.nodes[String(node)];
+      for (const p of (known && s.nets[known.wire] ? s.nets[known.wire].labels : [])) {
+        marks.append(svg("circle", { class: "s-want", cx: p[0], cy: p[1], r: 2.4,
+          stroke: b.state === "unrouted" ? netColour(b.net) : GREY }));
+      }
+    }
+  }
+  sheet.live.append(curves, copper, marks);
+}
+
 // ---------------------------------------------------------------- starting
 
 function showTab(name) {
@@ -701,7 +814,7 @@ async function start() {
       el("input", { type: "checkbox", value: name, checked: ["dense", "real", "stress"].includes(name) ? "" : null }), name));
   }
   drawFabricBase();
-  $("sheet").append(el("p", { class: "hint", style: "padding:16px", text: "The KiCad sheet view is not built yet." }));
+  await drawSheetBase();
 
   $("controls").addEventListener("submit", (event) => { event.preventDefault(); runBattery(); });
   $("ohms").addEventListener("input", () => {

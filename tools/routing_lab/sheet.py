@@ -11,7 +11,9 @@ Like test/hil/fabric_v5.py this is derived from the schematic, not from the
 firmware's tables. Net names come from fabric_v5, so the two agree by
 construction on what a net is called.
 """
+import heapq
 import json
+import math
 import re
 import shutil
 import subprocess
@@ -217,7 +219,61 @@ def overlay(sch_path):
         name = name_of.get(g) if g is not None else pin_wire.get(p, text)
         if name in fabric_names:
             nets.setdefault(name, {"segments": [], "labels": []})["labels"].append(list(p))
+    _follow_buses(tree, nets)
     return {"size": size, "nets": nets, "pins": pins, "bodies": bodies}
+
+
+def _follow_buses(tree, nets):
+    """r7 draws its breadboard-to-breadboard lanes as stubs that enter a shared
+    bus. Adds to each such net its bus entries and the stretch of bus between
+    them, so the lane is drawn from chip to chip."""
+    at_point = {}                                   # a point on a net's copper or label -> the net
+    for name, n in nets.items():
+        for s in n["segments"]:
+            at_point[(s[0], s[1])] = at_point[(s[2], s[3])] = name
+        for p in n["labels"]:
+            at_point[tuple(p)] = name
+    entries = {}                                    # net -> [(its wire's end, the bus end)]
+    for e in _all(tree, "bus_entry"):
+        at, size = _one(e, "at"), _one(e, "size")
+        a = (_num(at[1]), _num(at[2]))
+        b = (_num(float(at[1]) + float(size[1])), _num(float(at[2]) + float(size[2])))
+        for wire_end, bus_end in ((a, b), (b, a)):
+            if wire_end in at_point:
+                entries.setdefault(at_point[wire_end], []).append((wire_end, bus_end))
+                break
+    buses = []
+    for bus in _all(tree, "bus"):
+        pts = _all(_one(bus, "pts"), "xy")
+        buses.append((_num(pts[0][1]), _num(pts[0][2]), _num(pts[1][1]), _num(pts[1][2])))
+    # the buses as a graph, each segment cut wherever another bus ends on it or an entry lands on it
+    stops = {p for s in buses for p in ((s[0], s[1]), (s[2], s[3]))} | {b for es in entries.values() for _, b in es}
+    graph = {}
+    for s in buses:
+        along = sorted((p for p in stops if _on_segment(p, s)),
+                       key=lambda p: (p[0] - s[0]) * (s[2] - s[0]) + (p[1] - s[1]) * (s[3] - s[1]))
+        for p, q in zip(along, along[1:]):
+            graph.setdefault(p, []).append((q, math.dist(p, q)))
+            graph.setdefault(q, []).append((p, math.dist(p, q)))
+    for name, found in entries.items():
+        segments = nets[name]["segments"]
+        segments.extend([*wire_end, *bus_end] for wire_end, bus_end in found)
+        start = found[0][1]                         # shortest way along the bus from the first entry to each other
+        best, before, heap = {start: 0.0}, {}, [(0.0, start)]
+        while heap:
+            d, p = heapq.heappop(heap)
+            if d > best[p]:
+                continue
+            for q, step in graph.get(p, ()):
+                if d + step < best.get(q, math.inf):
+                    best[q], before[q] = d + step, p
+                    heapq.heappush(heap, (d + step, q))
+        walked = set()
+        for _, goal in found[1:]:
+            while goal in before and (before[goal], goal) not in walked:
+                walked.add((before[goal], goal))
+                segments.append([*before[goal], *goal])
+                goal = before[goal]
 
 
 def kicad_cli():
@@ -247,6 +303,8 @@ def build(sch_path=DEFAULT_SCH, theme=None):
             raise SheetUnavailable("kicad-cli could not plot the sheet: %s" % (p.stderr.strip() or p.stdout.strip()))
         SHEET_DIR.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(plotted, SHEET_DIR / "backdrop.svg")
+    data = overlay(sch_path)
+    data["theme"] = theme           # None: KiCad's own light theme, which the page shows inverted on its dark ground
     with open(SHEET_DIR / "overlay.json", "w") as f:
-        json.dump(overlay(sch_path), f)
+        json.dump(data, f)
     return SHEET_DIR

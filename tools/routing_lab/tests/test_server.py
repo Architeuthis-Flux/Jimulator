@@ -214,6 +214,14 @@ class Server(unittest.TestCase):
         for anchor in ('id="live"', 'id="uploads"', 'id="compare"'):
             self.assertIn(anchor, page)
 
+    def test_the_page_draws_the_sheet(self):
+        self.assertIn('id="sheet"', self.c.get("/", token=None).body)
+        js = self.c.get("/lab.js", token=None).body
+        for used in ("/api/sheet", "sheet/backdrop.svg"):
+            self.assertIn(used, js)
+        self.assertNotIn("not built yet", js)                          # the placeholder is gone
+        self.assertEqual(subprocess.run(["node", "--check", str(server.WEB_DIR / "lab.js")]).returncode, 0)
+
     def test_watch_reports_the_tree_hash(self):
         self.assertEqual(self.c.get("/api/watch?spec=worktree").json["hash"], variants.resolve("worktree").hash)
 

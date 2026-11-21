@@ -83,7 +83,21 @@ table.battery { border-collapse: collapse; width: 100%; }
 .held { fill: none; stroke-width: 1; opacity: .75; }
 .mismatch { fill: none; stroke: var(--problem); stroke-width: 2; }
 svg.isolating .wire.live:not(.iso), svg.isolating .xp:not(.iso), svg.isolating .pad.live:not(.iso),
-svg.isolating .held:not(.iso) { opacity: .12; }
+svg.isolating .held:not(.iso), svg.isolating .s-wire:not(.iso), svg.isolating .s-tag:not(.iso),
+svg.isolating .s-curve:not(.iso), svg.isolating .s-held:not(.iso) { opacity: .12; }
+
+/* the KiCad sheet: positions are sheet millimetres, strokes keep their width on screen at any zoom */
+#sheet image { opacity: .55; }                                /* the sheet is the ground, the routing is the figure */
+#sheet image.light { filter: invert(1) hue-rotate(180deg); }  /* KiCad's light theme, turned dark with its hues kept */
+.s-wire, .s-tag, .s-curve, .s-ring, .s-held, .s-want { fill: none; vector-effect: non-scaling-stroke; }
+.s-wire { stroke-width: 3; stroke-linecap: round; }
+.s-tag { stroke-width: 7; stroke-linecap: round; }
+.s-wire.short, .s-tag.short { stroke: var(--problem); }
+.s-curve { stroke-width: 1.8; }
+.s-curve.dup { stroke-dasharray: 5 3; }
+.s-ring { stroke: var(--problem); stroke-width: 2; fill: rgba(255, 82, 82, .25); }
+.s-held { stroke-width: 1.5; }
+.s-want { stroke-width: 1.6; stroke-dasharray: 3 2; }
 
 #tip { position: absolute; pointer-events: none; background: #0f1017; border: 1px solid var(--line); border-radius: 4px;
   padding: 5px 8px; max-width: 340px; white-space: pre-wrap; z-index: 5; }

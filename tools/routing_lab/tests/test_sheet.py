@@ -63,6 +63,30 @@ class Sheet(unittest.TestCase):
         self.assertEqual(o["bodies"], {"A": [90, 90, 110, 110], "B": [190, 90, 210, 110]})
         self.assertNotIn("SOMETHING_ELSE", o["nets"])                                     # not a fabric net
 
+    def test_a_lane_drawn_as_a_bus_is_followed_between_its_two_entries(self):
+        # r7 draws the breadboard-to-breadboard lanes as stubs that enter a shared bus
+        text = MINI.split("  (wire", 1)[0] + '''
+  (wire (pts (xy 115 95) (xy 120 95)))
+  (label "AB0" (at 120 95 0))
+  (bus_entry (at 120 95) (size 2 -2))
+  (bus (pts (xy 122 100) (xy 122 60)))
+  (bus (pts (xy 122 60) (xy 178 60)))
+  (bus (pts (xy 178 60) (xy 178 100)))
+  (bus (pts (xy 122 60) (xy 122 40)))
+  (wire (pts (xy 185 95) (xy 180 95)))
+  (label "AB0" (at 180 95 0))
+  (bus_entry (at 180 95) (size -2 -2)))'''
+        with mock.patch.object(sheet.fabric_v5, "X_NET", {"A": ["/AB0"], "B": ["/AB0"]}), \
+             mock.patch.object(sheet.fabric_v5, "Y_NET", {"A": ["x", "1"], "B": ["x", "8"]}), \
+             mock.patch.object(sheet.fabric_v5, "CHIPS", "AB"):
+            o = sheet.overlay(self.write(text))
+        drawn = {tuple(sorted([(s[0], s[1]), (s[2], s[3])])) for s in o["nets"]["/AB0"]["segments"]}
+        self.assertEqual(drawn, {
+            ((115, 95), (120, 95)), ((180, 95), (185, 95)),                        # the two stubs
+            ((120, 95), (122, 93)), ((178, 93), (180, 95)),                        # the two bus entries
+            ((122, 60), (122, 93)), ((122, 60), (178, 60)), ((178, 60), (178, 93)),  # the bus between them, no more
+        })
+
     @unittest.skipUnless(sheet.DEFAULT_SCH.exists(), "the r7 schematic is not on this machine")
     def test_the_real_sheet(self):
         o = sheet.overlay(sheet.DEFAULT_SCH)
@@ -74,6 +98,9 @@ class Sheet(unittest.TestCase):
         # r7 is drawn with a label on nearly every crossbar pin and few wires between them
         self.assertGreater(sum(len(n["segments"]) for n in o["nets"].values()), 100)
         self.assertGreater(sum(len(n["labels"]) for n in o["nets"].values()), 300)
+        # ... except the 48 breadboard-to-breadboard lanes, each followed along its bus from chip to chip
+        followed = [n for n in fabric_v5.LANES if n.startswith("/") and len(o["nets"][n]["segments"]) >= 7]
+        self.assertEqual(len(followed), 48)
         # the pin transform is right on real data: nearly every crossbar pin ends on a wire end or a label
         ends = {(round(x, 2), round(y, 2)) for n in o["nets"].values()
                 for s in n["segments"] for x, y in ((s[0], s[1]), (s[2], s[3]))}
