@@ -52,10 +52,11 @@ def battery(classes):
 
 
 def fully_routed(result):
-    """Every primary the firmware allowed is routed. A path its safety check
-    refused is the firmware saying no, not the router failing."""
+    """Every primary the firmware allowed is routed, and its copper joins its
+    nodes. A path its safety check refused is the firmware saying no, not the
+    router failing."""
     m = result["metrics"]
-    return (result["status"] in ("ok", "problems") and m["primaries"] > 0
+    return (result["status"] in ("ok", "problems") and m["primaries"] > 0 and not m.get("broken")
             and m["routed_primaries"] + m.get("refused", 0) == m["primaries"])
 
 
@@ -107,7 +108,7 @@ def exit_code(results, case_list, regression_lines):
     for r in results:
         if r["status"] in ("crash", "timeout"):
             return 1
-        if any(p.startswith(("SHORT", "STRAY")) for p in r["problems"]):
+        if any(p.startswith(("SHORT", "STRAY")) for p in r["problems"]) or r["metrics"].get("broken"):
             return 1
         if r["case"] in must and r["problems"]:
             return 1
@@ -116,7 +117,8 @@ def exit_code(results, case_list, regression_lines):
 
 def print_table(v, results, ohms=60.0):
     """One row per class. Primaries say whether everything routed; copies,
-    xpoints and worst ohm are what tell two routers apart once it has."""
+    xpoints and the worst signal bridge's ohms are what tell two routers apart
+    once it has (rail and GND bridges are in the page's own column)."""
     print("variant: %s  (%s)   %g ohm per crosspoint" % (v.name, v.hash[:12], ohms))
     print("%-9s %6s %13s %12s %8s %9s %14s %10s %7s %8s %10s" % (
         "class", "cases", "fully routed", "primaries", "refused", "problems", "crash/timeout", "dead taps",

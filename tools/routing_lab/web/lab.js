@@ -22,6 +22,7 @@ const state = {
   liveTried: null,   // the last tree hash live mode ran, good build or not
   compare: false,    // draw the selected case against the baseline's routing of it
   base: null,        // {result, paint} of the selected case as the baseline routed it
+  picking: 0,        // counts case selections, so a slow answer cannot overwrite a later click
 };
 
 const $ = (id) => document.getElementById(id);
@@ -103,6 +104,16 @@ function nodeName(node) {
   return known ? known.name : String(node);
 }
 
+// a wire drawn red: two nets on it (a short), or a net on a node that is in no net (a stray)
+function wrong(w) {
+  return w.nets.length > 1 || Boolean(w.stray);
+}
+
+// a bridge the router owes: not routed, or listed as routed while its copper does not join
+function failed(b) {
+  return b.state === "unrouted" || b.state === "broken";
+}
+
 function ohmsText(r) {
   return r == null ? "" : String(Math.round(r * state.ohms));
 }
@@ -119,7 +130,7 @@ const COLUMNS = [
     text: (r) => r.metrics.routed_primaries + "/" + (r.metrics.primaries - (r.metrics.refused || 0)) },
   { head: "copies", tip: "routed duplicate paths", better: 1, get: (r) => r.metrics.routed_duplicates },
   { head: "xp", tip: "closed crosspoints", better: 0, get: (r) => r.metrics.crosspoints },
-  { head: "ohm", tip: "worst bridge, ohms", better: -1, get: (r) => r.metrics.worst_r, text: (r) => ohmsText(r.metrics.worst_r) },
+  { head: "ohm", tip: "worst signal bridge, ohms", better: -1, get: (r) => r.metrics.worst_r, text: (r) => ohmsText(r.metrics.worst_r) },
   { head: "rail", tip: "worst bridge to GND or a rail, ohms", better: -1, get: (r) => r.metrics.rail_worst_r, text: (r) => ohmsText(r.metrics.rail_worst_r) },
   { head: "taps", tip: "scanned nodes with no sense-tap route", better: -1, get: (r) => r.metrics.taps_dead.length },
   { head: "prob", tip: "problems the judge found", better: -1, get: (r) => (["crash", "timeout"].includes(r.status) ? 1 : 0) + r.problems.length,
@@ -266,8 +277,17 @@ function installLive() {
     if (!$("live").checked || state.busy || !state.run || Object.keys(state.upload).length) return;
     let hash;
     try { hash = (await api("/api/watch?spec=" + encodeURIComponent(baseSpec()))).hash; } catch (e) { return; }
+    if (state.busy || !state.run || !$("live").checked) return;      // things moved while the question was out
+    if (hash === state.run.variant.hash) {
+      // back at the tree the table shows (a broken edit undone): the error of the failed try is stale
+      if (state.liveTried && state.liveTried !== hash) {
+        $("build-error").hidden = true;
+        state.liveTried = null;
+      }
+      return;
+    }
     // one try per new hash: a tree that does not build is not rebuilt every tick
-    if (hash !== state.run.variant.hash && hash !== state.liveTried) {
+    if (hash !== state.liveTried) {
       state.liveTried = hash;
       await runBattery();
     }
@@ -301,9 +321,11 @@ function renderRegressions() {
 }
 
 async function runBattery() {
+  if (state.busy) return false;     // one run at a time: answers would otherwise land in the order they arrive
   const classes = [...document.querySelectorAll("#classes input:checked")].map((box) => box.value);
   const body = { variant: variantSpec(), baseline: $("baseline").value.trim() || null, classes: classes };
   $("busy").hidden = false;
+  $("run").disabled = true;
   state.busy = true;
   try {
     const data = await api("/api/run", body);
@@ -331,6 +353,7 @@ async function runBattery() {
     return false;
   } finally {
     $("busy").hidden = true;
+    $("run").disabled = false;
     state.busy = false;
   }
 }
@@ -346,9 +369,12 @@ async function caseOf(variant, name) {
 
 async function selectCase(name) {
   if (!state.run) return;
-  const current = await caseOf(state.run.variant, name);
+  const run = state.run;
+  const mine = ++state.picking;
+  const current = await caseOf(run.variant, name);
   // with compare on, the same case as the baseline routed it
-  const base = state.compare && state.run.baseline ? await caseOf(state.run.baseline, name) : null;
+  const base = state.compare && run.baseline ? await caseOf(run.baseline, name) : null;
+  if (run !== state.run || mine !== state.picking) return;     // a newer run or a newer click came first
   state.selected = name;
   state.current = current;
   state.base = base;
@@ -382,7 +408,8 @@ function applyIsolation() {
   }
 }
 
-const STATE_WORDS = { routed: "routed", unrouted: "NOT ROUTED", refused: "refused by the safety check",
+const STATE_WORDS = { routed: "routed", unrouted: "NOT ROUTED", broken: "LISTED AS ROUTED, NOT CONNECTED",
+                      refused: "refused by the safety check",
                       left_out: "left out of every net", rejected: "rejected" };
 
 function renderCase() {
@@ -422,7 +449,7 @@ function renderCase() {
     const routed = b.state === "routed";
     const old = before[b.n1 + "-" + b.n2];
     const oldRouted = old && old.state === "routed";
-    const tr = el("tr", { class: routed ? "" : (b.state === "unrouted" ? "unrouted" : "no") },
+    const tr = el("tr", { class: routed ? "" : (failed(b) ? "unrouted" : "no") },
       el("td", {}, b.net == null ? null : el("span", { class: "swatch", style: "display:inline-block;margin-right:5px;background:" + netColour(b.net) }),
         nodeName(b.n1) + " - " + nodeName(b.n2) + (b.infra ? "  (probe feed)" : ""),
         routed ? null : el("div", { class: "state", text: STATE_WORDS[b.state] }),
@@ -524,7 +551,8 @@ function wireTip(name) {
   const pins = w.pins.map((p) => "  " + p.chip + "." + p.axis + p.pin + "  "
     + (p.claim == null ? "free" : "claimed for " + netLabel(p.claim))
     + (p.mark === "mismatch" ? "   <- does not match the copper" : "")).join("\n");
-  return name + "  (" + w.kind + ")\ncarries: " + riding + (w.nets.length > 1 ? "   SHORT" : "") + "\n" + pins;
+  const fault = w.nets.length > 1 ? "   SHORT" : w.stray ? "   STRAY: this node is in no net" : "";
+  return name + "  (" + w.kind + ")\ncarries: " + riding + fault + "\n" + pins;
 }
 
 // ---------------------------------------------------------------- the fabric view
@@ -628,7 +656,10 @@ function drawFabric(paint, base) {
     const path = fabric.wires[name];
     if (!path) continue;
     const pad = fabric.pads[name];
-    if (w.nets.length === 1) {
+    if (wrong(w)) {
+      path.classList.add("live", "short");
+      if (pad) pad.classList.add("live", "short");
+    } else if (w.nets.length === 1) {
       path.classList.add("live");
       path.style.stroke = netColour(w.nets[0]);
       path.dataset.net = w.nets[0];
@@ -637,8 +668,6 @@ function drawFabric(paint, base) {
         pad.firstChild.style.fill = netColour(w.nets[0]);
         pad.dataset.net = w.nets[0];
       }
-    } else if (w.nets.length > 1) {
-      path.classList.add("live", "short");
     }
     for (const pin of w.pins) {
       if (!pin.mark) continue;
@@ -674,7 +703,7 @@ function drawFabric(paint, base) {
       if (!pad) continue;
       const centre = pad.firstChild;
       pad.append(svg("circle", { class: "want", cx: centre.getAttribute("cx"), cy: centre.getAttribute("cy"), r: 7,
-        stroke: b.state === "unrouted" ? netColour(b.net) : GREY }));
+        stroke: failed(b) ? netColour(b.net) : GREY }));
     }
   }
   if (base) drawCompare(paint, base);
@@ -732,7 +761,7 @@ function drawSheet(paint) {
   for (const [name, w] of Object.entries(paint.wires)) {
     const drawn = s.nets[name] || { segments: [], labels: [] };
     if (w.nets.length) {
-      const short = w.nets.length > 1;
+      const short = wrong(w);
       const look = short ? {} : { stroke: netColour(w.nets[0]), "data-net": w.nets[0] };
       const parts = drawn.segments.map(([ax, ay, bx, by]) => svg("path",
         Object.assign({ class: "s-wire" + (short ? " short" : ""), d: "M" + ax + " " + ay + "L" + bx + " " + by }, look)));
@@ -783,9 +812,15 @@ function drawSheet(paint) {
     if (b.state === "routed") continue;
     for (const node of [b.n1, b.n2]) {
       const known = state.info.nodes[String(node)];
-      for (const p of (known && s.nets[known.wire] ? s.nets[known.wire].labels : [])) {
+      if (!known) continue;
+      // at the wire's labels; a wire drawn without one (GND, the current sense) at its crossbar pins
+      let points = s.nets[known.wire] ? s.nets[known.wire].labels : [];
+      if (!points.length && paint.wires[known.wire]) {
+        points = paint.wires[known.wire].pins.map((pin) => s.pins[pin.chip + "." + pin.axis + pin.pin]).filter(Boolean);
+      }
+      for (const p of points) {
         marks.append(svg("circle", { class: "s-want", cx: p[0], cy: p[1], r: 2.4,
-          stroke: b.state === "unrouted" ? netColour(b.net) : GREY }));
+          stroke: failed(b) ? netColour(b.net) : GREY }));
       }
     }
   }

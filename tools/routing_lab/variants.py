@@ -95,15 +95,19 @@ def _git_ref_tree(spec):
     dest = BUILD_DIR / "variants" / ("ref-" + sha[:12])
     with _materialize_lock:
         if not (dest / "src").is_dir():
-            tar = subprocess.run(["git", "-C", str(REPO), "archive", "--format=tar", sha, "src"],
-                                 capture_output=True, check=True).stdout
+            p = subprocess.run(["git", "-C", str(REPO), "archive", "--format=tar", sha, "src"], capture_output=True)
+            if p.returncode != 0:
+                raise ValueError("%s (%s) has no src/ to build" % (spec, sha[:7]))
             tmp = _scratch_name(dest)
             shutil.rmtree(tmp, ignore_errors=True)
-            tmp.mkdir(parents=True)
-            with tarfile.open(fileobj=io.BytesIO(tar)) as archive:
-                archive.extractall(tmp, filter="data")
-            shutil.rmtree(dest, ignore_errors=True)
-            tmp.rename(dest)
+            try:
+                tmp.mkdir(parents=True)
+                with tarfile.open(fileobj=io.BytesIO(p.stdout)) as archive:
+                    archive.extractall(tmp, filter="data")
+                shutil.rmtree(dest, ignore_errors=True)
+                tmp.rename(dest)
+            finally:
+                shutil.rmtree(tmp, ignore_errors=True)      # gone already after a good rename
     return "%s@%s" % (spec, sha[:7]), dest / "src"
 
 
@@ -128,13 +132,19 @@ def resolve(spec, overrides=None, *, allow_directory=True):
             if not (dest / "src").is_dir():
                 tmp = _scratch_name(dest)
                 shutil.rmtree(tmp, ignore_errors=True)
-                shutil.copytree(src_root, tmp / "src")
-                for rel, data in files.items():
-                    target = tmp / rel
-                    target.parent.mkdir(parents=True, exist_ok=True)
-                    target.write_bytes(data)
-                shutil.rmtree(dest, ignore_errors=True)
-                tmp.rename(dest)
+                try:
+                    shutil.copytree(src_root, tmp / "src")
+                    for rel, data in files.items():
+                        target = tmp / rel
+                        try:
+                            target.parent.mkdir(parents=True, exist_ok=True)
+                            target.write_bytes(data)
+                        except OSError as e:        # the path is a directory, or runs through a file
+                            raise ValueError("cannot put a file at %s: %s" % (rel, e.strerror)) from None
+                    shutil.rmtree(dest, ignore_errors=True)
+                    tmp.rename(dest)
+                finally:
+                    shutil.rmtree(tmp, ignore_errors=True)  # gone already after a good rename
         name = "%s + %d file%s" % (name, len(files), "" if len(files) == 1 else "s")
         src_root = dest / "src"
     return Variant(name, src_root, _hash(src_root))

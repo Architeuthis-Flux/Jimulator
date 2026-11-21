@@ -92,20 +92,21 @@ def effective_resistance(edges, a, b):
     return round(v[index[a]], 6)
 
 
-def _pin_mark(w, claim, closed_here):
+def _pin_mark(w, claim, closed_here, strict):
     """How a pin's claim sits with the copper, by the checker's own rules.
     "mismatch": the wire carries one net and this pin is claimed for another
     (WRONG CLAIM), or is free although a crosspoint is closed on it
     (UNCLAIMED X/Y), or is the free far end of a lane a net rides (UNCLAIMED
     WIRE: another net could close onto it). "held": claimed, but no net rides
-    the wire (a reservation, a culled duplicate's leftover, a blocked pin)."""
+    the wire (a reservation, a culled duplicate's leftover, a blocked pin);
+    where the checker counts that as a problem (strict), it is a mismatch."""
     riding = w["nets"]
     if len(riding) == 1:
         if claim is not None:
             return None if claim == riding[0] else "mismatch"
         return "mismatch" if closed_here or w["kind"] in ("lane", "hub", "bounce") else None
     if not riding and claim is not None:
-        return "held"
+        return "mismatch" if strict else "held"
     return None
 
 
@@ -139,6 +140,14 @@ def paint(result):
             riding.setdefault(w, set()).add(c["net"])
         edges.setdefault(c["net"], []).append((wx, wy))
 
+    array = rc.parse_bridge_array(b)                # the bridges the firmware put in a net
+    node_net = {n: net for n1, n2, net in array for n in (n1, n2)}
+    owners = {}                                     # wire -> the nodes that are this wire
+    for node, name in NODE_NET.items():
+        owners.setdefault(name, []).append(node)
+    # the checker counts a claim with no copper as a problem only in strict cases, and then lists every one
+    strict = any(p.startswith("CLAIM WITHOUT COPPER") for p in result.get("problems", ()))
+
     closed_pins = {(c["chip"], "X", c["x"]) for c in crosspoints} | {(c["chip"], "Y", c["y"]) for c in crosspoints}
     wires = {}
     for chip in CHIPS:
@@ -146,11 +155,18 @@ def paint(result):
         for axis, claims in (("X", xs), ("Y", ys)):
             for pin, claim in enumerate(claims):
                 name = wire(chip, axis, pin)
-                w = wires.setdefault(name, {"kind": wire_kind(name), "nets": sorted(riding.get(name, ())), "pins": []})
+                if name not in wires:
+                    # Where a net rides a node's wire, the node's own net is on it too (two nets: a short), and
+                    # a node in no net is a stray: the checker's rules, so the drawing agrees with its verdict.
+                    on, mine = set(riding.get(name, ())), owners.get(name, [])
+                    stray = bool(on) and any(n not in node_net for n in mine)
+                    if on:
+                        on |= {node_net[n] for n in mine if n in node_net}
+                    wires[name] = {"kind": wire_kind(name), "nets": sorted(on), "stray": stray, "pins": []}
+                w = wires[name]
                 w["pins"].append({"chip": chip, "axis": axis, "pin": pin, "claim": claim,
-                                  "mark": _pin_mark(w, claim, (chip, axis, pin) in closed_pins)})
+                                  "mark": _pin_mark(w, claim, (chip, axis, pin) in closed_pins, strict)})
 
-    array = rc.parse_bridge_array(b)                # the bridges the firmware put in a net
     nets = {}
     for n1, n2, net in array:
         entry = nets.setdefault(str(net), {"label": NET_LABEL.get(net, str(net)),
@@ -169,6 +185,8 @@ def paint(result):
         r = None
         if routed and n1 in NODE_NET and n2 in NODE_NET:
             r = effective_resistance(edges.get(net, []), NODE_NET[n1], NODE_NET[n2])
+            if r is None:
+                state = "broken"                    # the path table lists it; its copper does not join the two nodes
         bridges.append({"n1": n1, "n2": n2, "net": net, "state": state,
                         "copies": sum(1 for x in mine if rc.path_is_routed(x)) if routed else 0,
                         "hops": len(rc.routed_hops(primary)) if routed else 0,
@@ -184,15 +202,20 @@ def paint(result):
 
 
 def resistance_metrics(result):
-    """worst_r, median_r over the routed user bridges, and rail_worst_r over
-    those with GND or a rail at one end. None where there is no such bridge.
-    The probe feed is not a user bridge."""
-    routed = [b for b in paint(result)["bridges"] if b["state"] == "routed" and not b["infra"] and b["r"] is not None]
-    rs = [b["r"] for b in routed]
-    rails = [b["r"] for b in routed if b["n1"] in RAIL_NODES or b["n2"] in RAIL_NODES]
+    """worst_r, median_r over the routed signal bridges, rail_worst_r over
+    those with GND or a rail at one end (reported apart: stacking makes them
+    the best bridges of a case), and broken: bridges listed as routed whose
+    copper does not join. None where there is no such bridge. The probe feed
+    is not a user bridge."""
+    bridges = [b for b in paint(result)["bridges"] if not b["infra"]]
+    routed = [b for b in bridges if b["state"] == "routed" and b["r"] is not None]
+    on_rail = lambda b: b["n1"] in RAIL_NODES or b["n2"] in RAIL_NODES
+    rs = [b["r"] for b in routed if not on_rail(b)]
+    rails = [b["r"] for b in routed if on_rail(b)]
     return {"worst_r": max(rs) if rs else None,
             "median_r": round(statistics.median(rs), 6) if rs else None,
-            "rail_worst_r": max(rails) if rails else None}
+            "rail_worst_r": max(rails) if rails else None,
+            "broken": [[b["n1"], b["n2"], b["net"]] for b in bridges if b["state"] == "broken"]}
 
 
 def left_out_pairs(b):

@@ -46,6 +46,28 @@ class Sheet(unittest.TestCase):
         self.assertEqual(sheet.pin_point((100, 100, 270), None, (15, 5)), (105, 115))
         self.assertEqual(sheet.pin_point((200, 100, 0), "y", (15, 5)), (185, 95))
         self.assertEqual(sheet.pin_point((200, 100, 0), "x", (15, 5)), (215, 105))
+        # turned and mirrored: the turn first, then the flip across the sheet's own axis (r7's own
+        # symbols placed this way land their pins on wire ends only in this order)
+        self.assertEqual(sheet.pin_point((100, 100, 90), "y", (15, 5)), (105, 85))
+        self.assertEqual(sheet.pin_point((100, 100, 90), "x", (15, 5)), (95, 115))
+        self.assertEqual(sheet.pin_point((100, 100, 270), "y", (15, 5)), (95, 115))
+        self.assertEqual(sheet.pin_point((100, 100, 270), "x", (15, 5)), (105, 85))
+        self.assertEqual(sheet.pin_point((100, 100, 180), "y", (15, 5)), (115, 105))
+
+    def test_a_junction_joins_a_wire_that_ends_on_the_middle_of_another(self):
+        # the stub from A.X0 ends on the middle of a long wire; only the junction makes them one net
+        text = MINI.split("  (wire", 1)[0] + '''
+  (wire (pts (xy 115 95) (xy 150 95)))
+  (wire (pts (xy 150 60) (xy 150 120)))
+  (junction (at 150 95))
+  (wire (pts (xy 185 95) (xy 170 95)))
+  (wire (pts (xy 170 60) (xy 170 120))))'''
+        with mock.patch.object(sheet.fabric_v5, "X_NET", {"A": ["/AB0"], "B": ["/BX"]}), \
+             mock.patch.object(sheet.fabric_v5, "Y_NET", {"A": ["x", "1"], "B": ["x", "8"]}), \
+             mock.patch.object(sheet.fabric_v5, "CHIPS", "AB"):
+            o = sheet.overlay(self.write(text))
+        self.assertEqual(len(o["nets"]["/AB0"]["segments"]), 2)        # joined at the junction
+        self.assertEqual(len(o["nets"]["/BX"]["segments"]), 1)         # crossing with no junction: not joined
 
     def test_overlay_of_a_small_sheet(self):
         with mock.patch.object(sheet.fabric_v5, "X_NET", {"A": ["/AB0"], "B": ["/AB0"]}), \

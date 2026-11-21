@@ -54,7 +54,7 @@ def run_harness(binary, case, *, repeat=2, block=(), timeout=20.0):
 def _result(case, status, problems=(), notes=(), rejected=(), metrics=None, b="", xbar="", stderr=""):
     base = {"primaries": 0, "routed_primaries": 0, "refused": 0, "bounced": 0, "routed_duplicates": 0,
             "crosspoints": 0, "taps": None, "taps_dead": [], "repeat_same": None,
-            "worst_r": None, "median_r": None, "rail_worst_r": None}
+            "worst_r": None, "median_r": None, "rail_worst_r": None, "broken": 0}
     base.update(metrics or {})
     return {"case": case.name, "cls": case.cls, "status": status, "problems": list(problems),
             "notes": list(notes), "rejected": [list(r) for r in rejected], "left_out": [], "refused": [],
@@ -130,7 +130,19 @@ def judge(case, sections, stderr="", block=()):
     # The two other ways the firmware says no, as data for the paint (the notes say the same in words).
     result["left_out"] = left_out
     result["refused"] = [[r[0], r[1]] for r in refused if r[2] == 0]
-    result["metrics"].update(copper.resistance_metrics(result))
+    measured = copper.resistance_metrics(result)
+    # A primary the path table lists as routed whose copper does not join its
+    # nodes is wrong on any class, must-route or scored: the firmware would
+    # report the bridge made. (The checker says so itself only when told every
+    # bridge must route; the line is the same, so it is not said twice.)
+    broken = measured.pop("broken")
+    for n1, n2, net in broken:
+        line = "NOT CONNECTED: %s-%s (net %d)" % (rc.node_label(n1), rc.node_label(n2), net)
+        if line not in result["problems"]:
+            result["problems"].append(line)
+    if broken:
+        result["status"] = "problems"
+    result["metrics"].update(measured, broken=len(broken))
     return result
 
 

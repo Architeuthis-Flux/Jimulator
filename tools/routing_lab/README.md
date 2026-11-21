@@ -39,18 +39,23 @@ click a case.
   (needs KiCad's `kicad-cli`; the default is the V5 r7 sheet in
   `~/Documents/GitHub/JumperlessV5`).
 - **Marks, both tabs.** Red is a problem and nothing else is red: a wire
-  carrying two nets, or a ring where the chip status and the copper disagree
-  (a closed pin nobody claims, or a claim for another net). A hollow dot or
-  dashed curve is a duplicate path's crosspoint. A small square is a pin
-  claimed while no net rides its wire. A dashed ring marks the ends of a
-  bridge that is not there: in the net's colour when the router failed it,
-  grey when the firmware refused or dropped it by rule.
+  carrying two nets (a short), a net on a node that is in no net (a stray),
+  or a ring where the chip status and the copper disagree (a closed pin
+  nobody claims, a claim for another net, or, in the cases judged strictly,
+  a claim with no copper). Lighting one net alone never dims what is red. A
+  hollow dot or dashed curve is a duplicate path's crosspoint. A small
+  square is a pin claimed while no net rides its wire, where that is
+  allowed. A dashed ring marks the ends of a bridge that is not there: in
+  the net's colour when the router failed it (not routed, or listed as
+  routed while its copper does not connect), grey when the firmware refused
+  or dropped it by rule. Net colours repeat after sixteen nets.
 - Click a net, a lit wire or a crosspoint to light that net alone; it holds
   across the tabs. Wheel zooms, drag pans, double-click fits. Hover a wire
   for its pins and claims.
-- The **ohm** columns are the worst bridge's resistance, counted in
-  crosspoints and multiplied by the "ohms per crosspoint" box (60 by
-  default; duplicates in parallel lower it).
+- **ohm** is the worst signal bridge's resistance and **rail** the worst
+  bridge to GND or a rail, counted in crosspoints and multiplied by the
+  "ohms per crosspoint" box (60 by default; duplicates in parallel lower
+  it).
 
 The server listens on 127.0.0.1 only, answers only its own page (a token and
 an origin check), and builds only this checkout, git refs of it, and the
@@ -90,11 +95,12 @@ python3 tools/routing_lab/lab.py import-state my_slot.yaml --name my_slot
 - `--case` prints that case's problems, notes and `b` report.
 - `--json FILE` writes every result.
 
-Exit status: 0 clean; 1 on a short, a stray, a crash or hang, a must-route
-case with problems, or a regression against the baseline; 2 on a usage error;
-3 when the variant does not build (the compiler's output is printed).
+Exit status: 0 clean; 1 on a short, a stray, a bridge listed as routed whose
+copper does not join its nodes, a crash or hang, a must-route case with
+problems, or a regression against the baseline; 2 on a usage error; 3 when
+the variant does not build (the compiler's output is printed).
 
-The whole battery (about 2,250 cases) takes about five seconds. Results are
+The whole battery (about 2,250 cases) takes five to ten seconds. Results are
 cached under `build/` by variant, case and judging code.
 
 ## Classes
@@ -124,6 +130,14 @@ duplicates, crosspoints, the judge's problems (`SHORT`, `STRAY`,
 `NOT CONNECTED`, `UNCLAIMED ...`, `WRONG CLAIM`, `CLAIM WITHOUT COPPER`),
 sense-tap reachability from the firmware's own tap planner, and whether the
 case routes the same when it is routed twice in one process.
+
+A bridge the path table lists as routed is also traced through the closed
+crosspoints. If its copper does not join its two nodes it is `NOT CONNECTED`
+on any class, scored ones included, and the case does not count as fully
+routed. Resistance is that same trace: every closed crosspoint of the net as
+one resistor, duplicates in parallel. The worst and median are over signal
+bridges; bridges to GND or a rail are reported apart, since stacking makes
+them the best of a case.
 
 Three things are the firmware saying no, not the router failing, and are
 reported apart from routing misses:

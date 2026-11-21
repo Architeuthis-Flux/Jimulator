@@ -20,13 +20,16 @@ import variants
 
 def page(static):
     """The page with its style, its script and its data inlined."""
-    data = json.dumps(static).replace("</", "<\\/")         # a report holding "</script>" must not end the script
+    data = json.dumps(static, ensure_ascii=False)           # as written, so a home path with an accent is found
     data = data.replace(str(Path.home()), "~")              # e.g. a sanitizer trace naming the build directory
-    html = (server.WEB_DIR / "index.html").read_text()
+    data = data.replace("<", "\\u003c")                     # report text cannot close the script or open a comment
+    html = (server.WEB_DIR / "index.html").read_text(encoding="utf-8")
     for tag, inline in (
-            ('<link rel="stylesheet" href="lab.css">', "<style>\n%s</style>" % (server.WEB_DIR / "lab.css").read_text()),
+            ('<link rel="stylesheet" href="lab.css">',
+             "<style>\n%s</style>" % (server.WEB_DIR / "lab.css").read_text(encoding="utf-8")),
             ('<script>window.LAB_TOKEN = "__LAB_TOKEN__";</script>', "<script>window.LAB_STATIC = %s;\n</script>" % data),
-            ('<script src="lab.js"></script>', "<script>\n%s</script>" % (server.WEB_DIR / "lab.js").read_text())):
+            ('<script src="lab.js"></script>',
+             "<script>\n%s</script>" % (server.WEB_DIR / "lab.js").read_text(encoding="utf-8"))):
         if tag not in html:
             raise ValueError("index.html no longer has %s; export.py must follow it" % tag)
         html = html.replace(tag, inline)
@@ -55,5 +58,5 @@ def write(path, variant_spec, baseline_spec=None, classes=("dense", "real", "str
     info = dict(server.info(), sheet=False, variants=[])
     html = page({"info": info, "run": run, "when": time.strftime("%Y-%m-%d"),
                  "cases": {r["case"]: {"result": r, "paint": copper.paint(r)} for r in results}})
-    Path(path).write_text(html)
+    Path(path).write_text(html, encoding="utf-8")
     return len(html.encode())

@@ -214,6 +214,51 @@ class Server(unittest.TestCase):
         for anchor in ('id="live"', 'id="uploads"', 'id="compare"'):
             self.assertIn(anchor, page)
 
+    def test_a_request_that_goes_wrong_inside_still_gets_an_answer(self):
+        # each of these used to close the connection with no answer at all
+        upload = {"variant": {"base": "worktree", "files": {"src/routing": "x"}}, "classes": ["real"]}
+        r = self.c.post("/api/run", upload)                             # the upload's path is a directory
+        self.assertEqual(r.status, 400)
+        self.assertIn("src/routing", r.json["error"])
+        self.assertEqual(self.c.get("/%00", token=None).status, 404)
+        self.assertEqual(self.c.get("/api/info", token="töken").status, 403)
+        for length in ("abc", "-1"):
+            self.assertEqual(self.c.request("POST", "/api/run", headers={"Content-Length": length}).status, 400, length)
+        with mock.patch.object(variants, "resolve", side_effect=RuntimeError("boom")):
+            r = self.c.post("/api/run", {"variant": "worktree", "classes": ["real"]})
+            self.assertEqual(r.status, 500)
+            self.assertIn("boom", r.json["error"])
+        self.assertEqual(self.c.get("/api/info").status, 200)           # and the server is still there
+
+    def test_a_ref_with_no_src_is_a_bad_variant_not_a_crash(self):
+        first = subprocess.run(["git", "-C", REPO, "rev-list", "--max-parents=0", "HEAD"],
+                               capture_output=True, text=True).stdout.split()[0]
+        if subprocess.run(["git", "-C", REPO, "cat-file", "-e", first + ":src"], capture_output=True).returncode == 0:
+            self.skipTest("this repository's first commit already has src/")
+        r = self.c.post("/api/run", {"variant": first, "classes": ["real"]})
+        self.assertEqual(r.status, 400)
+        self.assertIn("src", r.json["error"])
+
+    def test_a_failed_upload_leaves_no_scratch_tree(self):
+        scratch = lambda: set((variants.BUILD_DIR / "variants").glob("*.tmp*"))
+        before = scratch()
+        self.c.post("/api/run", {"variant": {"base": "worktree", "files": {"src/routing": "x"}}, "classes": ["real"]})
+        self.assertEqual(scratch(), before)
+
+    def test_runs_are_kept_by_case_and_old_variants_are_dropped(self):
+        self.c.post("/api/run", {"variant": "worktree", "classes": ["real"]})
+        run = self.c.post("/api/run", {"variant": "worktree", "classes": ["dense"]}).json
+        name = "kevin_state_2026-09-07"                                 # a real case, after a dense-only run
+        self.assertEqual(self.c.get("/api/case?variant=%s&case=%s" % (run["variant"]["hash"], name)).status, 200)
+        for i in range(server.MAX_RUNS + 3):
+            self.srv.runs["old%d" % i] = {}
+        self.c.post("/api/run", {"variant": "worktree", "classes": ["real"]})
+        self.assertEqual(len(self.srv.runs), server.MAX_RUNS)
+        self.assertIn(run["variant"]["hash"], self.srv.runs)            # the newest stays
+
+    def test_the_page_may_not_be_framed(self):
+        self.assertEqual(self.c.get("/", token=None).headers.get("X-Frame-Options"), "DENY")
+
     def test_the_page_draws_the_sheet(self):
         self.assertIn('id="sheet"', self.c.get("/", token=None).body)
         js = self.c.get("/lab.js", token=None).body

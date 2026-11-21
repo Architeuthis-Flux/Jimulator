@@ -32,6 +32,7 @@ LAB = Path(__file__).resolve().parent
 WEB_DIR = LAB / "web"
 SHEET_DIR = variants.BUILD_DIR / "sheet"
 MAX_UPLOAD = 5_000_000
+MAX_RUNS = 6            # variants whose results are held for /api/case; a full battery is about 9 MB each
 TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
          ".css": "text/css; charset=utf-8", ".svg": "image/svg+xml", ".json": "application/json"}
 
@@ -76,6 +77,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")          # another page cannot put this one in a frame
         self.end_headers()
         self.wfile.write(data)
 
@@ -88,7 +90,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         origin = self.headers.get("Origin")
         if origin is not None and origin not in tuple("http://" + h for h in hosts):
             raise Refused(403, "requests from other pages are refused")
-        if api and not hmac.compare_digest(self.headers.get("X-Lab-Token", ""), self.server.token):
+        if api and not hmac.compare_digest(self.headers.get("X-Lab-Token", "").encode(), self.server.token.encode()):
             raise Refused(403, "missing or wrong token")
 
     # --- routing ---------------------------------------------------------------
@@ -117,9 +119,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send(e.status, e.body)
         except BrokenPipeError:
             pass
+        except Exception as e:              # unforeseen: the page gets a reason, not a dropped connection
+            self.send(500, {"error": "%s: %s" % (type(e).__name__, e)})
 
     def read_json(self):
-        length = int(self.headers.get("Content-Length") or 0)
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            length = -1
+        if length < 0:
+            raise Refused(400, "bad Content-Length")
         if length > MAX_UPLOAD + 200_000:
             # Read past it (up to a limit) without keeping it, so the sender
             # gets this answer and not a broken connection.
@@ -145,7 +154,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if path == "/sheet/backdrop.svg":
             target = SHEET_DIR / "backdrop.svg"
         else:
-            target = (WEB_DIR / urllib.parse.unquote(path).lstrip("/")).resolve()
+            try:
+                target = (WEB_DIR / urllib.parse.unquote(path).lstrip("/")).resolve()
+            except ValueError:              # a NUL in the path
+                raise Refused(404, "not found") from None
             if WEB_DIR.resolve() not in target.parents:
                 raise Refused(404, "not found")
         if not target.is_file() or target.suffix not in TYPES:
@@ -182,7 +194,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     continue
                 e.variant = v
                 raise
-            self.server.runs[v.hash] = {r["case"]: r for r in results}
+            # Kept by case, so a table from an earlier run of other classes still opens; newest variant last.
+            kept = self.server.runs.pop(v.hash, {})
+            kept.update((r["case"], r) for r in results)
+            self.server.runs[v.hash] = kept
+            while len(self.server.runs) > MAX_RUNS:
+                del self.server.runs[next(iter(self.server.runs))]
             return v, results
 
     # --- API -----------------------------------------------------------------------

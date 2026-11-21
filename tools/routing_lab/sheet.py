@@ -86,13 +86,10 @@ def _num(value):
 def pin_point(at, mirror, pin_at):
     """Where a pin ends on the sheet. at: the symbol's (x, y, angle); mirror:
     None, "x" or "y"; pin_at: the pin's (x, y) in the library symbol, whose y
-    axis points up while the sheet's points down."""
+    axis points up while the sheet's points down. The symbol is turned first,
+    then flipped across the sheet's own axis."""
     sx, sy, angle = at
     px, py = pin_at
-    if mirror == "x":
-        py = -py
-    elif mirror == "y":
-        px = -px
     turn = int(angle) % 360
     if turn == 90:
         px, py = -py, px
@@ -100,7 +97,12 @@ def pin_point(at, mirror, pin_at):
         px, py = -px, -py
     elif turn == 270:
         px, py = py, -px
-    return (_num(sx + px), _num(sy - py))
+    dx, dy = px, -py                                # the offset on the sheet
+    if mirror == "x":
+        dy = -dy
+    elif mirror == "y":
+        dx = -dx
+    return (_num(sx + dx), _num(sy + dy))
 
 
 def _on_segment(p, seg):

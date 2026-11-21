@@ -48,11 +48,17 @@ class Export(unittest.TestCase):
         self.assertEqual(run["regressions"], [])
         self.assertNotIn(str(Path.home()), html)
 
-    def test_report_text_cannot_close_the_page_script(self):
-        nasty = "</script><img src=x onerror=alert(1)> <!-- "
+    def test_report_text_cannot_close_or_derail_the_page_script(self):
+        nasty = "</script><img src=x onerror=alert(1)> <!-- <script "
         html = export.page({"info": {}, "run": {}, "cases": {"x": nasty}, "when": "today"})
-        self.assertNotIn(nasty, html)
-        self.assertEqual(json.loads(STATIC.search(html).group(1))["cases"]["x"], nasty)
+        data = STATIC.search(html).group(1)
+        self.assertNotIn("<", data)                                    # no tag, comment or script can open in it
+        self.assertEqual(json.loads(data)["cases"]["x"], nasty)
+
+    def test_a_home_path_with_an_accent_is_still_taken_out(self):
+        with mock.patch.object(export.Path, "home", return_value=Path("/Users/josé")):
+            html = export.page({"info": {}, "run": {}, "cases": {"x": "at /Users/josé/lab/build"}, "when": ""})
+        self.assertEqual(json.loads(STATIC.search(html).group(1))["cases"]["x"], "at ~/lab/build")
 
     def test_the_command_writes_the_file(self):
         out = self.tmp / "cli.html"
