@@ -5,10 +5,68 @@ netlists with it, and judges every result against the schematic with
 `test/hil/routing_check.py`. No board needed. Design:
 `CodeDocs/DESIGN_ROUTING_LAB.md`.
 
-This is piece 1 of 4 (harness, battery, judge, command line). The page, the
-ceiling search and the V6 lane ranking are not built yet.
+Pieces 1 and 2 of 4 are built: the harness, battery, judge and command line,
+and the page that draws a result on the fabric and on the board's KiCad
+sheet. The ceiling search and the V6 lane ranking are not built yet.
 
-## Use
+## The page
+
+```bash
+python3 tools/routing_lab/lab.py serve
+```
+
+Opens `http://127.0.0.1:8765/`. Pick a router and the classes, press Run,
+click a case.
+
+- **Router / Baseline** take `worktree`, a git ref (`main`, `a1accf5^`), or a
+  directory given with `--tree DIR` when the server was started. With a
+  baseline the table tints each number better or worse, lists regressions,
+  and "compare with baseline" draws both routings of the selected case.
+- **Trying a change.** Edit the router in this checkout and tick **live**:
+  the battery re-runs when a file under `src/` changes. Or drop
+  `NetsToChipConnections.cpp`, `MatrixState.cpp` or any other source file on
+  the left column: it is built as "worktree + 1 file" without touching the
+  checkout. A router that does not compile shows the compiler's output and
+  keeps the last table.
+- **Fabric tab.** The twelve crossbars as grids with every piece of copper
+  between them, generated from `test/hil/fabric_v5.py`. A lit wire carries
+  the net of its colour; a dot is a closed crosspoint.
+- **KiCad sheet tab.** The board's own schematic with the same result drawn
+  over it: lit wires, lanes followed along their bus from chip to chip, a
+  dot at each label and pin of a live net, and each closed crosspoint as a
+  curve inside its chip from the X pin to the Y pin. Build it once with
+  `python3 tools/routing_lab/lab.py sheet [board.kicad_sch] [--theme NAME]`
+  (needs KiCad's `kicad-cli`; the default is the V5 r7 sheet in
+  `~/Documents/GitHub/JumperlessV5`).
+- **Marks, both tabs.** Red is a problem and nothing else is red: a wire
+  carrying two nets, or a ring where the chip status and the copper disagree
+  (a closed pin nobody claims, or a claim for another net). A hollow dot or
+  dashed curve is a duplicate path's crosspoint. A small square is a pin
+  claimed while no net rides its wire. A dashed ring marks the ends of a
+  bridge that is not there: in the net's colour when the router failed it,
+  grey when the firmware refused or dropped it by rule.
+- Click a net, a lit wire or a crosspoint to light that net alone; it holds
+  across the tabs. Wheel zooms, drag pans, double-click fits. Hover a wire
+  for its pins and claims.
+- The **ohm** columns are the worst bridge's resistance, counted in
+  crosspoints and multiplied by the "ohms per crosspoint" box (60 by
+  default; duplicates in parallel lower it).
+
+The server listens on 127.0.0.1 only, answers only its own page (a token and
+an origin check), and builds only this checkout, git refs of it, and the
+`--tree` directories it was started with.
+
+```bash
+python3 tools/routing_lab/lab.py export run.html --baseline main
+python3 tools/routing_lab/lab.py clean
+```
+
+`export` writes one battery run as a single HTML file that opens without the
+server (table, case panel, fabric view; not the KiCad backdrop). `clean`
+deletes the caches under `build/` (results, variant trees, binaries), which
+grow with every variant tried; the built sheet is kept.
+
+## Use from the command line
 
 ```bash
 python3 tools/routing_lab/lab.py run
@@ -98,6 +156,10 @@ A pair given twice is one bridge, merged as the firmware's loader merges it.
   suite keeps that check.
 - **Router debug traces.** `--trace` on the harness prints only the runtime
   flags' output; the macro traces are compiled out by default.
+- **The sheet view's reading of KiCad.** It follows wires, junctions, labels
+  and buses on the root sheet, as r7 uses them. A board drawn another way
+  (crossbars on a sub-sheet, for instance) may light less than it should;
+  the fabric tab does not depend on it.
 
 ## Findings so far (router at 5374d38, host only)
 

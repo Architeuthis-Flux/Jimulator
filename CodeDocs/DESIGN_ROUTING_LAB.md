@@ -1,8 +1,12 @@
 # Routing lab: design
 
-Written 2026-11-17, approved the same day. Piece 1 is built (2026-11-21,
-`tools/routing_lab/`); pieces 2 to 4 are not. "Learned building piece 1" at
-the end changes what the later pieces must do.
+Written 2026-11-17, approved the same day. Pieces 1 and 2 are built
+(2026-11-21, `tools/routing_lab/`; its README says how to use them); pieces 3
+and 4 are not. "Learned building piece 1" at the end changes what the later
+pieces must do. Piece 2 as built differs from the text below in one way: the
+r7 sheet draws its breadboard-to-breadboard lanes as buses and nearly
+everything else as a label on the pin, so the sheet view follows buses and
+lights labels and pin ends, not long wires.
 
 ## Why
 

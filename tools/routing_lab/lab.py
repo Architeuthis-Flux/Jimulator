@@ -5,6 +5,9 @@ of netlists with it, and judge the result against the schematic.
 
     lab.py run [--variant V] [--baseline V0] [--classes dense,real,...] [--case NAME] [--jobs N] [--json FILE]
     lab.py serve [--port 8765] [--tree DIR]... [--no-open]
+    lab.py sheet [BOARD.kicad_sch] [--theme NAME]
+    lab.py export OUT.html [--variant V] [--baseline V0] [--classes ...]
+    lab.py clean
     lab.py build [--variant V]
     lab.py fidelity CAPTURE_DIR [--variant V]
     lab.py import-state FILE.yaml --name NAME [--class real]
@@ -248,6 +251,26 @@ def cmd_sheet(args):
     return 0
 
 
+def cmd_export(args):
+    import export
+    size = export.write(args.out, args.variant, args.baseline, [c for c in args.classes.split(",") if c])
+    print("%s: %.1f MB, one file, opens without the server" % (args.out, size / 1e6))
+    return 0
+
+
+def cmd_clean(args):
+    import shutil
+    freed = 0
+    for name in ("results", "variants", "bin"):          # build/sheet stays: it is small and slow to remake
+        path = variants.BUILD_DIR / name
+        if path.is_dir():
+            freed += sum(f.stat().st_size for f in path.rglob("*") if f.is_file() and not f.is_symlink())
+            shutil.rmtree(path)
+    print("freed %.0f MB (cached results, variant trees, harness binaries); the next run rebuilds what it needs"
+          % (freed / 1e6))
+    return 0
+
+
 def cmd_import_state(args):
     case = cases.import_state(args.file, args.name, args.cls)
     dest = CASES_DIR / args.cls
@@ -292,6 +315,14 @@ def main(argv):
     sht.add_argument("schematic", nargs="?", help="a .kicad_sch (default: the V5 r7 sheet beside this repository)")
     sht.add_argument("--theme", help="a KiCad colour theme for the backdrop")
     sht.set_defaults(fn=cmd_sheet)
+    exp = sub.add_parser("export", help="one battery run as a single HTML file that opens without the server")
+    exp.add_argument("out", help="the .html to write")
+    exp.add_argument("--variant", default="worktree")
+    exp.add_argument("--baseline")
+    exp.add_argument("--classes", default="dense,real,stress,beyond", help="comma list of: " + ", ".join(CLASSES))
+    exp.set_defaults(fn=cmd_export)
+    sub.add_parser("clean", help="delete the caches under build/ (results, variant trees, binaries)") \
+        .set_defaults(fn=cmd_clean)
     args = ap.parse_args(argv)
     try:
         return args.fn(args)

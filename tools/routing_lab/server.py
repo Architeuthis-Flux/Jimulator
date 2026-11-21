@@ -187,12 +187,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     # --- API -----------------------------------------------------------------------
     def api_get_info(self, query, body):
-        named = [{"spec": t, "name": os.path.basename(t)} for t in self.server.trees]
-        nodes = {str(n): {"wire": wire, "name": copper.NODE_NAME.get(n, str(n))}
-                 for n, wire in copper.NODE_NET.items()}
-        return {"classes": lab.CLASSES, "variants": [{"spec": "worktree", "name": "worktree"}] + named,
-                "verified": lab.verified_against_a_board(), "ohms": 60, "fabric": fabric_view.layout(),
-                "nodes": nodes, "sheet": (SHEET_DIR / "overlay.json").is_file()}
+        return info(self.server.trees)
 
     def api_post_run(self, query, body):
         classes = body.get("classes") or ["dense", "real"]
@@ -212,11 +207,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 base_v, base = self.battery_of(body["baseline"], case_list)
             except variants.BuildError as e:
                 return {"build_error": e.stderr, "which": "baseline", "variant": {"name": e.variant.name}}
-        before = {r["case"]: r for r in base or []}
-        return {"variant": {"name": v.name, "hash": v.hash},
-                "baseline": {"name": base_v.name, "hash": base_v.hash} if base_v else None,
-                "rows": [row(r, before.get(r["case"])) for r in results],
-                "regressions": lab.regressions(base, results) if base else []}
+        return run_answer(v, results, base_v, base)
 
     def api_get_case(self, query, body):
         result = self.server.runs.get(query.get("variant"), {}).get(query.get("case"))
@@ -241,6 +232,25 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if not overlay.is_file():
             raise Refused(404, "the KiCad sheet has not been built", hint="python3 tools/routing_lab/lab.py sheet")
         return json.loads(overlay.read_text())
+
+
+def info(trees=()):
+    """What the page needs before any run. Also what an exported page carries."""
+    named = [{"spec": t, "name": os.path.basename(t)} for t in trees]
+    nodes = {str(n): {"wire": wire, "name": copper.NODE_NAME.get(n, str(n))}
+             for n, wire in copper.NODE_NET.items()}
+    return {"classes": lab.CLASSES, "variants": [{"spec": "worktree", "name": "worktree"}] + named,
+            "verified": lab.verified_against_a_board(), "ohms": 60, "fabric": fabric_view.layout(),
+            "nodes": nodes, "sheet": (SHEET_DIR / "overlay.json").is_file()}
+
+
+def run_answer(v, results, base_v=None, base=None):
+    """The table of one battery run, against a baseline's run of the same cases if there is one."""
+    before = {r["case"]: r for r in base or []}
+    return {"variant": {"name": v.name, "hash": v.hash},
+            "baseline": {"name": base_v.name, "hash": base_v.hash} if base_v else None,
+            "rows": [row(r, before.get(r["case"])) for r in results],
+            "regressions": lab.regressions(base, results) if base else []}
 
 
 def row(result, base=None):

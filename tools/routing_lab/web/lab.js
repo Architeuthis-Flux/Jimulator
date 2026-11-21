@@ -842,6 +842,7 @@ async function start() {
     $("exported").hidden = false;
     $("exported").textContent = "exported " + STATIC.when + " from " + STATIC.run.variant.name;
     $("variant").value = STATIC.run.variant.name;
+    if (STATIC.run.baseline) $("baseline").value = STATIC.run.baseline.name;
     state.run = STATIC.run;
     renderRegressions();
     renderBattery();
