@@ -100,6 +100,9 @@ def regressions(base, new):
         fresh = sorted({problem_kind(p) for p in r["problems"]} - {problem_kind(p) for p in b["problems"]})
         if fresh:
             out.append("%s: new problem: %s" % (r["case"], "; ".join(fresh)))
+        if m.get("missed", 0) > bm.get("missed", 0):
+            out.append("%s: %d unrouted where the copper had a path (baseline %d)" % (
+                r["case"], m["missed"], bm.get("missed", 0)))
     return out
 
 
@@ -120,8 +123,8 @@ def print_table(v, results, ohms=60.0):
     xpoints and the worst signal bridge's ohms are what tell two routers apart
     once it has (rail and GND bridges are in the page's own column)."""
     print("variant: %s  (%s)   %g ohm per crosspoint" % (v.name, v.hash[:12], ohms))
-    print("%-9s %6s %13s %12s %8s %9s %14s %10s %7s %8s %10s" % (
-        "class", "cases", "fully routed", "primaries", "refused", "problems", "crash/timeout", "dead taps",
+    print("%-9s %6s %13s %12s %8s %9s %7s %14s %10s %7s %8s %10s" % (
+        "class", "cases", "fully routed", "primaries", "refused", "problems", "missed", "crash/timeout", "dead taps",
         "copies", "xpoints", "worst ohm"))
     order = []
     for r in results:
@@ -130,11 +133,12 @@ def print_table(v, results, ohms=60.0):
     for cls in order:
         rs = [r for r in results if r["cls"] == cls]
         worst = [r["metrics"]["worst_r"] for r in rs if r["metrics"].get("worst_r") is not None]
-        print("%-9s %6d %13d %12s %8d %9d %14d %10d %7d %8d %10d" % (
+        print("%-9s %6d %13d %12s %8d %9d %7d %14d %10d %7d %8d %10d" % (
             cls, len(rs), sum(fully_routed(r) for r in rs),
             "%d/%d" % (sum(r["metrics"]["routed_primaries"] for r in rs), sum(r["metrics"]["primaries"] for r in rs)),
             sum(r["metrics"].get("refused", 0) for r in rs),
             sum(1 for r in rs if r["status"] == "problems"),
+            sum(r["metrics"].get("missed", 0) for r in rs),
             sum(1 for r in rs if r["status"] in ("crash", "timeout")),
             sum(len(r["metrics"]["taps_dead"]) for r in rs),
             sum(r["metrics"]["routed_duplicates"] for r in rs),

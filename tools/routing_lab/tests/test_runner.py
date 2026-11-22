@@ -105,6 +105,19 @@ class Runner(unittest.TestCase):
         self.assertTrue(any("TOP_RAIL" in n and "left out" in n for n in r["notes"]), r["notes"])
         self.assertFalse(any(p.startswith("SHORT") for p in r["problems"]), r["problems"])
 
+    def test_missed_counts_only_failed_bridges_the_copper_had_a_path_for(self):
+        self.assertEqual(runner.run_case(BIN, CASE18)["metrics"]["missed"], 0)
+        self.assertEqual(runner.run_case(self.script("exit 134"), CASE18)["metrics"]["missed"], 0)   # nothing judged
+        found = [{"path": [{"chip": "A", "x": 0, "y": 0, "new": True}]}, {"path": None}, {"path": []}]
+        with mock.patch.object(runner.ceiling, "missed", return_value=found):
+            self.assertEqual(runner.run_case(BIN, CASE18)["metrics"]["missed"], 2)
+
+    def test_a_change_to_the_searches_is_a_new_judge_stamp(self):
+        before, read = runner._judge_stamp(), runner.Path.read_bytes
+        edited = lambda path: read(path) + (b"#" if path.name == "ceiling.py" else b"")
+        with mock.patch.object(runner.Path, "read_bytes", edited):
+            self.assertNotEqual(runner._judge_stamp(), before)
+
     def test_battery_is_cached(self):
         v = variants.resolve("worktree")
         cs = [CASE18]

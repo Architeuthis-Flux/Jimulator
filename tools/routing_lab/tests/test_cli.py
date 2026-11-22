@@ -21,6 +21,11 @@ def run(argv):
     return code, out.getvalue()
 
 
+def row(name, **metrics):
+    """The smallest result lab.regressions reads."""
+    return {"case": name, "status": "ok", "problems": [], "metrics": {"primaries": 1, "routed_primaries": 1, **metrics}}
+
+
 class Cli(unittest.TestCase):
     def test_run_dense_at_worktree_exits_zero(self):
         code, out = run(["run", "--classes", "dense"])
@@ -31,8 +36,10 @@ class Cli(unittest.TestCase):
     def test_run_prints_what_separates_routers(self):
         code, out = run(["run", "--classes", "dense"])
         header = [l for l in out.splitlines() if l.startswith("class")][0]
-        for word in ("copies", "xpoints", "worst ohm"):
+        for word in ("copies", "xpoints", "worst ohm", "missed"):
             self.assertIn(word, header)
+        dense = [l for l in out.splitlines() if l.startswith("dense")][0].split()
+        self.assertEqual(dense[header.split().index("missed") - 1], "0")     # "fully routed" is two words up there
 
         def worst(text):
             row = [l for l in text.splitlines() if l.startswith("dense")][0]
@@ -65,6 +72,13 @@ class Cli(unittest.TestCase):
         more = {**base, "metrics": {"primaries": 10, "routed_primaries": 9}}
         self.assertEqual(len(lab.regressions([base], [fewer])), 1)
         self.assertEqual(lab.regressions([base], [more]), [])
+
+    def test_a_new_miss_is_a_regression(self):
+        lines = lab.regressions([row("c", missed=0)], [row("c", missed=1)])
+        self.assertTrue(any("where the copper had a path" in line for line in lines))
+        self.assertEqual(lines, ["c: 1 unrouted where the copper had a path (baseline 0)"])
+        self.assertEqual(lab.regressions([row("c", missed=1)], [row("c", missed=1)]), [])
+        self.assertEqual(lab.regressions([row("c", missed=2)], [row("c", missed=1)]), [])
 
     def test_file_errors_are_usage_errors_not_routing_failures(self):
         code, out = run(["import-state", "/nonexistent/state.yaml", "--name", "x"])

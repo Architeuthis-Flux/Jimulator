@@ -62,6 +62,14 @@ class History(unittest.TestCase):
             self.assertEqual(m["primaries"], 13)
             self.assertLess(m["routed_primaries"], 13)
 
+    def test_missed_counts_bridges_the_copper_could_carry(self):
+        dense = cases.dense_cases()
+        old = {r["case"]: r for r in runner.run_battery(variants.resolve("a1accf5^"), dense)}
+        new = {r["case"]: r for r in runner.run_battery(variants.resolve("worktree"), dense)}
+        self.assertEqual(old["nano_dense_metric"]["metrics"]["missed"], 2)        # A4-19 and A5-20, four crosspoints each
+        self.assertEqual(new["nano_dense_metric"]["metrics"]["missed"], 0)
+        self.assertEqual(sum(r["metrics"]["missed"] for r in new.values()), 0)    # every dense case today
+
     def test_before_the_bounce_pin_fix_claims_are_wrong(self):
         r, _ = self.run_at("f41e755^", "kevin_fixture_2026_09_02",
                            "int xMapBB = xMapForChipLane0(bb, sfChip);",

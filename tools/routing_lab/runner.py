@@ -14,6 +14,7 @@ import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+import ceiling
 import copper
 import variants
 
@@ -54,7 +55,7 @@ def run_harness(binary, case, *, repeat=2, block=(), timeout=20.0):
 def _result(case, status, problems=(), notes=(), rejected=(), metrics=None, b="", xbar="", stderr=""):
     base = {"primaries": 0, "routed_primaries": 0, "refused": 0, "bounced": 0, "routed_duplicates": 0,
             "crosspoints": 0, "taps": None, "taps_dead": [], "repeat_same": None,
-            "worst_r": None, "median_r": None, "rail_worst_r": None, "broken": 0}
+            "worst_r": None, "median_r": None, "rail_worst_r": None, "broken": 0, "missed": 0}
     base.update(metrics or {})
     return {"case": case.name, "cls": case.cls, "status": status, "problems": list(problems),
             "notes": list(notes), "rejected": [list(r) for r in rejected], "left_out": [], "refused": [],
@@ -143,6 +144,9 @@ def judge(case, sections, stderr="", block=()):
     if broken:
         result["status"] = "problems"
     result["metrics"].update(measured, broken=len(broken))
+    # Failed bridges the copper could have carried with everything else where
+    # it is: a worse score, and against a baseline a regression. Not a status.
+    result["metrics"]["missed"] = sum(1 for m in ceiling.missed(copper.paint(result)) if m["path"] is not None)
     return result
 
 
@@ -162,7 +166,8 @@ def run_case(binary, case, *, repeat=2, block=(), timeout=20.0):
 def _judge_stamp():
     """Changes when the judging code does, so cached results are not reused."""
     h = hashlib.sha256()
-    for path in (Path(__file__), Path(copper.__file__), HIL / "routing_check.py", HIL / "fabric_v5.py"):
+    for path in (Path(__file__), Path(copper.__file__), Path(ceiling.__file__), HIL / "routing_check.py",
+                 HIL / "fabric_v5.py"):
         h.update(path.read_bytes())
     return h.hexdigest()
 
