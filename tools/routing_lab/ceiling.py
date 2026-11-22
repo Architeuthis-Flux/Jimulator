@@ -7,34 +7,56 @@ router failed the cheapest path the free copper still had.
 
 The rule is the checker's: a wire carries one net, and a node outside the net
 (in another net, or in no net) may not be touched.
+
+The exact search (can this netlist be routed at all, and with how few
+crosspoints) is solver/solve.py, run with OR-tools from its own environment
+under build/. `problem` is what it is given and `ask` runs it; the lab works
+without it.
 """
 import collections
 import heapq
+import json
+import subprocess
+from pathlib import Path
 
 import copper                                       # puts test/hil on the path
+import variants
 
 import fabric_v5                                    # noqa: E402
 
-Graph = collections.namedtuple("Graph", "edges owners")
+Graph = collections.namedtuple("Graph", "edges owners ends")
 FAILED = ("unrouted", "broken")                     # the router's own misses; the firmware's three "no"s are not
+ASKED = ("routed",) + FAILED                        # the bridges a solver is given: all the firmware allowed
 _BOARD = []                                         # the V5 fabric's graph, built once
+
+ORTOOLS = "9.15.6755"
+SOLVER_PYTHON = variants.BUILD_DIR / "solver-venv" / "bin" / "python"
+SOLVE_PY = Path(__file__).resolve().parent / "solver" / "solve.py"
+SETUP = "python3 tools/routing_lab/lab.py solver-setup"
+GRACE = 30.0                                        # seconds past its limit before the solver is given up on
+
+
+class SolverMissing(ValueError):
+    """The solver's environment is not there; the text ends with the command that makes it."""
 
 
 def graph(fabric=fabric_v5):
     """The copper of a fabric (anything with CHIPS, X_NET, Y_NET, NODE_NET).
     edges[wire] is [(other wire, (chip, x, y))], one for every crosspoint on
-    the wire; owners[wire] is the nodes whose copper the wire is."""
+    the wire; owners[wire] is the nodes whose copper the wire is;
+    ends[(chip, x, y)] is that crosspoint's (X wire, Y wire)."""
     if fabric is fabric_v5 and _BOARD:
         return _BOARD[0]
-    edges, owners = {}, {}
+    edges, owners, ends = {}, {}, {}
     for chip in fabric.CHIPS:
         for x, wx in enumerate(fabric.X_NET[chip]):
             for y, wy in enumerate(fabric.Y_NET[chip]):
                 edges.setdefault(wx, []).append((wy, (chip, x, y)))
                 edges.setdefault(wy, []).append((wx, (chip, x, y)))
+                ends[(chip, x, y)] = (wx, wy)
     for node, wire in fabric.NODE_NET.items():
         owners.setdefault(wire, []).append(node)
-    g = Graph(edges, owners)
+    g = Graph(edges, owners, ends)
     if fabric is fabric_v5:
         _BOARD.append(g)
     return g
@@ -118,8 +140,7 @@ def spare(paint, g=None, limit=8):
     the firmware holds some copper back for sense taps: this is what is
     available in copper, not what the firmware would give."""
     g = g or graph()
-    wire_of = _wire_of(g)
-    ends = {xp: (w, other) for w, joined in g.edges.items() for other, xp in joined}
+    wire_of, ends = _wire_of(g), g.ends
     taken = {(c["chip"], c["x"], c["y"]) for c in paint["crosspoints"]}
     out = []
     for b in paint["bridges"]:
@@ -154,3 +175,70 @@ def painted(result):
         s = found.get((b["n1"], b["n2"], b["net"]), {})
         b["spare"], b["r_spare"], b["spare_paths"] = s.get("copies", 0), s.get("r"), s.get("paths", [])
     return paint
+
+
+# ---------------------------------------------------------------- the exact search
+
+def solver_installed():
+    return SOLVER_PYTHON.exists()
+
+
+def problem(paint, g=None):
+    """What a solver is given for one painted result, or None when there is
+    nothing to route: {"bridges": [[wire a, wire b, net]], "terminals":
+    {wire: net}, "crosspoints": [[chip, x, y, X wire, Y wire]]}.
+
+    The bridges are the ones the firmware allowed, the probe feed among them.
+    A wire is offered when it is a terminal or no node's copper, so a node in
+    no net (or in a net by a bridge the firmware refused) is never touched; a
+    crosspoint is offered when both its wires are and it does not join the
+    terminals of two nets. Two nodes on one piece of copper need nothing
+    closed: their wire stays a terminal and the bridge is left out."""
+    g = g or graph()
+    wire_of = _wire_of(g)
+    bridges, terminals = [], {}
+    for b in paint["bridges"]:
+        if b["state"] not in ASKED or b["n1"] not in wire_of or b["n2"] not in wire_of:
+            continue
+        a, z = wire_of[b["n1"]], wire_of[b["n2"]]
+        terminals.setdefault(a, b["net"])
+        terminals.setdefault(z, b["net"])
+        if a != z:
+            bridges.append([a, z, b["net"]])
+    if not bridges:
+        return None
+    offered = lambda w: w in terminals or not g.owners.get(w)
+    apart = lambda a, z: a in terminals and z in terminals and terminals[a] != terminals[z]
+    return {"bridges": bridges, "terminals": terminals,
+            "crosspoints": [[chip, x, y, wx, wy] for (chip, x, y), (wx, wy) in g.ends.items()
+                            if offered(wx) and offered(wy) and not apart(wx, wy)]}
+
+
+def ask(problem, rule, seconds=20.0, fewest=True):
+    """The solver's answer to one problem under one rule ("copper": any
+    copper; "firmware": each bridge its own path of at most four crosspoints):
+    {"verdict": "routable" | "not_routable" | "unknown", "fewest_proved",
+    "closed": [[chip, x, y, net]], "seconds"}. With fewest false it stops at
+    the first routing found. Raises SolverMissing when the environment is not
+    there; a solver that dies, prints something else or outlives its limit by
+    GRACE is "unknown" with an "error", never "not routable"."""
+    if not solver_installed():
+        raise SolverMissing("the exact search needs OR-tools in an environment of its own; make it once with: " + SETUP)
+    question = json.dumps(dict(problem, rule=rule, seconds=seconds, fewest=fewest))
+    unknown = lambda why: {"verdict": "unknown", "fewest_proved": False, "closed": [], "seconds": seconds, "error": why}
+    try:
+        p = subprocess.run([str(SOLVER_PYTHON), str(SOLVE_PY)], input=question, capture_output=True, text=True,
+                           errors="replace", timeout=seconds + GRACE)
+    except subprocess.TimeoutExpired:
+        return unknown("the solver gave no answer in %g s" % (seconds + GRACE))
+    except OSError as e:
+        return unknown("the solver could not be started: %s" % e)
+    if p.returncode != 0:
+        return unknown("the solver exited with %d: %s" % (p.returncode, (p.stderr.strip().splitlines() or [""])[-1]))
+    try:
+        answer = json.loads(p.stdout)
+        if answer["verdict"] not in ("routable", "not_routable", "unknown"):
+            raise ValueError(answer["verdict"])
+    except (ValueError, KeyError, TypeError):
+        return unknown("the solver's answer cannot be read: %r" % p.stdout[:200])
+    return answer

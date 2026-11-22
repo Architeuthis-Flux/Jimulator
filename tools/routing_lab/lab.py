@@ -8,6 +8,7 @@ of netlists with it, and judge the result against the schematic.
     lab.py sheet [BOARD.kicad_sch] [--theme NAME]
     lab.py export OUT.html [--variant V] [--baseline V0] [--classes ...]
     lab.py clean
+    lab.py solver-setup
     lab.py build [--variant V]
     lab.py fidelity CAPTURE_DIR [--variant V]
     lab.py import-state FILE.yaml --name NAME [--class real]
@@ -18,10 +19,12 @@ checkout), or a git ref. See README.md.
 import argparse
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 
 import cases
+import ceiling
 import generators
 import runner
 import variants
@@ -277,6 +280,22 @@ def cmd_clean(args):
     return 0
 
 
+def cmd_solver_setup(args):
+    """OR-tools in an environment of its own under build/ (the lab itself
+    imports only the standard library). Needs the network once; running it
+    again changes nothing."""
+    python = ceiling.SOLVER_PYTHON
+    steps = ([sys.executable, "-m", "venv", str(python.parent.parent)],
+             [str(python), "-m", "pip", "install", "--quiet", "--disable-pip-version-check", "ortools==" + ceiling.ORTOOLS],
+             [str(python), "-c", "import ortools; print(ortools.__version__)"])
+    for argv in steps:
+        done = subprocess.run(argv, capture_output=True, text=True)
+        if done.returncode != 0:
+            raise ValueError("solver-setup: %s failed:\n%s" % (" ".join(argv[1:4]), done.stderr.strip()))
+    print("OR-tools %s in %s" % (done.stdout.strip(), python.parent.parent))
+    return 0
+
+
 def cmd_import_state(args):
     case = cases.import_state(args.file, args.name, args.cls)
     dest = CASES_DIR / args.cls
@@ -329,6 +348,8 @@ def main(argv):
     exp.set_defaults(fn=cmd_export)
     sub.add_parser("clean", help="delete the caches under build/ (results, variant trees, binaries)") \
         .set_defaults(fn=cmd_clean)
+    sub.add_parser("solver-setup", help="install the exact solver (OR-tools) into build/solver-venv; needs the network once") \
+        .set_defaults(fn=cmd_solver_setup)
     args = ap.parse_args(argv)
     try:
         return args.fn(args)
