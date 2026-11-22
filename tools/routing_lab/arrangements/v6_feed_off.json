@@ -1,0 +1,5 @@
+{
+ "about": "V5's copper with the probe feed off the fabric, as V6 will have it",
+ "base": "v5",
+ "feed": false
+}

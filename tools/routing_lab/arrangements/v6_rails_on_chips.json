@@ -1,0 +1,31 @@
+{
+ "about": "Feed off, and rails on every breadboard chip (V6_CROSSBAR_MATRIX P1 + P2): the second lane of the pairs AD AF AH BC BE BG CD CH DG EF EH FG is given up, and on each chip the three pins so freed become TOP_RAIL, BOTTOM_RAIL and GND",
+ "base": "v5",
+ "feed": false,
+ "pins": {
+  "A.X7": "TOP_RAIL",
+  "A.X11": "BOTTOM_RAIL",
+  "A.X15": "GND",
+  "B.X5": "TOP_RAIL",
+  "B.X9": "BOTTOM_RAIL",
+  "B.X13": "GND",
+  "C.X3": "TOP_RAIL",
+  "C.X7": "BOTTOM_RAIL",
+  "C.X15": "GND",
+  "D.X1": "TOP_RAIL",
+  "D.X5": "BOTTOM_RAIL",
+  "D.X13": "GND",
+  "E.X3": "TOP_RAIL",
+  "E.X11": "BOTTOM_RAIL",
+  "E.X15": "GND",
+  "F.X1": "TOP_RAIL",
+  "F.X9": "BOTTOM_RAIL",
+  "F.X13": "GND",
+  "G.X3": "TOP_RAIL",
+  "G.X7": "BOTTOM_RAIL",
+  "G.X11": "GND",
+  "H.X1": "TOP_RAIL",
+  "H.X5": "BOTTOM_RAIL",
+  "H.X9": "GND"
+ }
+}

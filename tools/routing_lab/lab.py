@@ -11,6 +11,7 @@ of netlists with it, and judge the result against the schematic.
     lab.py solver-setup
     lab.py ceiling [--variant V] [--classes ...] [--case NAME] [--rule firmware|copper] [--seconds 20]
     lab.py edge [--seed 1] [--count 12] [--seconds 20] [--longest 80]
+    lab.py arrangement list | show NAME | check NAME
     lab.py build [--variant V]
     lab.py fidelity CAPTURE_DIR [--variant V]
     lab.py import-state FILE.yaml --name NAME [--class real]
@@ -26,6 +27,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import arrangement
 import cases
 import ceiling
 import generators
@@ -406,6 +408,57 @@ def cmd_edge(args):
     return 0
 
 
+def engines(a):
+    """Who can answer for an arrangement, in words."""
+    return "router and solver" if arrangement.blocks(a) is not None else "solver only"
+
+
+def cmd_arrangement(args):
+    """list: every arrangement. show NAME: its copper, pin by pin, against V5.
+    check NAME: what is wrong with its file, if anything."""
+    if args.what == "list":
+        for name in arrangement.names():
+            try:
+                a = arrangement.load(name)
+                print("%-22s feed %-3s  %-17s  %s" % (name, "on" if a.feed else "off", engines(a), a.about))
+            except arrangement.Bad as e:
+                print("%-22s %d problems: python3 tools/routing_lab/lab.py arrangement check %s" % (name, len(e.problems), name))
+        return 0
+    if not args.name:
+        raise ValueError("arrangement %s needs a name (see: lab.py arrangement list)" % args.what)
+    try:
+        a = arrangement.load(args.name)
+    except arrangement.Bad as e:
+        print("\n".join(e.problems))
+        return 1
+    if args.what == "check":
+        print("%s: good" % a.name)
+        return 0
+    print("%s: %s" % (a.name, a.about))
+    print("probe feed %s the fabric. A pin that is not on V5's wire is starred; a pin taken away is a dash."
+          % ("on" if a.feed else "off"))
+    for chip in a.CHIPS:
+        for axis in "XY":
+            shown = []
+            for pin, wire in enumerate((a.X_NET if axis == "X" else a.Y_NET)[chip]):
+                shown.append("-" if wire is None else wire + ("*" if (chip, axis, pin) in a.changed else ""))
+            print("  %s.%s  %s " % (chip, axis, " ".join(shown)))
+    base = arrangement.V5
+    moved = sorted(n for n, w in a.NODE_NET.items() if base.NODE_NET.get(n) != w)
+    gone = sorted(n for n in base.NODE_NET if n not in a.NODE_NET and n not in a.dropped)
+    if moved:
+        print("nodes added or moved: " + ", ".join("%s on %s" % (a.NODE_NAME.get(n, n), a.NODE_NET[n]) for n in moved))
+    if gone:
+        print("nodes removed: " + ", ".join(str(base.NODE_NAME.get(n, n)) for n in gone))
+    if a.dropped:
+        print("nodes dropped: " + ", ".join(str(base.NODE_NAME.get(n, n)) for n in a.dropped)
+              + " (no pin left; a netlist that uses one cannot be placed)")
+    why = arrangement.why_not_router(a)
+    print("engine: the firmware's router and the exact solver" if why is None
+          else "engine: the exact solver only. The firmware's router cannot route it: " + why)
+    return 0
+
+
 def cmd_import_state(args):
     case = cases.import_state(args.file, args.name, args.cls)
     dest = CASES_DIR / args.cls
@@ -474,6 +527,10 @@ def main(argv):
     edg.add_argument("--seconds", type=float, default=20.0, help="the solver's limit for one probe (20)")
     edg.add_argument("--longest", type=int, default=80, help="bridges in the list a case is a prefix of (80)")
     edg.set_defaults(fn=cmd_edge)
+    arr = sub.add_parser("arrangement", help="the crossbar arrangements under arrangements/: list, show, check")
+    arr.add_argument("what", choices=("list", "show", "check"))
+    arr.add_argument("name", nargs="?", help="an arrangement's name, or the path of its .json")
+    arr.set_defaults(fn=cmd_arrangement)
     args = ap.parse_args(argv)
     try:
         return args.fn(args)

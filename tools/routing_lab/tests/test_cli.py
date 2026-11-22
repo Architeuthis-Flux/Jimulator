@@ -7,6 +7,7 @@ import tempfile
 import unittest
 from unittest import mock
 
+import arrangement
 import ceiling
 import lab
 import variants
@@ -174,6 +175,40 @@ class Cli(unittest.TestCase):
         self.assertIn("the model is wrong", out)
         self.assertEqual(asked.call_args.args[1:], ("copper", 3.0))
         self.assertEqual(run(["ceiling", "--case", "no_such_case"])[0], 2)
+
+    def test_arrangement_list_show_and_check(self):
+        code, out = run(["arrangement", "list"])
+        self.assertEqual(code, 0, out)
+        line = {l.split()[0]: l for l in out.splitlines() if l.strip()}
+        self.assertIn("router and solver", line["v5"])
+        self.assertIn("feed on", line["v5"])
+        self.assertIn("router and solver", line["v6_feed_off"])
+        self.assertIn("feed off", line["v6_feed_off"])
+        self.assertIn("solver only", line["v6_rails_on_chips"])
+        code, out = run(["arrangement", "show", "v6_rails_on_chips"])
+        self.assertEqual((code, out.count("*")), (0, 24), out)            # every changed pin is marked, and nothing else
+        self.assertTrue(out.rstrip().endswith(arrangement.why_not_router(arrangement.load("v6_rails_on_chips"))), out)
+        self.assertIn("TOP_RAIL*", out)
+        code, out = run(["arrangement", "show", "v6_feed_off"])
+        self.assertEqual((code, out.count("*")), (0, 0), out)
+        self.assertIn("the firmware's router and the exact solver", out)
+        self.assertEqual(run(["arrangement", "check", "v6_feed_off"]), (0, "v6_feed_off: good\n"))
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "mine.json")
+            with open(path, "w") as f:
+                json.dump({"base": "v5", "feed": False, "pins": {"A.X16": "x", "K.X2": None}, "remove": ["KL"]}, f)
+            code, out = run(["arrangement", "check", path])
+            self.assertEqual(code, 1, out)
+            self.assertIn("A.X16", out)
+            with open(path, "w") as f:
+                json.dump({"base": "v5", "feed": False, "pins": {"K.X2": None}, "remove": ["KL"]}, f)
+            code, out = run(["arrangement", "show", path])
+            self.assertEqual(code, 0, out)
+            self.assertIn("dropped: BUFFER_IN", out)                      # the node whose one pin was freed
+            self.assertEqual(out.count(" - "), 3, out)                    # K.X2 and both ends of KL shown as taken
+        code, out = run(["arrangement", "check", "no_such_arrangement"])
+        self.assertEqual(code, 1, out)
+        self.assertIn("no_such_arrangement", out)
 
     def test_build_prints_the_binary(self):
         code, out = run(["build"])
