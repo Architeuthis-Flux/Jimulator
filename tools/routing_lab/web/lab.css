@@ -9,7 +9,7 @@
 [hidden] { display: none !important; }
 html, body { height: 100%; margin: 0; background: var(--bg); color: var(--ink);
   font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
-main { display: grid; grid-template-columns: 450px minmax(0, 1fr) 390px; height: 100vh; }
+main { display: grid; grid-template-columns: 490px minmax(0, 1fr) 450px; height: 100vh; }
 section { min-height: 0; overflow: auto; }
 h1 { font-size: 15px; margin: 0 0 8px; font-weight: 600; }
 h2 { font-size: 12px; margin: 14px 0 4px; color: var(--dim); font-weight: 600; text-transform: uppercase; letter-spacing: .06em; }
@@ -61,6 +61,7 @@ table.battery { border-collapse: collapse; width: 100%; }
 .key i { display: inline-block; }
 .key .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ink); }
 .key .dot.hollow { background: none; border: 2px solid var(--ink); }
+.key .dot.dashed { border-style: dashed; }
 .key .ring { width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--problem); }
 .key .dash { width: 14px; height: 0; border-top: 2px dashed var(--ink); }
 .key .dash.grey { border-color: var(--dim); }
@@ -83,10 +84,14 @@ table.battery { border-collapse: collapse; width: 100%; }
 .held { fill: none; stroke-width: 1; opacity: .75; }
 .mismatch { fill: none; stroke: var(--problem); stroke-width: 2; }
 .pad.short > circle:first-child { fill: var(--problem); }
+/* dashed, in the net's colour: a path the copper had for a failed bridge, or a spare copy. Never red. */
+.wire.ghost { stroke-width: 2; stroke-dasharray: 5 4; }
+.xp.ghost { fill: none; stroke-width: 1.6; stroke-dasharray: 2.4 1.8; }
+.s-curve.ghost { stroke-dasharray: 3 3; }
 /* a net lit alone dims the others, never what is red */
 svg.isolating .wire.live:not(.iso):not(.short), svg.isolating .xp:not(.iso), svg.isolating .pad.live:not(.iso):not(.short),
 svg.isolating .held:not(.iso), svg.isolating .s-wire:not(.iso):not(.short), svg.isolating .s-tag:not(.iso):not(.short),
-svg.isolating .s-curve:not(.iso), svg.isolating .s-held:not(.iso) { opacity: .12; }
+svg.isolating .s-curve:not(.iso), svg.isolating .s-held:not(.iso), svg.isolating .wire.ghost:not(.iso) { opacity: .12; }
 
 /* the KiCad sheet: positions are sheet millimetres, strokes keep their width on screen at any zoom */
 #sheet image { opacity: .55; }                                /* the sheet is the ground, the routing is the figure */
@@ -131,8 +136,10 @@ table.bridges { border-collapse: collapse; width: 100%; }
 .bridges th { color: var(--dim); font-weight: 400; }
 .bridges td:first-child, .bridges th:first-child { text-align: left; }
 .bridges tr.no td { color: var(--dim); }
-.bridges .state { color: var(--dim); font-size: 11px; padding-left: 15px; }
+.bridges .state { color: var(--dim); font-size: 11px; padding-left: 15px; white-space: normal; }
 .bridges tr.unrouted .state { color: var(--problem); }
+.bridges td.spare { cursor: pointer; color: var(--dim); }
+.bridges td.spare:hover, .bridges td.spare.on { color: var(--ink); background: #2f3654; }
 ul.problems, ul.notes { margin: 0; padding-left: 16px; }
 ul.problems li { color: var(--problem); }
 ul.notes li { color: var(--dim); }

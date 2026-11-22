@@ -23,6 +23,8 @@ const state = {
   compare: false,    // draw the selected case against the baseline's routing of it
   base: null,        // {result, paint} of the selected case as the baseline routed it
   picking: 0,        // counts case selections, so a slow answer cannot overwrite a later click
+  ghost: [],         // paths drawn dashed: [{net, hops: [{chip, x, y}]}]; the missed paths, or one bridge's spare copies
+  spareOf: null,     // "n1-n2" of the bridge whose spare copies are the dashed paths, or null for the missed paths
 };
 
 const $ = (id) => document.getElementById(id);
@@ -133,6 +135,8 @@ const COLUMNS = [
   { head: "ohm", tip: "worst signal bridge, ohms", better: -1, get: (r) => r.metrics.worst_r, text: (r) => ohmsText(r.metrics.worst_r) },
   { head: "rail", tip: "worst bridge to GND or a rail, ohms", better: -1, get: (r) => r.metrics.rail_worst_r, text: (r) => ohmsText(r.metrics.rail_worst_r) },
   { head: "taps", tip: "scanned nodes with no sense-tap route", better: -1, get: (r) => r.metrics.taps_dead.length },
+  { head: "miss", tip: "unrouted bridges the free copper could have carried", better: -1, get: (r) => r.metrics.missed || 0,
+    text: (r) => (r.metrics.missed ? String(r.metrics.missed) : ""), cls: (r) => (r.metrics.missed ? "problem" : "") },
   { head: "prob", tip: "problems the judge found", better: -1, get: (r) => (["crash", "timeout"].includes(r.status) ? 1 : 0) + r.problems.length,
     text: (r) => (["crash", "timeout"].includes(r.status) ? r.status : (r.problems.length || "")),
     cls: (r) => (r.problems.length || ["crash", "timeout"].includes(r.status) ? "problem" : "") },
@@ -165,6 +169,7 @@ function classRow(name, rows) {
   };
   const sum = (f) => rows.reduce((total, r) => total + f(r), 0);
   const broken = rows.filter((r) => ["problems", "crash", "timeout"].includes(r.status)).length;
+  const missed = sum((r) => r.metrics.missed || 0);
   const tr = el("tr", { class: "class" + (state.closed[name] ? " closed" : "") },
     el("td", { text: name + "  (" + rows.length + ")" }),
     el("td", { text: rows.filter((r) => r.fully_routed).length + "/" + rows.length, title: "cases fully routed" }),
@@ -173,6 +178,7 @@ function classRow(name, rows) {
     el("td", { text: ohmsText(worst("worst_r")) }),
     el("td", { text: ohmsText(worst("rail_worst_r")) }),
     el("td", { text: String(sum((r) => r.metrics.taps_dead.length)) }),
+    el("td", { text: missed ? String(missed) : "", class: missed ? "problem" : "" }),
     el("td", { text: broken ? String(broken) : "", class: broken ? "problem" : "" }));
   tr.addEventListener("click", () => {
     state.closed[name] = !state.closed[name];
@@ -379,6 +385,7 @@ async function selectCase(name) {
   state.current = current;
   state.base = base;
   state.isolated = null;
+  showMissed();
   for (const tr of document.querySelectorAll("#battery tr.case")) {
     tr.classList.toggle("on", tr.dataset.case === name);
   }
@@ -411,6 +418,35 @@ function applyIsolation() {
 const STATE_WORDS = { routed: "routed", unrouted: "NOT ROUTED", broken: "LISTED AS ROUTED, NOT CONNECTED",
                       refused: "refused by the safety check",
                       left_out: "left out of every net", rejected: "rejected" };
+const SPARE_TIP = "available in copper, taking this bridge alone; the firmware holds some copper back for sense taps";
+
+// What became of a bridge, in words. For one the router failed: whether the copper had a path for it.
+function stateWords(b, paint) {
+  if (!failed(b)) return STATE_WORDS[b.state];
+  const m = (paint.missed || []).find((x) => x.n1 === b.n1 && x.n2 === b.n2 && x.net === b.net);
+  if (!m || !m.path) return STATE_WORDS[b.state] + " - no free path in the copper as routed";
+  return STATE_WORDS[b.state] + " - the copper had a path: "
+    + (m.new === m.hops ? m.hops + " crosspoints" : m.new + " new, " + m.hops + " in all");
+}
+
+// The dashed paths are the case's missed paths, until a bridge's spare copies are asked for.
+function showMissed() {
+  state.spareOf = null;
+  const missed = (state.current && state.current.paint.missed) || [];
+  state.ghost = missed.filter((m) => m.path).map((m) => ({ net: m.net, hops: m.path }));
+}
+
+function toggleSpare(b) {
+  const key = b.n1 + "-" + b.n2;
+  if (state.spareOf === key) showMissed();
+  else {
+    state.spareOf = key;
+    state.ghost = b.spare_paths.map((hops) => ({ net: b.net, hops: hops }));
+  }
+  for (const td of document.querySelectorAll("#case td.spare")) td.classList.toggle("on", td.dataset.bridge === state.spareOf);
+  drawGhost();
+  applyIsolation();
+}
 
 function renderCase() {
   const box = $("case");
@@ -439,7 +475,8 @@ function renderCase() {
 
   box.append(el("h2", { text: "bridges" }));
   const bridges = el("table", { class: "bridges" },
-    el("tr", {}, ["bridge", "copies", "hops", "ohm"].map((h) => el("th", { text: h }))));
+    el("tr", {}, ["bridge", "copies", "hops", "ohm"].map((h) => el("th", { text: h })),
+      el("th", { text: "spare", title: SPARE_TIP })));
   // with compare on, the baseline's value follows in brackets where it differs
   const before = {};
   for (const b of (state.base ? state.base.paint.bridges : [])) before[b.n1 + "-" + b.n2] = b;
@@ -452,11 +489,15 @@ function renderCase() {
     const tr = el("tr", { class: routed ? "" : (failed(b) ? "unrouted" : "no") },
       el("td", {}, b.net == null ? null : el("span", { class: "swatch", style: "display:inline-block;margin-right:5px;background:" + netColour(b.net) }),
         nodeName(b.n1) + " - " + nodeName(b.n2) + (b.infra ? "  (probe feed)" : ""),
-        routed ? null : el("div", { class: "state", text: STATE_WORDS[b.state] }),
+        routed ? null : el("div", { class: "state", text: stateWords(b, paint) }),
         old && old.state !== b.state ? el("div", { class: "state", text: "baseline: " + STATE_WORDS[old.state] }) : null),
       el("td", {}, routed ? String(b.copies) : "", versus(routed ? String(b.copies) : "", oldRouted ? String(old.copies) : undefined)),
       el("td", { text: routed ? String(b.hops) : "" }),
-      el("td", {}, ohmsText(b.r), versus(ohmsText(b.r), oldRouted ? ohmsText(old.r) : undefined)));
+      el("td", {}, ohmsText(b.r), versus(ohmsText(b.r), oldRouted ? ohmsText(old.r) : undefined)),
+      // copies the free copper still allows, and the ohms with them; a click draws them dashed
+      b.spare ? el("td", { class: "spare" + (state.spareOf === b.n1 + "-" + b.n2 ? " on" : ""), "data-bridge": b.n1 + "-" + b.n2,
+        title: SPARE_TIP, text: "+" + b.spare + " → " + ohmsText(b.r_spare),
+        onclick: (event) => { event.stopPropagation(); toggleSpare(b); } }) : el("td", {}));
     if (b.net != null) tr.addEventListener("click", () => isolate(b.net));
     bridges.append(tr);
   }
@@ -557,7 +598,7 @@ function wireTip(name) {
 
 // ---------------------------------------------------------------- the fabric view
 
-const fabric = { wires: {}, pads: {}, dots: null, marks: null };
+const fabric = { wires: {}, pads: {}, dots: null, marks: null, ghost: null };
 
 function pinPoint(chip, axis, pin) {
   const f = state.info.fabric;
@@ -607,7 +648,8 @@ function drawFabricBase() {
   }
   fabric.dots = svg("g", { class: "dots" });
   fabric.marks = svg("g", { class: "marks" });
-  view.append(chips, wires, fabric.dots, pads, fabric.marks, hits);
+  fabric.ghost = svg("g", { class: "ghosts" });
+  view.append(chips, wires, fabric.ghost, fabric.dots, pads, fabric.marks, hits);
   $("fabric").replaceChildren(view);
   panZoom(view, [0, 0, f.size[0], f.size[1]]);
 }
@@ -707,7 +749,49 @@ function drawFabric(paint, base) {
     }
   }
   if (base) drawCompare(paint, base);
+  drawGhost();
   applyIsolation();
+}
+
+// ---------------------------------------------------------------- dashed paths: what the copper had, or still has
+
+// state.ghost on both views, dashed in the net's colour and never red (the
+// bridge's own row carries the red): hollow dots at the crosspoints that would
+// be closed, the free wires between them, and on the sheet curves in the chips.
+function drawGhost() {
+  const paint = state.current && state.current.paint;
+  fabric.ghost.replaceChildren();
+  sheet.ghost.replaceChildren();
+  if (sheet.live) sheet.live.append(sheet.ghost);
+  if (!paint) return;
+  const wireAt = {};                                         // "A.X3" -> the name of the wire on that pin
+  for (const [name, w] of Object.entries(paint.wires)) {
+    for (const pin of w.pins) wireAt[pin.chip + "." + pin.axis + pin.pin] = name;
+  }
+  const what = state.spareOf ? "a copy the free copper still allows" : "a path the copper had for this bridge";
+  for (const g of state.ghost) {
+    const colour = netColour(g.net);
+    const dashed = new Set();
+    for (const h of g.hops) {
+      if (h.new === false) continue;                         // already closed for this net: drawn as it is
+      for (const pin of [h.chip + ".X" + h.x, h.chip + ".Y" + h.y]) {
+        const name = wireAt[pin];
+        const known = state.info.fabric.wires[name];
+        if (!known || dashed.has(name) || paint.wires[name].nets.length) continue;      // lit copper is drawn already
+        dashed.add(name);
+        const path = svg("path", { class: "wire ghost", d: known.d, "data-net": g.net });
+        path.style.stroke = colour;
+        fabric.ghost.append(path);
+      }
+      const [x, y] = cellCentre(h.chip, h.x, h.y);
+      const dot = svg("circle", { class: "xp ghost", cx: x, cy: y, r: 3.6, "data-net": g.net });
+      dot.style.stroke = colour;
+      hover(dot, () => h.chip + "  x" + h.x + " y" + h.y + "\nnet " + netLabel(g.net) + ": " + what);
+      fabric.ghost.append(dot);
+      const d = sheet.data && sheetCurve(h);
+      if (d) sheet.ghost.append(svg("path", { class: "s-curve ghost", d: d, stroke: colour, "data-net": g.net }));
+    }
+  }
 }
 
 // ---------------------------------------------------------------- the KiCad sheet view
@@ -716,7 +800,20 @@ function drawFabric(paint, base) {
 // millimetres: the wires and labels of each net-carrying piece of copper, and
 // each closed crosspoint as a curve inside its chip from the X pin to the Y pin.
 
-const sheet = { data: null, live: null };
+const sheet = { data: null, live: null, ghost: svg("g", {}) };
+
+// A crosspoint on the sheet: a curve inside its chip from the X pin to the Y
+// pin, bowed into the body, away from the side the pins leave it on.
+function sheetCurve(c) {
+  const s = sheet.data;
+  const a = s.pins[c.chip + ".X" + c.x];
+  const b = s.pins[c.chip + ".Y" + c.y];
+  const body = s.bodies[c.chip];
+  if (!a || !b || !body) return null;
+  const width = body[2] - body[0];
+  const deep = a[0] > (body[0] + body[2]) / 2 ? body[0] + width * 0.15 : body[2] - width * 0.15;
+  return "M" + a[0] + " " + a[1] + "C" + deep + " " + a[1] + " " + deep + " " + b[1] + " " + b[0] + " " + b[1];
+}
 
 async function drawSheetBase() {
   let why = "The KiCad sheet is not part of an exported page.";
@@ -793,15 +890,9 @@ function drawSheet(paint) {
   }
 
   for (const c of paint.crosspoints) {
-    const a = s.pins[c.chip + ".X" + c.x];
-    const b = s.pins[c.chip + ".Y" + c.y];
-    const body = s.bodies[c.chip];
-    if (!a || !b || !body) continue;
-    // bow into the body, away from the side the pins leave it on
-    const width = body[2] - body[0];
-    const deep = a[0] > (body[0] + body[2]) / 2 ? body[0] + width * 0.15 : body[2] - width * 0.15;
-    const curve = svg("path", { class: "s-curve" + (c.dup ? " dup" : ""), stroke: netColour(c.net), "data-net": c.net,
-      d: "M" + a[0] + " " + a[1] + "C" + deep + " " + a[1] + " " + deep + " " + b[1] + " " + b[0] + " " + b[1] });
+    const d = sheetCurve(c);
+    if (!d) continue;
+    const curve = svg("path", { class: "s-curve" + (c.dup ? " dup" : ""), stroke: netColour(c.net), "data-net": c.net, d: d });
     hover(curve, () => c.chip + "  x" + c.x + " y" + c.y + "\nnet " + netLabel(c.net) + ", path " + c.path
       + (c.dup ? " (a duplicate)" : ""));
     curve.addEventListener("click", () => isolate(c.net));
@@ -825,6 +916,7 @@ function drawSheet(paint) {
     }
   }
   sheet.live.append(curves, copper, marks);
+  drawGhost();
 }
 
 // ---------------------------------------------------------------- starting

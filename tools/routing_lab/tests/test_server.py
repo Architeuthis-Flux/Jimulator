@@ -271,6 +271,15 @@ class Server(unittest.TestCase):
         self.assertNotIn("not built yet", js)                          # the placeholder is gone
         self.assertEqual(subprocess.run(["node", "--check", str(server.WEB_DIR / "lab.js")]).returncode, 0)
 
+    def test_the_page_draws_missed_paths_and_spare_copies(self):
+        js = self.c.get("/lab.js", token=None).body
+        for used in ("function drawGhost", "state.ghost", "spare_paths", "metrics.missed", "the copper had a path"):
+            self.assertIn(used, js)
+        self.assertEqual(subprocess.run(["node", "--check", str(server.WEB_DIR / "lab.js")]).returncode, 0)
+        for text in (js, self.c.get("/lab.css", token=None).body):
+            self.assertNotRegex(text, r"https?://(?!www\.w3\.org/)")  # still nothing from the network
+        self.assertIn(".ghost", self.c.get("/lab.css", token=None).body)
+
     def test_watch_reports_the_tree_hash(self):
         self.assertEqual(self.c.get("/api/watch?spec=worktree").json["hash"], variants.resolve("worktree").hash)
 
