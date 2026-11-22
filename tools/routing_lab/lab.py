@@ -41,6 +41,7 @@ GENERATED = {"dense": cases.dense_cases, "typical": generators.typical, "fuzz": 
              "stress": generators.stress, "beyond": generators.beyond}
 CLASSES = ["dense", "real", "typical", "fuzz", "stress", "beyond", "edge"]      # edge: from files only (lab.py edge)
 OHMS = 42.0             # one closed crosspoint, as measured on a board; the page and --ohms can say otherwise
+ON_WHAT = "the crossbar arrangement: v5, a name from `lab.py arrangement list`, or the path of a .json."
 # What each class is, for the page to say what a run covers. The counts are worked out, not written here.
 CLASS_WHAT = {
     "dense": "the cases of the bench HIL suite; the ones that suite requires must route here too, the rest are scored",
@@ -119,7 +120,7 @@ def regressions(base, new):
     out = []
     for r in new:
         b = before.get(r["case"])
-        if b is None:
+        if b is None or "unplaced" in (r["status"], b["status"]):      # not routed at all: nothing to compare
             continue
         m, bm = r["metrics"], b["metrics"]
         if r["status"] in ("crash", "timeout") and b["status"] not in ("crash", "timeout"):
@@ -149,10 +150,24 @@ def exit_code(results, case_list, regression_lines):
     return 1 if regression_lines else 0
 
 
-def print_table(v, results, ohms=OHMS):
-    """One row per class. Primaries say whether everything routed; copies,
-    xpoints and the worst signal bridge's ohms are what tell two routers apart
-    once it has (rail and GND bridges are in the page's own column)."""
+def what(a):
+    """An arrangement in a line: its name, how far it is from V5, and the feed."""
+    if arrangement.blocks(a) is None:
+        fabric = "%d pins not as V5 has them" % len(a.changed) if a.changed else "nodes not as V5 has them"
+    elif a.taken:
+        fabric = "V5 with %d pin%s taken away" % (len(a.taken), "" if len(a.taken) == 1 else "s")
+    else:
+        fabric = "V5, no pin taken away"
+    return "%s (%s, probe feed %s)" % (a.name, fabric, "on" if a.feed else "off")
+
+
+def print_table(v, results, ohms=OHMS, a=None):
+    """One row per class, under a line saying what was routed (the
+    arrangement `a`, V5 when None) and by whom. Primaries say whether
+    everything routed; copies, xpoints and the worst signal bridge's ohms are
+    what tell two routers apart once it has (rail and GND bridges are in the
+    page's own column)."""
+    print("arrangement: %s   engine: the firmware's router" % what(a or arrangement.V5))
     print("variant: %s  (%s)   %g ohm per crosspoint" % (v.name, v.hash[:12], ohms))
     print("%-9s %6s %13s %12s %8s %9s %7s %14s %10s %7s %8s %10s" % (
         "class", "cases", "fully routed", "primaries", "refused", "problems", "missed", "crash/timeout", "dead taps",
@@ -179,6 +194,8 @@ def print_table(v, results, ohms=OHMS):
         m = r["metrics"]
         if r["status"] in ("crash", "timeout"):
             print("  %-8s %s/%s: %s" % (r["status"], r["cls"], r["case"], (r["problems"] or [""])[0]))
+        elif r["status"] == "unplaced":
+            print("  unplaced %s/%s: no %s on %s" % (r["cls"], r["case"], ", ".join(r["lacks"]), r["arrangement"]))
         elif r["status"] == "problems":
             more = " (+%d more)" % (len(r["problems"]) - 1) if len(r["problems"]) > 1 else ""
             print("  problems %s/%s: %s%s" % (r["cls"], r["case"], r["problems"][0], more))
@@ -206,15 +223,16 @@ def cmd_run(args):
     if case_list is None:
         return 2
     v = variants.resolve(args.variant)
-    results = runner.run_battery(v, case_list, jobs=args.jobs)
-    print_table(v, results, args.ohms)
+    a = arrangement.load(args.arrangement)
+    results = runner.run_battery(v, case_list, jobs=args.jobs, arrangement=a)
+    print_table(v, results, args.ohms, a)
     if args.case:
         print_case(results[0])
     lines = []
     if args.baseline:
         base_v = variants.resolve(args.baseline)
         try:
-            base = runner.run_battery(base_v, case_list, jobs=args.jobs)
+            base = runner.run_battery(base_v, case_list, jobs=args.jobs, arrangement=a)
         except variants.BuildError as e:
             print("the baseline %s does not build:\n%s" % (base_v.name, e.stderr), file=sys.stderr)
             return 3
@@ -226,7 +244,7 @@ def cmd_run(args):
         print("not verified against a board (see fidelity/README.md)")
     if args.json:
         with open(args.json, "w") as f:
-            json.dump({"variant": {"name": v.name, "hash": v.hash}, "baseline": args.baseline,
+            json.dump({"variant": {"name": v.name, "hash": v.hash}, "arrangement": a.name, "baseline": args.baseline,
                        "regressions": lines, "results": results}, f)
     return exit_code(results, case_list, lines)
 
@@ -318,26 +336,33 @@ def _cases_of(args):
 
 
 def cmd_ceiling(args):
-    """Ask the solver of every case: can its netlist be routed at all, and
-    with how few crosspoints. Exit 1 when an answer does not stand (the
-    solver failed, or the lab's own check contradicts it) or there is no
-    solver."""
+    """Ask the solver of every case: can its netlist be routed at all on the
+    arrangement, and with how few crosspoints. The netlists are the
+    firmware's: each case is run by the harness on the arrangement when the
+    router can run it, else on V5 with the arrangement's feed, and then the
+    router's two columns say nothing (it routed another fabric). Exit 1 when
+    an answer does not stand (the solver failed, or the lab's own check
+    contradicts it) or there is no solver."""
     case_list = _cases_of(args)
     if case_list is None:
         return 2
+    a = arrangement.load(args.arrangement)
     if not ceiling.solver_installed():
         print("the exact search needs the solver; install it once with: " + ceiling.SETUP)
         return 1
     v = variants.resolve(args.variant)
-    results = runner.run_battery(v, case_list)
+    router_too = arrangement.blocks(a) is not None
+    results = runner.run_battery(v, case_list, arrangement=a if router_too else arrangement.base(a.feed))
     shape = "firmware-shaped paths" if args.rule == "firmware" else "any copper"
+    print("arrangement: %s   engine: the exact solver, %s" % (what(a), shape))
     print("variant: %s  (%s)   rule: %s, %g s a case" % (v.name, v.hash[:12], shape, args.seconds))
     print("%-30s %9s %9s  %-13s %s" % ("case", "routed", "router xp", "verdict", "fewest"))
-    routable = routed_too = both = extra = 0
+    routable = routed_too = both = extra = unplaced = 0
     errors = []
     for r in results:
         m = r["metrics"]
-        d = ceiling.verdict(r, args.rule, args.seconds)
+        d = ceiling.verdict(r, args.rule, args.seconds, arrangement=a)
+        unplaced += d["verdict"] == "unplaced"
         fewest = ""
         if d["verdict"] == "routable":
             fewest = ("= %d" if d["fewest_proved"] else "<= %d") % d["crosspoints"]
@@ -348,10 +373,17 @@ def cmd_ceiling(args):
                 extra += d["router_crosspoints"] - d["crosspoints"]
         if d["error"]:
             errors.append("%s: %s" % (r["case"], d["error"]))
-        print("%-30s %9s %9d  %-13s %s" % (r["case"][:30], "%d/%d" % (m["routed_primaries"], m["primaries"] - m.get("refused", 0)),
-                                           d["router_crosspoints"], d["verdict"].replace("_", " "), fewest))
-    print("provably routable: %d of %d; the router routes %d of those in full" % (routable, len(results), routed_too))
-    print("the router uses %d more crosspoints than the fewest over the %d cases where both are known" % (extra, both))
+        routed = "%d/%d" % (m["routed_primaries"], m["primaries"] - m.get("refused", 0))
+        print("%-30s %9s %9s  %-13s %s" % (r["case"][:30], routed if router_too else "-",
+                                           d["router_crosspoints"] if router_too else "-", d["verdict"].replace("_", " "), fewest))
+    if router_too:
+        print("provably routable: %d of %d; the router routes %d of those in full" % (routable, len(results), routed_too))
+        print("the router uses %d more crosspoints than the fewest over the %d cases where both are known" % (extra, both))
+    else:
+        print("provably routable: %d of %d (the firmware's router cannot route this arrangement: %s)" % (
+            routable, len(results), arrangement.why_not_router(a)))
+    if unplaced:
+        print("%d cannot be placed on %s: they use a node it does not have" % (unplaced, a.name))
     for line in errors:
         print("  not answered  " + line)
     return 1 if errors else 0
@@ -480,6 +512,7 @@ def main(argv):
     run.add_argument("--jobs", type=int)
     run.add_argument("--json", help="write every result to this file")
     run.add_argument("--ohms", type=float, default=OHMS, help="ohms per crosspoint for the worst-ohm column (%g)" % OHMS)
+    run.add_argument("--arrangement", default="v5", help=ON_WHAT + " The router routes only V5 with pins taken away")
     run.set_defaults(fn=cmd_run)
     build = sub.add_parser("build", help="build the harness for a variant and print its path")
     build.add_argument("--variant", default="worktree")
@@ -520,6 +553,7 @@ def main(argv):
     ceil.add_argument("--rule", default="firmware", choices=("firmware", "copper"),
                       help="firmware: each bridge its own path of at most four crosspoints; copper: any copper")
     ceil.add_argument("--seconds", type=float, default=20.0, help="the solver's limit for one case (20)")
+    ceil.add_argument("--arrangement", default="v5", help=ON_WHAT)
     ceil.set_defaults(fn=cmd_ceiling)
     edg = sub.add_parser("edge", help="grow random netlists to the longest the solver proves routable (cases/edge/)")
     edg.add_argument("--seed", type=int, default=1)

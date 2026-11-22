@@ -340,6 +340,8 @@ def verdict(result, rule="firmware", seconds=20.0, use_cache=True, fewest=True, 
     out = {"verdict": "nothing", "fewest_proved": False, "crosspoints": None, "closed": [], "seconds": 0.0, "error": None,
            "router_crosspoints": sum(1 for c in paint["crosspoints"] if not c["dup"]),
            "arrangement": arrangement.name if arrangement is not None else "v5", "engine": "solver", "unplaced": []}
+    if result.get("status") == "unplaced":          # the runner found a node missing and routed nothing: there is no netlist
+        return dict(out, verdict="unplaced")
     given = problem(paint, graph(arrangement) if arrangement is not None else graph())
     if given is None:
         return out

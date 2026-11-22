@@ -5,15 +5,19 @@ One case per process (the router keeps state between rebuilds, and a crash or
 a hang then costs one case). The judge is test/hil/routing_check.py, the same
 copper model the HIL suite runs against a board.
 """
+import dataclasses
+import functools
 import hashlib
 import json
 import os
 import re
 import subprocess
 import sys
+import types
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+import arrangement as arrangement_module             # run_case and run_battery take an `arrangement`
 import ceiling
 import copper
 import variants
@@ -23,6 +27,7 @@ HIL = LAB.parent.parent / "test" / "hil"
 if str(HIL) not in sys.path:
     sys.path.insert(0, str(HIL))
 
+import fabric_v5                # noqa: E402
 import routing_check as rc      # noqa: E402
 from fabric_v5 import NODE_NAME  # noqa: E402
 
@@ -73,10 +78,65 @@ def _without_block_claims(b):
     return head + sep + "\n".join(lines)
 
 
+@functools.lru_cache(maxsize=None)
+def _copper_without(block):
+    """V5's copper without the blocked pins: where the judge looks for the
+    path a failed bridge could have had."""
+    if not block:
+        return ceiling.graph()
+    x, y = ({chip: list(pins) for chip, pins in table.items()} for table in (fabric_v5.X_NET, fabric_v5.Y_NET))
+    for axis, chip, pin in block:
+        (x if axis == "X" else y)[fabric_v5.CHIPS[chip]][pin] = None
+    return ceiling.graph(types.SimpleNamespace(CHIPS=fabric_v5.CHIPS, X_NET=x, Y_NET=y, NODE_NET=fabric_v5.NODE_NET))
+
+
+def taken_pins(arrangement):
+    """The pins the harness must block to run an arrangement. Raises
+    RouterCannot when it is not V5 with pins taken away."""
+    taken = arrangement_module.blocks(arrangement)
+    if taken is None:
+        raise arrangement_module.RouterCannot(
+            "the firmware's router cannot route %s: %s; ask the solver: python3 tools/routing_lab/lab.py arrangement score %s"
+            % (arrangement.name, arrangement_module.why_not_router(arrangement), arrangement.name))
+    return taken
+
+
+def on(case, block=(), arrangement=None):
+    """How a case is run on an arrangement: (the case with the feed as the
+    arrangement has it, every pin to block, the names of the nodes the case
+    uses and the arrangement has dropped). With no arrangement the case and
+    the block are as given. Raises RouterCannot when the firmware's router
+    cannot run the arrangement at all."""
+    block = [tuple(b) for b in block]
+    if arrangement is None:
+        return case, block, []
+    taken = taken_pins(arrangement)
+    if not arrangement.feed and case.probe[0]:
+        case = dataclasses.replace(case, probe=(0, case.probe[1]))
+    lacking = sorted({n for bridge in case.bridges for n in bridge[:2]} & set(arrangement.dropped))
+    return case, block + [b for b in taken if b not in block], [str(NODE_NAME.get(n, n)) for n in lacking]
+
+
+def _named(result, case, arrangement):
+    """The result saying who routed it and on what: the arrangement's name
+    ("v5" when none was given), whether the probe feed was on the fabric, and
+    the engine. Given afresh to a result read from the cache, which is kept
+    by what was run (the feed, the blocked pins) and not by a name."""
+    result.update(arrangement=arrangement.name if arrangement is not None else "v5", feed=bool(case.probe[0]),
+                  engine="router")
+    return result
+
+
 def judge(case, sections, stderr="", block=()):
-    """A result from one case's harness sections."""
+    """A result from one case's harness sections. With pins blocked, the path
+    a failed bridge could have had is looked for on the copper without them."""
     b, xbar = sections.get("b", ""), sections.get("xbar", "")
     if block:
+        # A blocked pin is claimed for net 59, so a netlist that has a net 59 of its own cannot be told from one.
+        if any(int(n) >= BLOCK_NET for n in re.findall(r"Net (\d+)\]", b)):
+            return _result(case, "crash", b=b, xbar=xbar, stderr=stderr, problems=[
+                "this netlist reaches net %d, the number blocked pins are marked with: it cannot be run with pins taken away"
+                % BLOCK_NET])
         b = _without_block_claims(b)
     rejected = [[int(v) for v in line.split()] for line in sections.get("rejected", "").splitlines() if line.strip()]
     notes = ["rejected by the firmware: %s-%s" % (NODE_NAME.get(a, a), NODE_NAME.get(c, c)) for a, c in rejected]
@@ -147,21 +207,31 @@ def judge(case, sections, stderr="", block=()):
     result["metrics"].update(measured, broken=len(broken))
     # Failed bridges the copper could have carried with everything else where
     # it is: a worse score, and against a baseline a regression. Not a status.
-    result["metrics"]["missed"] = sum(1 for m in ceiling.missed(copper.paint(result)) if m["path"] is not None)
+    g = _copper_without(tuple(sorted(tuple(p) for p in block)))
+    result["metrics"]["missed"] = sum(1 for m in ceiling.missed(copper.paint(result), g) if m["path"] is not None)
     return result
 
 
-def run_case(binary, case, *, repeat=2, block=(), timeout=20.0):
-    """Route one case in its own process and judge it."""
+def run_case(binary, case, *, repeat=2, block=(), timeout=20.0, arrangement=None):
+    """Route one case in its own process and judge it. On an arrangement: with
+    its feed and without its pins. A case on a node the arrangement dropped
+    is not routed at all: its result is "unplaced", which is neither a miss
+    nor a fault."""
+    case, block, lacking = on(case, block, arrangement)
+    if lacking:
+        result = _result(case, "unplaced", notes=["cannot be placed on %s: it has no %s" % (arrangement.name, ", ".join(lacking))])
+        result["lacks"] = lacking
+        return _named(result, case, arrangement)
     stdout, stderr, code = run_harness(binary, case, repeat=repeat, block=block, timeout=timeout)
     if code is None:
-        return _result(case, "timeout", problems=["no answer in %g s" % timeout], stderr=stderr)
-    if code != 0:
-        return _result(case, "crash", problems=["the harness exited with %d" % code], stderr=stderr)
-    sections = parse_sections(stdout).get(case.name)
-    if sections is None:
-        return _result(case, "crash", problems=["the harness printed nothing for this case"], stderr=stderr)
-    return judge(case, sections, stderr, block)
+        result = _result(case, "timeout", problems=["no answer in %g s" % timeout], stderr=stderr)
+    elif code != 0:
+        result = _result(case, "crash", problems=["the harness exited with %d" % code], stderr=stderr)
+    else:
+        sections = parse_sections(stdout).get(case.name)
+        result = (judge(case, sections, stderr, block) if sections is not None else
+                  _result(case, "crash", problems=["the harness printed nothing for this case"], stderr=stderr))
+    return _named(result, case, arrangement)
 
 
 def _judge_stamp():
@@ -178,19 +248,26 @@ def _cache_path(v, case, repeat, block, stamp):
     return RESULTS_DIR / v.hash / (hashlib.sha256(key.encode()).hexdigest() + ".json")
 
 
-def run_battery(v, cases, *, jobs=None, block=(), use_cache=True):
-    """Results for every case, in order. Raises variants.BuildError."""
+def run_battery(v, cases, *, jobs=None, block=(), use_cache=True, arrangement=None):
+    """Results for every case, in order, each saying its "arrangement", "feed"
+    and "engine". On an arrangement every case runs with the feed as the
+    arrangement has it and without its pins (besides any in `block`). Raises
+    variants.BuildError, and RouterCannot for an arrangement that is not V5
+    with pins taken away."""
+    if arrangement is not None:
+        taken_pins(arrangement)                     # RouterCannot before anything is built
     binary = variants.build(v)
     stamp = _judge_stamp()
     repeat = 2
 
     def one(case):
-        path = _cache_path(v, case, repeat, block, stamp)
-        if use_cache and path.exists():
+        run_as, blocked, lacking = on(case, block, arrangement)
+        path = _cache_path(v, run_as, repeat, blocked, stamp)
+        if use_cache and not lacking and path.exists():
             with open(path) as f:
-                return json.load(f)
-        result = run_case(binary, case, repeat=repeat, block=block)
-        if result["status"] != "timeout":           # a timeout may be the machine, not the case
+                return _named(json.load(f), run_as, arrangement)
+        result = run_case(binary, case, repeat=repeat, block=block, arrangement=arrangement)
+        if result["status"] not in ("timeout", "unplaced"):     # a timeout may be the machine, not the case
             path.parent.mkdir(parents=True, exist_ok=True)
             tmp = path.with_name(path.name + ".tmp%d" % os.getpid())
             with open(tmp, "w") as f:

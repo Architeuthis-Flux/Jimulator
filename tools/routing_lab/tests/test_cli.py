@@ -210,6 +210,34 @@ class Cli(unittest.TestCase):
         self.assertEqual(code, 1, out)
         self.assertIn("no_such_arrangement", out)
 
+    def test_run_on_an_arrangement_says_which_and_who_routed(self):
+        code, out = run(["run", "--classes", "dense", "--arrangement", "v6_feed_off"])
+        self.assertEqual(code, 0, out)
+        first = out.splitlines()[0]
+        for words in ("arrangement: v6_feed_off", "probe feed off", "the firmware's router"):
+            self.assertIn(words, first)
+        self.assertRegex(out, r"dense\s+21\s+21\s")            # with the feed off the K overflow routes too
+        self.assertIn("arrangement: v5 (V5, no pin taken away, probe feed on)", run(["run", "--classes", "dense"])[1].splitlines()[0])
+        code, out = run(["run", "--classes", "dense", "--arrangement", "v6_rails_on_chips"])
+        self.assertEqual(code, 2, out)
+        self.assertIn("arrangement score v6_rails_on_chips", out)
+        self.assertEqual(run(["run", "--classes", "dense", "--arrangement", "no_such_arrangement"])[0], 2)
+
+    @unittest.skipUnless(ceiling.solver_installed(), "the solver is not installed: python3 tools/routing_lab/lab.py solver-setup")
+    def test_ceiling_on_an_arrangement_the_router_cannot_route(self):
+        code, out = run(["ceiling", "--case", "rail_stacking_light", "--arrangement", "v6_rails_on_chips"])
+        self.assertEqual(code, 0, out)
+        first = out.splitlines()[0]
+        for words in ("arrangement: v6_rails_on_chips", "probe feed off", "the exact solver, firmware-shaped paths"):
+            self.assertIn(words, first)
+        line = [l for l in out.splitlines() if l.startswith("rail_stacking_light")][0].split()
+        self.assertEqual(line[1:3], ["-", "-"])                 # the router routed another fabric: its columns say nothing
+        self.assertEqual(line[-2:], ["=", "6"])
+        code, out = run(["ceiling", "--case", "rail_stacking_light", "--arrangement", "v6_feed_off"])
+        line = [l for l in out.splitlines() if l.startswith("rail_stacking_light")][0].split()
+        self.assertEqual((code, line[-2:]), (0, ["=", "10"]), out)
+        self.assertNotEqual(line[1], "-")                       # here the router ran on the arrangement itself
+
     def test_build_prints_the_binary(self):
         code, out = run(["build"])
         self.assertEqual(code, 0)

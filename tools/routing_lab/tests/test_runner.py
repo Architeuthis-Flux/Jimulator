@@ -1,22 +1,29 @@
 # SPDX-License-Identifier: MIT
+import contextlib
 import dataclasses
+import io
 import os
 import stat
 import tempfile
 import unittest
 from unittest import mock
 
+import arrangement
 import cases
+import ceiling
+import copper
+import lab
 import runner
 import variants
 
-BIN = None
+BIN = V = None
 CASE18 = cases.Case("t", "x", [(1, 8, -1)], must_route=True)
 
 
 def setUpModule():
-    global BIN
-    BIN = variants.build(variants.resolve("worktree"))
+    global BIN, V
+    V = variants.resolve("worktree")
+    BIN = variants.build(V)
 
 
 class Runner(unittest.TestCase):
@@ -141,6 +148,80 @@ class Runner(unittest.TestCase):
         cs = [cases.Case("o%d" % i, "x", [(1 + i, 8 + i, -1)]) for i in range(6)]
         self.assertEqual([r["case"] for r in runner.run_battery(v, cs, jobs=3, use_cache=False)],
                          [c.name for c in cs])
+
+
+class OnAnArrangement(unittest.TestCase):
+    def test_the_feed_is_off_where_the_arrangement_has_none(self):
+        r = runner.run_battery(V, [CASE18], arrangement=arrangement.load("v6_feed_off"))[0]
+        self.assertEqual([b for b in copper.paint(r)["bridges"] if b["infra"]], [])
+        self.assertEqual((r["metrics"]["primaries"], r["arrangement"], r["feed"], r["engine"]), (1, "v6_feed_off", False, "router"))
+        plain = runner.run_battery(V, [CASE18])[0]
+        self.assertEqual((plain["metrics"]["primaries"], plain["arrangement"], plain["feed"]), (2, "v5", True))
+        self.assertEqual(runner.run_case(BIN, CASE18, arrangement=arrangement.load("v6_feed_off"))["feed"], False)
+
+    def test_a_wire_taken_away_is_never_used(self):                    # the design's "a blocked wire never appears in any path"
+        for wires in (["KL"], ["AK"], ["/AB0", "/AB1"], [copper.BOUNCE[0]], ["IJ", "IK", "IL"]):
+            a = arrangement.parse("without", {"base": "v5", "feed": False, "remove": wires})
+            for r in runner.run_battery(V, lab.battery(["dense", "stress"]), arrangement=a):
+                self.assertNotIn(r["status"], ("crash", "timeout"), (wires, r["case"]))
+                used = {copper.wire(c["chip"], axis, c[axis.lower()]) for c in copper.paint(r)["crosspoints"] for axis in "XY"}
+                self.assertEqual(used & set(wires), set(), (wires, r["case"]))
+                self.assertEqual([p for p in r["problems"] if p.startswith(("SHORT", "STRAY"))], [], (wires, r["case"]))
+
+    def test_a_missed_path_never_passes_a_wire_taken_away(self):       # Review Focus 5
+        nano = next(c for c in cases.dense_cases() if c.name == "nano_dense_metric")
+        old = variants.resolve("a1accf5^")                              # leaves A4-19 and A5-20 unrouted, each with a path
+        plain = runner.run_battery(old, [nano])[0]
+        self.assertEqual(plain["metrics"]["missed"], 2)
+        for hub in ("IK", "JK"):                                        # the two paths go by way of these hub lanes
+            a = arrangement.parse("no_" + hub, {"base": "v5", "remove": [hub]})
+            r = runner.run_battery(old, [nano], arrangement=a)[0]
+            for m in ceiling.missed(copper.paint(r), ceiling.graph(a)):
+                for h in m["path"] or ():
+                    self.assertNotIn(hub, (copper.wire(h["chip"], "X", h["x"]), copper.wire(h["chip"], "Y", h["y"])))
+            self.assertEqual(r["metrics"]["missed"], sum(1 for m in ceiling.missed(copper.paint(r), ceiling.graph(a)) if m["path"] is not None))
+
+    def test_the_router_refuses_what_it_cannot_route(self):            # Review Focus 4
+        with self.assertRaises(arrangement.RouterCannot) as cm:
+            runner.run_battery(V, [CASE18], arrangement=arrangement.load("v6_rails_on_chips"))
+        self.assertRegex(str(cm.exception), r"[A-H]\.X\d+ is on (TOP_RAIL|BOTTOM_RAIL|GND)")
+        self.assertIn("arrangement score v6_rails_on_chips", str(cm.exception))
+
+    def test_a_case_on_a_dropped_node_is_unplaced_not_a_miss(self):    # Review Focus 2
+        no_rail = arrangement.parse("no_top_rail", {"base": "v5", "feed": False, "pins": {"K.X4": None}})   # TOP_RAIL's one pin
+        self.assertEqual(no_rail.dropped, [101])
+        uses, spares = cases.Case("uses", "x", [(1, 8, -1), (101, 3, -1)]), cases.Case("spares", "x", [(1, 8, -1)])
+        with mock.patch.object(runner, "run_harness", wraps=runner.run_harness) as ran:
+            a, b = runner.run_battery(V, [uses, spares], arrangement=no_rail, use_cache=False)
+        self.assertEqual(ran.call_count, 1)                             # only the case that can be placed is routed
+        self.assertEqual((a["status"], a["problems"], a["metrics"]["primaries"], a["arrangement"]), ("unplaced", [], 0, "no_top_rail"))
+        self.assertIn("TOP_RAIL", a["notes"][0])
+        self.assertEqual((b["status"], b["arrangement"]), ("ok", "no_top_rail"))
+        self.assertFalse(lab.fully_routed(a))
+        self.assertEqual(lab.exit_code([a, b], [uses, spares], []), 0)
+        self.assertEqual(lab.regressions([b, dict(b, case="uses")], [a, b]), [])
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            lab.print_table(V, [a, b])
+        self.assertIn("unplaced x/uses: no TOP_RAIL on no_top_rail", out.getvalue())
+        with mock.patch.object(ceiling, "ask", side_effect=AssertionError("asked")):       # and the solver is not asked of it
+            self.assertEqual(ceiling.verdict(a, arrangement=no_rail, use_cache=False)["verdict"], "unplaced")
+
+    def test_a_cached_result_is_named_for_the_arrangement_asked(self):
+        one, other = (arrangement.parse(n, {"base": "v5", "feed": False, "remove": ["KL"]}) for n in ("one", "other"))
+        self.assertEqual(runner.run_battery(V, [CASE18], arrangement=one)[0]["arrangement"], "one")
+        with mock.patch.object(runner, "run_case", side_effect=AssertionError("ran again")):
+            self.assertEqual(runner.run_battery(V, [CASE18], arrangement=other)[0]["arrangement"], "other")
+
+    def test_net_59_and_blocked_pins_do_not_mix(self):                 # Review Focus 3
+        sections = runner.parse_sections(runner.run_harness(BIN, CASE18)[0])["t"]
+        self.assertIn("Net 6]", sections["b"])
+        high = dict(sections, b=sections["b"].replace("Net 6]", "Net 59]"))
+        r = runner.judge(CASE18, high, block=[("X", 0, 2)])
+        self.assertEqual(r["status"], "crash")
+        self.assertIn("net 59", r["problems"][0])
+        self.assertNotIn("net 59", " ".join(runner.judge(CASE18, sections, block=[("X", 0, 2)])["problems"]))
+        self.assertNotEqual(runner.judge(CASE18, high)["status"], "crash")     # with nothing blocked, 59 is a net like any other
 
 
 if __name__ == "__main__":
