@@ -119,7 +119,13 @@ class Server(unittest.TestCase):
         info = self.c.get("/api/info").json
         self.assertEqual(info["classes"], ["dense", "real", "typical", "fuzz", "stress", "beyond", "edge"])
         self.assertEqual(info["variants"][0], {"spec": "worktree", "name": "worktree"})
-        self.assertEqual(info["ohms"], 60)
+        self.assertEqual(info["ohms"], 42)                               # measured on a board, per crosspoint
+        # what each class is and how many cases it runs, for the page to say what a run covers
+        self.assertEqual(sorted(info["about"]), sorted(info["classes"]))
+        self.assertEqual([info["about"][c]["cases"] for c in ("dense", "typical", "fuzz", "stress", "beyond", "edge")],
+                         [21, 200, 2000, 21, 3, 12])
+        self.assertTrue(all(len(a["what"]) > 20 for a in info["about"].values()))
+        self.assertIn("must route", info["about"]["dense"]["what"])
         self.assertIn("A", info["fabric"]["chips"])
         self.assertIn(info["verified"], (True, False))                  # True once a board capture has passed
         with mock.patch.object(server.lab, "FIDELITY_DIR", server.LAB / "no-captures-here"):
@@ -365,6 +371,21 @@ class Server(unittest.TestCase):
         self.assertIn('id="drop-hint"', self.c.get("/", token=None).body)
         self.assertEqual(subprocess.run(["node", "--check", str(server.WEB_DIR / "lab.js")]).returncode, 0)
         self.assertNotRegex(js, r"https?://(?!www\.w3\.org/)")
+
+    def test_the_page_says_what_is_running_and_what_is_shown(self):
+        page = self.c.get("/", token=None).body
+        self.assertIn('id="showing"', page)
+        self.assertIn('value="42"', page)
+        self.assertNotIn("live</label>", page)                           # "live ohms per crosspoint" read as one setting
+        self.assertIn("re-run on save", page)
+        js = self.c.get("/lab.js", token=None).body
+        for used in ("function renderShowing", "info.about", "must route", "Not a run of the router"):
+            self.assertIn(used, js)
+        run = self.c.post("/api/run", {"variant": "worktree", "classes": ["dense"]}).json
+        case = self.c.get("/api/case?variant=%s&case=chain_all_chips" % run["variant"]["hash"]).json["result"]
+        self.assertIs(case["must_route"], True)
+        self.assertIn("must_route", run["rows"][0])
+        self.assertEqual(subprocess.run(["node", "--check", str(server.WEB_DIR / "lab.js")]).returncode, 0)
 
     def test_watch_reports_the_tree_hash(self):
         self.assertEqual(self.c.get("/api/watch?spec=worktree").json["hash"], variants.resolve("worktree").hash)

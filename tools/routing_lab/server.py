@@ -300,7 +300,8 @@ def info(trees=()):
     nodes = {str(n): {"wire": wire, "name": copper.NODE_NAME.get(n, str(n))}
              for n, wire in copper.NODE_NET.items()}
     return {"classes": lab.CLASSES, "variants": [{"spec": "worktree", "name": "worktree"}] + named,
-            "verified": lab.verified_against_a_board(), "ohms": 60, "fabric": fabric_view.layout(),
+            "verified": lab.verified_against_a_board(), "ohms": lab.OHMS, "about": lab.about(),
+            "fabric": fabric_view.layout(),
             "nodes": nodes, "sheet": (SHEET_DIR / "overlay.json").is_file(), "solver": ceiling.solver_installed()}
 
 

@@ -38,6 +38,14 @@ class Runner(unittest.TestCase):
         self.assertIn("Bridge Array", r["b"])
         self.assertIn("xbar{12x8:", r["xbar"])
 
+    def test_a_result_says_what_kind_of_case_it_was(self):
+        r = runner.run_case(BIN, CASE18)
+        self.assertEqual((r["must_route"], r["about"]), (True, ""))
+        scored = dataclasses.replace(CASE18, must_route=False, notes="proved routable with firmware-shaped paths")
+        r = runner.run_case(BIN, scored)
+        self.assertEqual((r["must_route"], r["about"]), (False, "proved routable with firmware-shaped paths"))
+        self.assertIs(runner.run_case(self.script("exit 134"), CASE18)["must_route"], True)     # a crash says it too
+
     def test_empty_case(self):
         self.assertEqual(runner.run_case(BIN, cases.Case("e", "x", []))["status"], "empty")
         r = runner.run_case(BIN, cases.Case("e", "x", [(100, 101, -1)]))

@@ -57,7 +57,8 @@ def _result(case, status, problems=(), notes=(), rejected=(), metrics=None, b=""
             "crosspoints": 0, "taps": None, "taps_dead": [], "repeat_same": None,
             "worst_r": None, "median_r": None, "rail_worst_r": None, "broken": 0, "missed": 0}
     base.update(metrics or {})
-    return {"case": case.name, "cls": case.cls, "status": status, "problems": list(problems),
+    return {"case": case.name, "cls": case.cls, "must_route": bool(case.must_route), "about": case.notes,
+            "status": status, "problems": list(problems),
             "notes": list(notes), "rejected": [list(r) for r in rejected], "left_out": [], "refused": [],
             "metrics": base, "b": b, "xbar": xbar, "stderr": stderr[-STDERR_TAIL:]}
 

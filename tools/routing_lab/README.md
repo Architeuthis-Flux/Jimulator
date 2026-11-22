@@ -20,12 +20,20 @@ python3 tools/routing_lab/lab.py serve
 Opens `http://127.0.0.1:8765/`. Pick a router and the classes, press Run,
 click a case.
 
+- **What is run, and what is shown.** Each class has its number of cases
+  beside it and says what it is when the pointer rests on it. While a run is
+  going the page names the classes and the router. Over the table a line
+  beginning "Shown:" says what the table holds: which router ran which
+  classes, or that it is a board's own output and no run of the router. Rest
+  the pointer on it for what every case is judged on. The case panel says
+  what kind of case is open: one that must route, one that is scored, or a
+  board's routing.
 - **Router / Baseline** take `worktree`, a git ref (`main`, `a1accf5^`), or a
   directory given with `--tree DIR` when the server was started. With a
   baseline the table tints each number better or worse, lists regressions,
   and "compare with baseline" draws both routings of the selected case.
-- **Trying a change.** Edit the router in this checkout and tick **live**:
-  the battery re-runs when a file under `src/` changes. Or drop
+- **Trying a change.** Edit the router in this checkout and tick **re-run on
+  save**: the battery re-runs when a file under `src/` changes. Or drop
   `NetsToChipConnections.cpp`, `MatrixState.cpp` or any other source file on
   the left column: it is built as "worktree + 1 file" without touching the
   checkout. A router that does not compile shows the compiler's output and
@@ -63,7 +71,7 @@ click a case.
   under "A board's own output" below.
 - **ohm** is the worst signal bridge's resistance and **rail** the worst
   bridge to GND or a rail, counted in crosspoints and multiplied by the
-  "ohms per crosspoint" box (60 by default; duplicates in parallel lower
+  "ohms per crosspoint" box (42 by default, as measured on a board; duplicates in parallel lower
   it).
 - **miss** counts the bridges the router failed although the free copper
   had a path for them. Select the case: each such path is drawn dashed in
@@ -124,9 +132,12 @@ The page shows what a board really routed from the text of its `b` report
   not there.
 
 Tested against the 21 captures of the 2026-11-21 board run, each as captured,
-with colour codes, and with tabs turned to spaces. Not yet tested with text
-copied out of a real terminal window; if one does not read, the message says
-which part did not come through.
+with colour codes, and with tabs turned to spaces. On 2026-11-22 a report
+copied out of a real terminal window and pasted on the page read correctly
+(10 of 10 bridges, 8 duplicates, 52 crosspoints);
+`tests/fixtures/terminal_copy_2026-11-22.txt` is that report rebuilt from its
+text, not the clipboard's own bytes. Another terminal may copy differently;
+if a report does not read, the message says which part did not come through.
 
 ## Use from the command line
 
@@ -337,6 +348,13 @@ the OLED's GPIO 7 and 8, so with DAC0 outside the probe window the feed sits
 on GPIO 6. The harness had booted with the OLED off and put it on GPIO 8.
 It now boots as the board does. No routed count and no finding below
 changed with it.
+
+A second, smaller check came from a report pasted on 2026-11-22 (ten bridges
+made by hand, eight duplicates). Routing the same bridges, the lab closes the
+same crosspoints as that board in 51 of 52 places. The one that differs is
+the probe feed's end: GPIO 8 on that board, GPIO 6 in the lab. So that board
+had the top OLED off when it routed, and the harness always assumes it on.
+Where a board's feed sits on GPIO 7 or 8, expect that one difference.
 
 The pass is recorded for the harness as it is (`verified.json` holds its
 hash). Change anything under `harness/` and `lab.py run` says "not verified

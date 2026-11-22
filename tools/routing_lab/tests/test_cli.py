@@ -47,7 +47,8 @@ class Cli(unittest.TestCase):
             return int(row.split()[-1])
 
         self.assertGreater(worst(out), 0)
-        self.assertEqual(worst(run(["run", "--classes", "dense", "--ohms", "30"])[1]) * 2, worst(out))
+        self.assertEqual(worst(run(["run", "--classes", "dense", "--ohms", "21"])[1]) * 2, worst(out))   # 42 by default
+        self.assertIn("42 ohm per crosspoint", out)
 
     def test_battery_classes(self):
         self.assertEqual(len(lab.battery(["dense"])), 21)

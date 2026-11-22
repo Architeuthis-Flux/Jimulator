@@ -19,6 +19,7 @@ A variant is "worktree" (this checkout), a directory that holds src/ (another
 checkout), or a git ref. See README.md.
 """
 import argparse
+import functools
 import json
 import re
 import subprocess
@@ -37,6 +38,29 @@ FIDELITY_DIR = LAB / "fidelity"
 GENERATED = {"dense": cases.dense_cases, "typical": generators.typical, "fuzz": generators.fuzz,
              "stress": generators.stress, "beyond": generators.beyond}
 CLASSES = ["dense", "real", "typical", "fuzz", "stress", "beyond", "edge"]      # edge: from files only (lab.py edge)
+OHMS = 42.0             # one closed crosspoint, as measured on a board; the page and --ohms can say otherwise
+# What each class is, for the page to say what a run covers. The counts are worked out, not written here.
+CLASS_WHAT = {
+    "dense": "the cases of the bench HIL suite; the ones that suite requires must route here too, the rest are scored",
+    "real": "saved board states, imported from slot files with import-state; scored",
+    "typical": "seeded circuits shaped like everyday use: an IC or two across the gap, power, ground, a few signals; scored",
+    "fuzz": "seeded random netlists of up to twelve bridges; scored",
+    "stress": "cases each aimed at one scarce resource (one chip flooded, hub lanes, a forty-node net); scored",
+    "beyond": "cases made too big for the fabric on purpose; scored, and must stay free of shorts",
+    "edge": "random netlists of about fifty bridges, each proved routable by the exact solver; scored, and how many "
+            "route in full is the headline",
+}
+
+
+@functools.lru_cache(maxsize=None)
+def _generated_count(cls):
+    return len(GENERATED[cls]()) if cls in GENERATED else 0
+
+
+def about():
+    """{class: {"cases": how many it runs, "what": one line}}."""
+    return {cls: {"cases": _generated_count(cls) + len(list((CASES_DIR / cls).glob("*.json"))), "what": CLASS_WHAT[cls]}
+            for cls in CLASSES}
 
 
 def battery(classes):
@@ -123,7 +147,7 @@ def exit_code(results, case_list, regression_lines):
     return 1 if regression_lines else 0
 
 
-def print_table(v, results, ohms=60.0):
+def print_table(v, results, ohms=OHMS):
     """One row per class. Primaries say whether everything routed; copies,
     xpoints and the worst signal bridge's ohms are what tell two routers apart
     once it has (rail and GND bridges are in the page's own column)."""
@@ -402,7 +426,7 @@ def main(argv):
     run.add_argument("--case", help="only this case, with its b report")
     run.add_argument("--jobs", type=int)
     run.add_argument("--json", help="write every result to this file")
-    run.add_argument("--ohms", type=float, default=60.0, help="ohms per crosspoint for the worst-ohm column (60)")
+    run.add_argument("--ohms", type=float, default=OHMS, help="ohms per crosspoint for the worst-ohm column (%g)" % OHMS)
     run.set_defaults(fn=cmd_run)
     build = sub.add_parser("build", help="build the harness for a variant and print its path")
     build.add_argument("--variant", default="worktree")

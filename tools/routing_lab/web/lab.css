@@ -22,6 +22,12 @@ button:hover { border-color: var(--dim); }
 #left { padding: 10px; border-right: 1px solid var(--line); background: var(--panel); }
 #controls label { display: grid; grid-template-columns: 70px 1fr; align-items: center; gap: 6px; margin-bottom: 5px; }
 #controls label.inline { display: inline-flex; gap: 6px; margin: 0 0 0 10px; color: var(--dim); }
+#controls label.inline.first { margin-left: 0; }
+#classes .count { color: var(--dim); font-size: 11px; }
+#showing { margin: 8px 0 2px; color: var(--dim); line-height: 1.35; }
+#showing b { color: var(--ink); font-weight: 600; }
+.battery tr.note td { color: var(--dim); text-align: left; padding-left: 18px; }
+#case .about { color: var(--dim); margin: 4px 0; }
 #controls #ohms { width: 62px; }
 #classes { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 6px 0; }
 #classes label { display: inline-flex; grid-template-columns: none; gap: 4px; margin: 0; }

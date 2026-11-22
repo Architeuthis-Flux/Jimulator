@@ -60,6 +60,20 @@ class Board(unittest.TestCase):
                               ("in a log", "Jumperless> b\r\n" + raw + "\r\n\tMenu\r\nA\tnot a status row\r\n")):
                 self.assertEqual(drawn(board.result(name, text)), want, (name, how))
 
+    def test_a_report_copied_out_of_a_real_terminal_reads(self):
+        # Kevin's paste of 2026-11-22, rebuilt from the text he sent (not his clipboard's own bytes): the chip
+        # status in two blocks, a header that lost a tab ("duppathType"), eight duplicates, the probe feed on
+        # GPIO 8. The page read his original as 10 of 10 routed, 8 copies, 52 crosspoints; this keeps that true.
+        text = (Path(__file__).parent / "fixtures" / "terminal_copy_2026-11-22.txt").read_text()
+        r = board.result("pasted", text)
+        m = r["metrics"]
+        self.assertEqual((r["status"], r["problems"]), ("ok", []))
+        self.assertEqual((m["primaries"], m["routed_primaries"], m["routed_duplicates"], m["crosspoints"]), (10, 10, 8, 52))
+        crosspoints, bridges, wires = drawn(r)
+        self.assertEqual(len(bridges), 10)
+        self.assertIn((139, 138, 13, "routed"), [b[:4] for b in bridges])          # BUF_IN - GPIO_8, the probe feed
+        self.assertEqual(drawn(board.result("pasted", copied(text))), (crosspoints, bridges, wires))   # tabs as spaces too
+
     def test_an_unrouted_bridge_and_held_pins_come_through(self):
         r = board.result("over", copied(capture("k_rows_overflow_metric")))
         _, bridges, wires = drawn(r)

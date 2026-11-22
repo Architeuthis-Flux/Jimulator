@@ -18,9 +18,11 @@
       <div id="uploads" hidden></div>
       <div id="classes"></div>
       <div class="row">
-        <button id="run" type="submit">Run</button>
-        <label class="inline" title="re-run when a file under the router's src/ is saved"><input id="live" type="checkbox"> live</label>
-        <label class="inline">ohms per crosspoint <input id="ohms" type="number" min="1" step="1" value="60"></label>
+        <button id="run" type="submit" title="Route every case of the ticked classes with the Router, and judge each result against the schematic">Run</button>
+        <label class="inline" title="Run again by itself whenever a file under the router's src/ is saved"><input id="live" type="checkbox"> re-run on save</label>
+      </div>
+      <div class="row">
+        <label class="inline first" title="What one closed crosspoint is taken to be, for the ohm columns. 42 is what a board measured.">ohms per crosspoint <input id="ohms" type="number" min="1" step="1" value="42"></label>
       </div>
       <p id="drop-hint" class="hint" title="A b report copied from a terminal or saved from a serial log; with the port-7 ':crossbar' reply too if you have it. Source files dropped here replace the router's own for the next Run.">Drop or paste a board's <b>b</b> output to see what it routed. Drop a source file to try it.</p>
       <p id="verified" hidden>not verified against a board</p>
@@ -28,6 +30,7 @@
     </form>
     <div id="build-error" hidden></div>
     <div id="regressions" hidden></div>
+    <div id="showing" hidden></div>
     <div id="filters">
       <label><input id="filter-unclean" type="checkbox"> not clean</label>
       <label><input id="filter-changed" type="checkbox"> changed from baseline</label>

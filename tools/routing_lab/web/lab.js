@@ -14,7 +14,7 @@ const state = {
   selected: null,    // case name
   current: null,     // {result, paint} of the selected case
   isolated: null,    // a net number lit alone, or null
-  ohms: 60,          // ohms per crosspoint; resistance arrives in crosspoint units
+  ohms: 42,          // ohms per crosspoint (the server says); resistance arrives in crosspoint units
   closed: {},        // class name -> collapsed in the table
   tab: "fabric",
   upload: {},        // dropped file name -> {path, text, choices}
@@ -202,9 +202,39 @@ function classRow(name, rows) {
   return tr;
 }
 
+const RUN_CHECKS = "Each case is a netlist. The firmware's own router, built for this computer, routes it, and the result "
+  + "is judged against the schematic: no short, no stray, every bridge listed as routed really joined, chip-status "
+  + "claims agreeing with the copper, sense taps reachable, and the same routes on a second rebuild. The dense cases "
+  + "the bench suite requires must route; every other case is scored.";
+const BOARD_CHECKS = "Read from a board's b report and judged against the schematic as a run is: shorts, strays, bridges "
+  + "listed as routed that do not join, claims that disagree with the copper. Sense taps and the second-rebuild check "
+  + "need the router and are not there.";
+
+// One line over the table saying what it holds: which router ran which classes, or that it is a board's own output.
+function renderShowing() {
+  const box = $("showing");
+  const run = state.run;
+  box.hidden = !run;
+  if (!run) return;
+  if (run.board) {
+    box.title = BOARD_CHECKS;
+    box.replaceChildren(el("b", { text: "Shown: " }), "what a board printed (" + run.rows.length
+      + (run.rows.length === 1 ? " report" : " reports") + "). Not a run of the router: press Run for that.");
+    return;
+  }
+  const classes = [];
+  for (const row of run.rows) if (!classes.includes(row.cls)) classes.push(row.cls);
+  box.title = RUN_CHECKS + classes.map((c) => "\n" + c + ": " + (((state.info.about || {})[c] || {}).what || "")).join("");
+  box.replaceChildren(el("b", { text: "Shown: " }), "router " + run.variant.name + " on "
+    + classes.map((c) => c + " (" + run.rows.filter((r) => r.cls === c).length + ")").join(", ") + ", "
+    + run.rows.length + " cases, each routed and judged against the schematic"
+    + (run.baseline ? "; compared with " + run.baseline.name : "") + ".");
+}
+
 function renderBattery() {
   const box = $("battery");
   box.replaceChildren();
+  renderShowing();
   if (!state.run) return;
   const onlyUnclean = $("filter-unclean").checked;
   const onlyChanged = $("filter-changed").checked;
@@ -217,13 +247,20 @@ function renderBattery() {
     if (!(name in state.closed)) state.closed[name] = rows.length > 60;    // long classes start folded
     table.append(classRow(name, rows));
     if (state.closed[name]) continue;
+    let listed = 0;
     for (const row of rows) {
       if (onlyUnclean && !unclean(row)) continue;
       if (onlyChanged && !changedFromBase(row)) continue;
+      listed += 1;
       const tr = el("tr", { class: "case" + (row.case === state.selected ? " on" : ""), "data-case": row.case },
         el("td", { text: row.case, title: row.case }), COLUMNS.map((c) => cell(c, row)));
       tr.addEventListener("click", () => selectCase(row.case));
       table.append(tr);
+    }
+    if (!listed) {                                 // the filters hid every case: say so, an empty class reads as a fault
+      const why = [onlyUnclean ? "not clean" : null, onlyChanged ? "changed from the baseline" : null].filter(Boolean);
+      table.append(el("tr", { class: "note" }, el("td", { colspan: String(COLUMNS.length + 1),
+        text: "none of the " + rows.length + " is " + why.join(" and ") + "; untick the filter to list them" })));
     }
   }
   box.append(table);
@@ -370,6 +407,8 @@ async function runBattery() {
   if (state.busy) return false;     // one run at a time: answers would otherwise land in the order they arrive
   const classes = [...document.querySelectorAll("#classes input:checked")].map((box) => box.value);
   const body = { variant: variantSpec(), baseline: $("baseline").value.trim() || null, classes: classes };
+  $("busy").textContent = "running " + (classes.join(", ") || "no class") + " on " + baseSpec()
+    + (Object.keys(state.upload).length ? " with the dropped files" : "") + (body.baseline ? " and on " + body.baseline : "") + "...";
   $("busy").hidden = false;
   $("run").disabled = true;
   state.busy = true;
@@ -422,6 +461,7 @@ async function showBoards(list) {
     return;
   }
   state.busy = true;
+  $("busy").textContent = "reading the board's output...";
   $("busy").hidden = false;
   $("run").disabled = true;
   try {
@@ -446,15 +486,15 @@ async function showBoards(list) {
   }
 }
 
-let pasted = 0;
+const pastes = new Map();      // pasted text -> the name it was given, so the same paste again is the same case
 
 function installPaste() {
   window.addEventListener("paste", (event) => {
     const text = event.clipboardData ? event.clipboardData.getData("text") : "";
     if (!looksLikeBoard(text)) return;             // anything else is pasted where it was going
     event.preventDefault();
-    pasted += 1;
-    showBoards([["pasted_" + pasted, text]]);
+    if (!pastes.has(text)) pastes.set(text, "pasted_" + (pastes.size + 1));
+    showBoards([[pastes.get(text), text]]);
   });
 }
 
@@ -560,7 +600,10 @@ function renderCase() {
   box.replaceChildren(
     el("h1", { text: result.case }),
     el("div", {}, el("span", { class: "status " + result.status, text: result.status }),
-      el("span", { class: "hint", text: "  " + result.cls })));
+      // what kind of case this is: a board's own routing, one the bench suite requires to route, or one that is scored
+      el("span", { class: "hint", text: "  " + result.cls + " · "
+        + (result.cls === "board" ? "as a board routed it" : result.must_route ? "must route" : "scored") })));
+  if (result.about) box.append(el("div", { class: "about", text: result.about }));
   if (["crash", "timeout"].includes(result.status)) {
     box.append(el("h2", { text: "what the harness said" }),
       el("ul", { class: "problems" }, result.problems.map((p) => el("li", { text: p }))),
@@ -1135,15 +1178,17 @@ async function start() {
   $("verified").hidden = state.info.verified;
   for (const v of state.info.variants) $("variant-list").append(el("option", { value: v.spec }));
   for (const name of state.info.classes) {
-    $("classes").append(el("label", {},
-      el("input", { type: "checkbox", value: name, checked: ["dense", "real", "stress", "edge"].includes(name) ? "" : null }), name));
+    const about = (state.info.about || {})[name] || {};     // what the class is, on hover, and how many cases it runs
+    $("classes").append(el("label", { title: about.what ? name + ": " + about.what : null },
+      el("input", { type: "checkbox", value: name, checked: ["dense", "real", "stress", "edge"].includes(name) ? "" : null }),
+      name, about.cases == null ? null : el("span", { class: "count", text: String(about.cases) })));
   }
   drawFabricBase();
   await drawSheetBase();
 
   $("controls").addEventListener("submit", (event) => { event.preventDefault(); runBattery(); });
   $("ohms").addEventListener("input", () => {
-    state.ohms = Number($("ohms").value) || 60;
+    state.ohms = Number($("ohms").value) || state.info.ohms;
     renderBattery();
     if (state.current) renderCase();
   });
