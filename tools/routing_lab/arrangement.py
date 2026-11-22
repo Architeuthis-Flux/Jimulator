@@ -64,10 +64,12 @@ def _pins(chips, x_net, y_net):
 class Arrangement:
     """name, about, feed; CHIPS, X_NET, Y_NET (None: the pin is taken away),
     NODE_NET, NODE_NAME, ROLE; and against V5: changed (pins not on V5's
-    wire), taken (those with no wire), dropped (base nodes left on no pin)."""
+    wire), taken (those with no wire), dropped (base nodes left on no pin).
+    data is the JSON it was made from, for making another from it."""
 
-    def __init__(self, name, about, feed, chips, x_net, y_net, node_net, node_name, role, dropped=()):
+    def __init__(self, name, about, feed, chips, x_net, y_net, node_net, node_name, role, dropped=(), data=None):
         self.name, self.about, self.feed = name, about, feed
+        self.data = copy.deepcopy(data) if data is not None else {"base": "v5", "feed": feed}      # what a file of it says
         self.CHIPS, self.X_NET, self.Y_NET = chips, x_net, y_net
         self.NODE_NET, self.NODE_NAME, self.ROLE = node_net, node_name, role
         self.changed = sorted(
@@ -104,7 +106,7 @@ def with_feed(a, feed):
     if a.feed == feed:
         return a
     other = copy.copy(a)
-    other.feed = feed
+    other.feed, other.data = feed, dict(a.data, feed=feed)
     return other
 
 
@@ -202,7 +204,8 @@ def _build(name, data):
         node_name.pop(node, None)
     if feed and FEED_NODE not in node_net:
         problems.append('"feed" is true, but the feed\'s node (%d, BUF_IN) has no pin: say "feed": false' % FEED_NODE)
-    return Arrangement(name, str(data.get("about") or ""), feed, chips, x_net, y_net, node_net, node_name, role, dropped), problems
+    return Arrangement(name, str(data.get("about") or ""), feed, chips, x_net, y_net, node_net, node_name, role, dropped,
+                       data), problems
 
 
 def check(data):

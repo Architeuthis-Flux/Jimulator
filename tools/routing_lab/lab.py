@@ -555,6 +555,46 @@ def cmd_arrangement(args):
     return 0
 
 
+def signed(n):
+    """A loss with its sign: +3, -1, 0."""
+    return "%+d" % n if n else "0"
+
+
+def cmd_rank(args):
+    """Route the battery on an arrangement, then again without each lane,
+    bounce row and hub lane, and print what the firmware's router loses
+    without each, least first. The ranking is written under build/rank/."""
+    import rank
+    case_list = _cases_of(args)
+    if case_list is None:
+        return 2
+    a = arrangement.load(args.arrangement)
+    v = variants.resolve(args.variant)
+    names = [w for w in (args.wires or "").split(",") if w] or None
+    said = lambda done, of, wire: print("%d/%d %s" % (done, of, wire), file=sys.stderr, flush=True)
+    ranking = rank.removal(v, case_list, a, wires=names, progress=said)
+    where = rank.save(ranking)
+    if args.json:
+        with open(args.json, "w") as f:
+            json.dump(ranking, f)
+    base = ranking["baseline"]
+    print("arrangement: %s   engine: the firmware's router   variant: %s (%s)   %d cases" % (
+        what(a), v.name, v.hash[:12], ranking["cases"]))
+    print("with every wire: %d primaries routed, %d cases fully routed, %d crosspoints" % (
+        base["primaries"], base["fully_routed"], base["crosspoints"]))
+    print("%-8s %-28s %8s %10s %7s %8s %6s %7s" % ("kind", "wire", "used in", "primaries", "cases", "xpoints", "worse", "better"))
+    for w in sorted(ranking["wires"], key=lambda w: (w["loss"]["primaries"], w["loss"]["fully_routed"])):
+        print("%-8s %-28s %8d %10s %7s %8s %6d %7d" % (
+            w["kind"], w["wire"], w["usage"]["cases"], signed(w["loss"]["primaries"]), signed(w["loss"]["fully_routed"]),
+            signed(w["loss"]["crosspoints"]), len(w["worse"]), len(w["better"])))
+    print("lost without the wire: primaries routed, cases fully routed; xpoints: crosspoints more; worse, better: cases with"
+          " fewer or more primaries routed")
+    print("usage counts follow the router's search order and say nothing of need; a negative loss is the router doing better"
+          " without the wire")
+    print("written to %s" % where)
+    return 0
+
+
 def cmd_import_state(args):
     case = cases.import_state(args.file, args.name, args.cls)
     dest = CASES_DIR / args.cls
@@ -641,6 +681,16 @@ def main(argv):
                      help="score: also grow N of the edge class's random lists on both (about a minute and a half a list "
                           "an arrangement)")
     arr.set_defaults(fn=cmd_arrangement)
+    rnk = sub.add_parser("rank", help="what the firmware's router loses without each lane, bounce row and hub lane")
+    rnk.add_argument("--arrangement", default="v6_feed_off",
+                     help=ON_WHAT + " The default has the probe feed off the fabric, as V6 will; v5 is the same ranking "
+                                    "with the feed on it, as a V5 has it")
+    rnk.add_argument("--variant", default="worktree")
+    rnk.add_argument("--classes", default="dense,real,typical,stress,edge", help="comma list of: " + ", ".join(CLASSES))
+    rnk.add_argument("--case", help="only this case")
+    rnk.add_argument("--wires", help="comma list of wires to rank (every lane, bounce row and hub lane when not given)")
+    rnk.add_argument("--json", help="write the ranking to this file as well")
+    rnk.set_defaults(fn=cmd_rank)
     args = ap.parse_args(argv)
     try:
         return args.fn(args)

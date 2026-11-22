@@ -3,6 +3,7 @@ import contextlib
 import io
 import json
 import os
+import re
 import tempfile
 import unittest
 from unittest import mock
@@ -10,6 +11,7 @@ from unittest import mock
 import arrangement
 import ceiling
 import lab
+import rank
 import variants
 
 LAB = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -283,6 +285,33 @@ class Cli(unittest.TestCase):
             code, out = run(["arrangement", "score", "v6_feed_off"])
         self.assertEqual(code, 1, out)
         self.assertIn("python3 tools/routing_lab/lab.py solver-setup", out)
+
+    def test_rank_prints_what_the_router_loses_and_writes_it(self):
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(rank, "DIR", lab.Path(tmp) / "rank"):
+            copy = os.path.join(tmp, "copy.json")
+            code, out = run(["rank", "--classes", "dense", "--wires", "KL,AK", "--json", copy])
+            self.assertEqual(code, 0, out)
+            heading = [l for l in out.splitlines() if l.startswith("arrangement:")][0]
+            for words in ("v6_feed_off", "probe feed off", "the firmware's router", "21 cases"):
+                self.assertIn(words, heading)
+            lines = [l for l in out.splitlines() if l.startswith(("hub ", "sf lane "))]
+            self.assertEqual(sorted(l.split()[-7] for l in lines), ["AK", "KL"], out)         # two wire lines
+            self.assertTrue(all(re.search(r"\s(0|[+-]\d+)\s", l) for l in lines), lines)   # the loss carries its sign
+            self.assertIn("usage counts follow the router's search order and say nothing of need; "
+                          "a negative loss is the router doing better without the wire", out)
+            self.assertIn("1/2 KL", out)                                # progress, a line a wire
+            files = list((lab.Path(tmp) / "rank").glob("*.json"))
+            self.assertEqual(len(files), 1)
+            self.assertRegex(files[0].name, r"^[0-9a-f]{64}_v6_feed_off\.json$")
+            with open(files[0]) as f, open(copy) as g:
+                doc = json.load(f)
+                self.assertEqual(doc, json.load(g))
+            self.assertEqual((doc["arrangement"], doc["feed"], doc["engine"], [w["wire"] for w in doc["wires"]]),
+                             ("v6_feed_off", False, "router", ["KL", "AK"]))
+            self.assertEqual(run(["rank", "--classes", "dense", "--wires", "GND"])[0], 2)       # a node's wire is not ranked
+            code, out = run(["rank", "--classes", "dense", "--wires", "KL", "--arrangement", "v6_rails_on_chips"])
+            self.assertEqual(code, 2, out)
+            self.assertIn("arrangement score v6_rails_on_chips", out)   # the router cannot route it; the solver's command is named
 
     def test_build_prints_the_binary(self):
         code, out = run(["build"])
