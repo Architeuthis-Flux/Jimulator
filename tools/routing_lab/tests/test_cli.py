@@ -262,7 +262,8 @@ class Cli(unittest.TestCase):
                    "proved_on_both": 0, "fewest": {"a": 0, "b": 0}, "errors": ["c"]}
         said = {"a": "v6_feed_off", "b": "v5", "feed": False, "rule": "firmware", "seconds": 3.0, "engine": "solver",
                 "rows": [dict(table, case="c", cls="x")], "summary": summary}
-        grown = [{"list": 0, "a": {"bridges": 67, "next_is": "unknown"}, "b": {"bridges": 0, "next_is": None}}]
+        grown = [{"list": 0, "a": {"bridges": 67, "next_is": "unknown"}, "b": {"bridges": 0, "next_is": None}},
+                 {"list": 1, "a": {"bridges": 18, "next_is": "unplaced"}, "b": {"bridges": 54, "next_is": "not_routable"}}]
         with mock.patch.object(ceiling, "solver_installed", return_value=True), \
                 mock.patch.object(lab.score, "compare", return_value=said) as compared, \
                 mock.patch.object(lab.score, "lengths", return_value=grown) as lengths:
@@ -274,6 +275,9 @@ class Cli(unittest.TestCase):
         self.assertEqual((compared.call_args.args[2].name, compared.call_args.args[3].name), ("v6_feed_off", "v5"))
         self.assertEqual((compared.call_args.kwargs["rule"], compared.call_args.kwargs["seconds"]), ("copper", 3.0))
         self.assertEqual((lengths.call_args.kwargs["lists"], lengths.call_args.kwargs["seconds"]), (1, 3.0))
+        self.assertEqual(lengths.call_args.kwargs["rule"], "copper")    # the lists grow under the rule the heading names
+        self.assertIn("random list 1: 18 bridges proved on v6_feed_off (one more: it uses a node the arrangement does not have), "
+                      "54 bridges proved on v5 (one more: not routable, proved)", out)
         with mock.patch.object(ceiling, "solver_installed", return_value=True), \
                 mock.patch.object(lab.score, "compare", return_value=dict(said, seconds=10.0)) as compared, \
                 mock.patch.object(lab.score, "lengths", return_value=grown) as lengths:
@@ -300,18 +304,44 @@ class Cli(unittest.TestCase):
             self.assertIn("usage counts follow the router's search order and say nothing of need; "
                           "a negative loss is the router doing better without the wire", out)
             self.assertIn("1/2 KL", out)                                # progress, a line a wire
-            files = list((lab.Path(tmp) / "rank").glob("*.json"))
-            self.assertEqual(len(files), 1)
-            self.assertRegex(files[0].name, r"^[0-9a-f]{64}_v6_feed_off\.json$")
-            with open(files[0]) as f, open(copy) as g:
-                doc = json.load(f)
-                self.assertEqual(doc, json.load(g))
+            # some wires only: printed, and written where --json says, but not kept as the ranking (final review, 2)
+            self.assertEqual(list((lab.Path(tmp) / "rank").glob("*.json")), [])
+            self.assertIn("not kept", out)
+            with open(copy) as g:
+                doc = json.load(g)
             self.assertEqual((doc["arrangement"], doc["feed"], doc["engine"], [w["wire"] for w in doc["wires"]]),
                              ("v6_feed_off", False, "router", ["KL", "AK"]))
             self.assertEqual(run(["rank", "--classes", "dense", "--wires", "GND"])[0], 2)       # a node's wire is not ranked
             code, out = run(["rank", "--classes", "dense", "--wires", "KL", "--arrangement", "v6_rails_on_chips"])
             self.assertEqual(code, 2, out)
             self.assertIn("arrangement score v6_rails_on_chips", out)   # the router cannot route it; the solver's command is named
+
+    def test_a_narrowed_ranking_leaves_the_kept_one_alone(self):            # final review, 2
+        def removal(v, case_list, a, wires=None, progress=None):
+            names = wires or ["KL", "AK", "IJ"]
+            entry = lambda n: {"wire": n, "kind": "hub", "pins": [], "usage": {"cases": 1, "primary": 1, "duplicate": 0},
+                               "loss": {"primaries": 1, "fully_routed": 0, "crosspoints": 0, "worst_r": None}, "by_class": {},
+                               "worse": [], "better": [], "used_after": 0}
+            return {"arrangement": a.name, "feed": a.feed, "engine": "router", "variant": {"name": v.name, "hash": v.hash},
+                    "fabric": rank.fabric_of(a), "cases": len(case_list), "wires": [entry(n) for n in names],
+                    "baseline": {"primaries": 9, "fully_routed": 3, "crosspoints": 30, "worst_r": None}}
+
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(rank, "DIR", lab.Path(tmp) / "rank"), \
+                mock.patch.object(rank, "removal", side_effect=removal):
+            code, out = run(["rank"])                                   # every wire, the default classes: this one is kept
+            self.assertEqual(code, 0, out)
+            files = list((lab.Path(tmp) / "rank").glob("*.json"))
+            self.assertEqual(len(files), 1)
+            self.assertRegex(files[0].name, r"^[0-9a-f]{64}_v6_feed_off\.json$")
+            kept = files[0].read_text()
+            self.assertEqual((json.loads(kept)["cases"], len(json.loads(kept)["wires"])), (256, 3))
+            self.assertIn("written to", out)
+            for narrowed in (["--wires", "KL"], ["--case", "same_chip_pairs"], ["--wires", "KL", "--classes", "dense"]):
+                code, out = run(["rank"] + narrowed)
+                self.assertEqual(code, 0, out)
+                self.assertEqual(files[0].read_text(), kept, narrowed)
+                self.assertIn("not kept", out)
+                self.assertNotIn("written to", out)
 
     def test_rank_needed_puts_the_proof_beside_the_loss(self):
         def needed(v, case_list, a, ranking, rule="firmware", seconds=5.0, progress=None):
@@ -323,8 +353,9 @@ class Cli(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp, mock.patch.object(rank, "DIR", lab.Path(tmp) / "rank"), \
                 mock.patch.object(ceiling, "solver_installed", return_value=True), \
                 mock.patch.object(rank, "needed", side_effect=needed) as asked:
+            copy = os.path.join(tmp, "copy.json")
             code, out = run(["rank", "--classes", "dense", "--wires", "AK,IJ,KL", "--needed", "--needed-classes", "dense,real",
-                             "--seconds", "7"])
+                             "--seconds", "7", "--json", copy])
             self.assertEqual(code, 0, out)
             self.assertEqual((len(asked.call_args.args[1]), asked.call_args.kwargs["seconds"]), (23, 7.0))     # dense and real
             self.assertEqual(asked.call_args.args[2].name, "v6_feed_off")
@@ -336,7 +367,7 @@ class Cli(unittest.TestCase):
             self.assertIn("needed: the exact solver proves the netlist cannot be routed without the wire (firmware-shaped paths). "
                           "not needed: a routing without it exists. The router's loss is beside these, not instead of them.", out)
             self.assertIn("1/1 same_chip_pairs", out)
-            with open(next((lab.Path(tmp) / "rank").glob("*.json"))) as f:
+            with open(copy) as f:
                 doc = json.load(f)
             self.assertEqual((doc["engine"], doc["needed_cases"], doc["wires"][0]["needed_by"]),
                              ("router and solver", 23, ["k_rows_overflow_metric", "k_rows_all_eight"]))

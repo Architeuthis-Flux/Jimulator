@@ -18,7 +18,9 @@ Two different questions, kept apart:
 How often a wire is used answers neither: it follows the router's search
 order.
 """
+import hashlib
 import json
+import os
 import re
 
 import arrangement
@@ -76,6 +78,13 @@ def usage(results):
             for axis in "XY":
                 out[copper.wire(c["chip"], axis, c[axis.lower()])]["duplicate" if c["dup"] else "primary"] += 1
     return out
+
+
+def fabric_of(a):
+    """A digest of an arrangement's copper, its nodes and its feed: what a
+    ranking is of, whatever the arrangement's file is called."""
+    told = [list(a.CHIPS), a.X_NET, a.Y_NET, sorted(a.NODE_NET.items()), a.feed]
+    return hashlib.sha256(json.dumps(told, sort_keys=True).encode()).hexdigest()[:16]
 
 
 def _totals(results):
@@ -137,7 +146,7 @@ def removal(v, cases, a, wires=None, progress=None):
         if progress:
             progress(done, len(names), name)
     return {"arrangement": a.name, "feed": a.feed, "engine": "router", "variant": {"name": v.name, "hash": v.hash},
-            "cases": len(cases), "baseline": _totals(base), "wires": entries}
+            "fabric": fabric_of(a), "cases": len(cases), "baseline": _totals(base), "wires": entries}
 
 
 def _on(pins):
@@ -222,20 +231,26 @@ def path(variant_hash, name):
 
 def save(ranking):
     """Write a ranking to its place under DIR (`path`); returns it as written.
+    It is for a whole ranking: one of some wires or of one case would take
+    the place of the whole one (lab.py rank does not keep those).
+
     The router's part made again does not throw away what the solver proved:
     when the ranking has no "needed" columns and the file already there has
     them, they are carried over, wire by wire. They are about the netlists
-    and the copper, and the file is of the same variant and arrangement."""
+    and the copper, so only when the file is of the same copper ("fabric"):
+    an arrangement's file may have been edited since."""
     where = path(ranking["variant"]["hash"], ranking["arrangement"])
     if "needed_cases" not in ranking and where.exists():
         try:
             old = json.loads(where.read_text())
         except (OSError, ValueError):
             old = {}
-        if "needed_cases" in old:
+        if "needed_cases" in old and old.get("fabric") == ranking.get("fabric"):
             proved = {w["wire"]: {k: w[k] for k in ("needed_by", "not_needed", "unknown")} for w in old["wires"] if "needed_by" in w}
             ranking = dict(ranking, engine=old["engine"], rule=old["rule"], seconds=old["seconds"], needed_cases=old["needed_cases"],
                            wires=[dict(w, **proved.get(w["wire"], {})) for w in ranking["wires"]])
     where.parent.mkdir(parents=True, exist_ok=True)
-    where.write_text(json.dumps(ranking) + "\n")
+    tmp = where.with_name(where.name + ".tmp%d" % os.getpid())      # whole or not at all: it may hold hours of the solver's work
+    tmp.write_text(json.dumps(ranking) + "\n")
+    os.replace(tmp, where)
     return json.loads(json.dumps(ranking))          # as a reader of the file gets it: pins as lists

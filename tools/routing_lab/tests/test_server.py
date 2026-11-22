@@ -404,13 +404,16 @@ class Server(unittest.TestCase):
                 shutil.copy(good, tmp)
             with open(os.path.join(tmp, "mine.json"), "w") as f:
                 json.dump({"base": "v5", "pins": {"A.X16": "x"}, "colour": "blue"}, f)
+            with open(os.path.join(tmp, "odd.json"), "w") as f:         # a mistake of a shape nobody wrote a rule for
+                json.dump({"base": "v5", "remove": [["KL"]]}, f)
             with mock.patch.object(server.arrangement, "DIR", server.Path(tmp)):
                 info = self.c.get("/api/info")
                 self.assertEqual(info.status, 200, info.body)
                 mine = [a for a in info.json["arrangements"] if a["name"] == "mine"][0]
                 self.assertNotIn("engine", mine)
                 self.assertTrue(any("A.X16" in p for p in mine["problems"]) and any("colour" in p for p in mine["problems"]))
-                self.assertEqual(len(info.json["arrangements"]), 4)
+                self.assertEqual(len(info.json["arrangements"]), 5)
+                self.assertTrue([a for a in info.json["arrangements"] if a["name"] == "odd"][0]["problems"])
                 bad = self.c.get("/api/fabric?arrangement=mine")
                 self.assertEqual((bad.status, bad.json["problems"]), (400, mine["problems"]))
                 self.assertEqual(self.c.post("/api/run", {"variant": "worktree", "classes": ["dense"], "arrangement": "mine"}).status, 400)
@@ -708,6 +711,18 @@ class Server(unittest.TestCase):
         page = self.c.get("/", token=None).body
         self.assertIn('id="drawn"', page)
         self.assertIn(".pad.from", self.c.get("/lab.css", token=None).body)
+        self.assertEqual(subprocess.run(["node", "--check", str(server.WEB_DIR / "lab.js")]).returncode, 0)
+
+    def test_the_page_after_the_final_review(self):
+        js = self.c.get("/lab.js", token=None).body
+        for used in ("function shownBridges",                    # a clicked bridge is added to the case on screen
+                     "state.v5nodes",                             # a node the arrangement dropped still has its name
+                     "the router routes more without it",         # a gain has its own tint and its own words
+                     "are not part of a ranking",                 # dropped files and the Ranking tab
+                     "save its file first",                       # an arrangement that is no file cannot be named to lab.py
+                     "state.rankingFor === wanted"):              # a ranking that lands late is not shown for another arrangement
+            self.assertIn(used, js)
+        self.assertNotIn("click Run, or change the netlist again", js)
         self.assertEqual(subprocess.run(["node", "--check", str(server.WEB_DIR / "lab.js")]).returncode, 0)
 
     def test_watch_reports_the_tree_hash(self):

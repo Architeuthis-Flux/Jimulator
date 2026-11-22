@@ -74,7 +74,10 @@ class Score(unittest.TestCase):
             return cases.Case(name, "edge", [(1, 8, -1)]), {"bridges": 67 if arrangement.name != "v5" else 61,
                                                                "closed": [], "next_is": "unknown"}
 
-        with mock.patch.object(edge, "grow", side_effect=grow):
+        with mock.patch.object(edge, "grow", side_effect=grow) as grew:
+            score.lengths(V, arrangement.load("v6_rails_on_chips"), lists=1, rule="copper")
+            self.assertEqual({call.kwargs["rule"] for call in grew.call_args_list}, {"copper"})    # the rule asked for, not the default
+            grown.clear()
             out = score.lengths(V, arrangement.load("v6_rails_on_chips"), lists=2)
         self.assertEqual([(r["list"], r["a"]["bridges"], r["b"]["bridges"]) for r in out], [(0, 67, 61), (1, 67, 0)])
         self.assertEqual((out[0]["a"]["next_is"], out[1]["b"]["next_is"]), ("unknown", None))

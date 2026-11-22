@@ -46,8 +46,9 @@ def grow(binary, rng, name, seconds=20.0, longest=80, rule="firmware", arrangeme
     """(case, {"bridges": k, "closed": the solver's routing of it, "next_is":
     why one more bridge is not proved}) for the longest prefix found proved
     routable, or None when not even one bridge is. next_is: "not_routable"
-    (proved), "unknown" (not known in `seconds`), "dropped" (the firmware
-    would not take the next prefix whole), "end" (all `longest` were proved).
+    (proved), "unknown" (not known in `seconds`), "unplaced" (it uses a node
+    the arrangement does not have), "dropped" (the firmware would not take
+    the next prefix whole), "end" (all `longest` were proved).
 
     On an arrangement the solver is asked on its copper, and every probe's
     netlist is the firmware's with the probe feed as the arrangement has it
@@ -72,7 +73,8 @@ def grow(binary, rng, name, seconds=20.0, longest=80, rule="firmware", arrangeme
         if said["verdict"] == "routable":
             routings[k] = said["closed"]
             return "routable"
-        return "not_routable" if said["verdict"] == "not_routable" else "unknown"
+        # a node the arrangement lacks was never asked about: that is not "not known in the time"
+        return said["verdict"] if said["verdict"] in ("not_routable", "unplaced") else "unknown"
 
     proved, short, why = 0, longest + 1, "end"      # `proved` bridges fit; `short` do not, for the reason `why`
     while short - proved > 1:
@@ -85,6 +87,7 @@ def grow(binary, rng, name, seconds=20.0, longest=80, rule="firmware", arrangeme
     if not proved:
         return None
     words = {"not_routable": "not routable, proved", "unknown": "not known after %g s" % seconds,
+             "unplaced": "it uses a node the arrangement does not have",
              "dropped": "the firmware drops a bridge", "end": "none left, the list of %d ends here" % longest}
     notes = "proved routable with %s (%d bridges); one more bridge: %s" % (RULE_WORDS[rule], proved, words[why])
     return case_of(proved, notes), {"bridges": proved, "closed": routings[proved], "next_is": why}

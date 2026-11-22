@@ -327,8 +327,13 @@ Built as above, with these differences:
 
 - **A netlist can be made by clicking nodes.** Asked for by Kevin while the
   piece was being built: click two nodes on the Fabric tab and the bridge is
-  routed at once on the arrangement picked, by the router when it can route
-  that copper and by the solver when it cannot. Not in the text above.
+  added to the case on screen (or starts a netlist when none is) and routed
+  at once on the arrangement picked, by the router when it can route that
+  copper and by the solver when it cannot. Not in the text above.
+- **The router is refused a little more than "V5 with pins taken away".**
+  Taking away one pin of a node that keeps another (GND) makes an
+  arrangement the solver's alone: the firmware still closes that pin. And a
+  run in which the router closes a crosspoint on any blocked pin fails.
 - **Only the router's part of the ranking runs from the page.** "Rank now"
   routes the battery without each wire (three minutes for 256 cases) and
   shows its progress. The solver's part ("is the wire needed") is started

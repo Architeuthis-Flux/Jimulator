@@ -36,6 +36,7 @@ DIR = Path(__file__).resolve().parent / "arrangements"
 KEYS = ("about", "base", "feed", "remove", "pins", "chips", "nodes")
 PINS = {"X": 16, "Y": 8}
 FEED_NODE = copper.FEED_NODE
+FEED_DAC = 106                                      # DAC0: the feed's other end, unless DAC0 is out of the probe's window
 
 
 class Bad(ValueError):
@@ -158,6 +159,9 @@ def _build(name, data):
 
     base_wires = {w for table in (fabric_v5.X_NET, fabric_v5.Y_NET) for row in table.values() for w in row}
     for wire in part["remove"]:
+        if not isinstance(wire, str):
+            problems.append('"remove": %s is not a wire name' % json.dumps(wire))
+            continue
         if wire not in base_wires:
             problems.append('"remove": %s is not a wire of the base' % json.dumps(wire))
             continue
@@ -198,12 +202,19 @@ def _build(name, data):
         if len(pins) >= 2 and wire not in owned and len(live.get(wire, ())) == 1:
             problems.append('wire %s is left on one pin (%s): take the wire away with "remove", or give the pin another wire'
                             % (wire, _pin_name(*live[wire][0])))
+    for wire, pins in sorted(live.items()):         # a name V5 has not, on one pin, with no node on it: most likely a slip
+        if wire not in base_wires and len(pins) == 1 and wire not in node_net.values():
+            problems.append("wire %s is on one pin only (%s) and is no node's: a misspelt name? Join it to another pin, "
+                            "put a node on it, or take the pin away with null" % (wire, _pin_name(*pins[0])))
     dropped = [n for n, wire in node_net.items() if n not in placed and wire not in live]
     for node in dropped:                            # a base node whose last pin was taken away drops out
         del node_net[node]
         node_name.pop(node, None)
     if feed and FEED_NODE not in node_net:
         problems.append('"feed" is true, but the feed\'s node (%d, BUF_IN) has no pin: say "feed": false' % FEED_NODE)
+    if feed and FEED_DAC not in node_net:           # the firmware feeds the probe from DAC0 whenever DAC0 is in its window
+        problems.append('"feed" is true, but DAC0 (%d), where the firmware feeds the probe from, has no pin: say "feed": false'
+                        % FEED_DAC)
     return Arrangement(name, str(data.get("about") or ""), feed, chips, x_net, y_net, node_net, node_name, role, dropped,
                        data), problems
 
@@ -240,7 +251,12 @@ def load(name):
         data = json.loads(path.read_text())
     except (OSError, ValueError) as e:
         raise Bad(path.stem, ["%s cannot be read as JSON: %s" % (path.name, e)]) from None
-    return parse(path.stem, data)
+    try:
+        return parse(path.stem, data)
+    except Bad:
+        raise
+    except Exception as e:                          # a mistake no rule foresaw is still the file's, and must stop nothing else
+        raise Bad(path.stem, ["%s cannot be read as an arrangement (%s: %s)" % (path.name, type(e).__name__, e)]) from None
 
 
 def why_not_router(a):
@@ -253,6 +269,10 @@ def why_not_router(a):
         wire = a.wire(chip, axis, pin)
         if wire is not None:
             return "%s is on %s, not on %s as V5 has it" % (_pin_name(chip, axis, pin), wire, V5.wire(chip, axis, pin))
+        was = V5.wire(chip, axis, pin)
+        if was in a.NODE_NET.values():              # the node keeps another pin, so the firmware still routes it to this one
+            return "%s is taken away, but %s is still a node (on its other pin), and the firmware would go on closing this one" % (
+                _pin_name(chip, axis, pin), was)
     for node in sorted(set(V5.NODE_NET) | set(a.NODE_NET)):
         if node in a.dropped:
             continue

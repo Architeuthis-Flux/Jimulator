@@ -4,6 +4,7 @@ import shutil
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import arrangement
 import fabric_v5
@@ -61,6 +62,49 @@ class Files(unittest.TestCase):
         self.assertIn("TOP_RAIL", arrangement.why_not_router(rewired))
         freed = arrangement.parse("t", {"base": "v5", "feed": False, "pins": {"K.X2": None}})     # a dropped node is no obstacle
         self.assertEqual(arrangement.blocks(freed), [("X", 10, 2)])
+
+    def test_the_router_is_not_given_a_pin_the_firmware_still_routes_to(self):     # final review, 1
+        # GND keeps its pin on L, so the firmware still has GND as a node and goes on closing its pin on K, blocked or not
+        one_gnd = arrangement.parse("gnd_on_l", {"base": "v5", "feed": False, "pins": {"K.X15": None}})
+        self.assertEqual(arrangement.check(one_gnd.data), [])                  # a good arrangement all the same: the solver's
+        self.assertIsNone(arrangement.blocks(one_gnd))
+        why = arrangement.why_not_router(one_gnd)
+        self.assertIn("K.X15", why)
+        self.assertIn("GND", why)
+        gone = arrangement.parse("no_rail", {"base": "v5", "feed": False, "pins": {"K.X4": None}})    # TOP_RAIL's only pin:
+        self.assertEqual((arrangement.blocks(gone), gone.dropped), ([("X", 10, 4)], [101]))           # the node is gone with it
+
+    def test_the_feed_on_the_fabric_needs_both_its_ends(self):                 # final review, 1 (its second instance)
+        # with DAC0's one pin taken away, the firmware still feeds the probe from DAC0 and closes that pin
+        problems = arrangement.check({"base": "v5", "pins": {"K.X7": None}})
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("DAC0", problems[0])
+        self.assertIn('"feed": false', problems[0])
+        self.assertEqual(arrangement.check({"base": "v5", "feed": False, "pins": {"K.X7": None}}), [])
+        self.assertEqual(arrangement.check({"base": "v5", "pins": {"K.X6": None}}), [])     # DAC1 is no end of the feed
+
+    def test_a_remove_entry_that_is_no_name_is_listed_not_raised(self):        # final review, 3 (Review Focus 1)
+        for odd in ([["KL"]], [{"wire": "KL"}], [7], [None]):
+            problems = arrangement.check({"base": "v5", "remove": odd})
+            self.assertEqual(len(problems), 1, odd)
+            self.assertIn('"remove"', problems[0])
+        with self.assertRaises(arrangement.Bad):
+            arrangement.load(self.write("oops.json", '{"base": "v5", "remove": [["KL"]]}'))
+        # and whatever else may be wrong with a file, load says Bad: the page lists the file, and nothing else stops
+        with mock.patch.object(arrangement, "_build", side_effect=TypeError("unhashable type")):
+            with self.assertRaises(arrangement.Bad) as cm:
+                arrangement.load(self.write("odd.json", '{"base": "v5"}'))
+        self.assertIn("TypeError", cm.exception.problems[0])
+
+    def test_a_new_wire_on_one_pin_that_is_no_nodes_is_taken_for_a_misspelling(self):     # final review, a smaller item
+        typo = {"base": "v5", "feed": False, "remove": ["/AD1"], "pins": {"A.X7": "TOP_RIAL"}}
+        problems = arrangement.check(typo)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("TOP_RIAL", problems[0])
+        self.assertIn("A.X7", problems[0])
+        meant = dict(typo, nodes={"150": {"wire": "TOP_RIAL", "name": "PORT"}})         # a node's own wire may be one pin
+        self.assertEqual(arrangement.check(meant), [])
+        self.assertEqual(arrangement.check(dict(typo, pins={"A.X7": "TOP_RAIL"})), [])
 
     def test_a_chip_and_a_node_added_and_a_node_removed(self):
         m = {"role": "sf", "x": ["TOP_RAIL", "BOTTOM_RAIL", "GND", "PORT_0"] + [None] * 12, "y": ["AM", "BM"] + [None] * 6}

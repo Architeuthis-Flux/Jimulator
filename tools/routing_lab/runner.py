@@ -207,8 +207,19 @@ def judge(case, sections, stderr="", block=()):
     result["metrics"].update(measured, broken=len(broken))
     # Failed bridges the copper could have carried with everything else where
     # it is: a worse score, and against a baseline a regression. Not a status.
-    g = _copper_without(tuple(sorted(tuple(p) for p in block)))
-    result["metrics"]["missed"] = sum(1 for m in ceiling.missed(copper.paint(result), g) if m["path"] is not None)
+    paint = copper.paint(result)
+    # A pin taken away is no copper. The firmware still knows V5, though: where it has a node on such a pin (GND's
+    # second pin, the probe feed's DAC) it closes it, blocked or not. That is no result for this arrangement.
+    gone = {tuple(p) for p in block}
+    on_gone = sorted({(c["chip"], axis, c[axis.lower()]) for c in paint["crosspoints"] for axis in "XY"
+                      if (axis, fabric_v5.CHIPS.index(c["chip"]), c[axis.lower()]) in gone})
+    if on_gone:
+        where = ", ".join("chip %s %s%d" % (chip, axis.lower(), pin) for chip, axis, pin in on_gone)
+        return _result(case, "crash", notes=notes, rejected=rejected, b=b, xbar=xbar, stderr=stderr, problems=[
+            "the router closed a crosspoint on %s, taken away here: the firmware still has a node on it, so its router cannot "
+            "run this arrangement for this netlist (the exact solver can)" % where])
+    g = _copper_without(tuple(sorted(gone)))
+    result["metrics"]["missed"] = sum(1 for m in ceiling.missed(paint, g) if m["path"] is not None)
     return result
 
 

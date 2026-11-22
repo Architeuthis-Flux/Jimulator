@@ -35,6 +35,7 @@ const state = {
   rankSort: { key: "loss", down: false },
   heat: "loss",      // what the Ranking tab tints the fabric by: "loss" (the router's) or "needed" (the solver's)
   takeAway: [],      // wires picked on the Ranking tab to run without
+  v5nodes: null,     // V5's nodes, for the name of one the arrangement picked has dropped
   drawn: [],         // the netlist made by clicking nodes: [[node, node]]
   from: null,        // the node picked up by a first click, waiting for the second
 };
@@ -127,8 +128,8 @@ function netLabel(net) {
   return known ? known.label : String(net);
 }
 
-function nodeName(node) {
-  const known = state.info.nodes[String(node)];
+function nodeName(node) {                          // by the arrangement picked; a node it dropped keeps the name V5 gives it
+  const known = state.info.nodes[String(node)] || (state.v5nodes || {})[String(node)];
   return known ? known.name : String(node);
 }
 
@@ -337,8 +338,8 @@ function renderShowing() {
   if (run.drawn) {
     box.title = RUN_CHECKS;
     const elsewhere = ranOn().name !== state.arrangement;
-    box.replaceChildren(el("b", { text: "Shown: " }), "a netlist made by hand (" + count(state.drawn.length, "bridge") + "), router "
-      + run.variant.name + "; " + arrangementWords(ranOn())
+    box.replaceChildren(el("b", { text: "Shown: " }), "a netlist made by hand, router " + run.variant.name + "; "
+      + arrangementWords(ranOn())
       + (elsewhere ? ". That run only made the netlist: on " + state.arrangement + " it is the exact solver that routes it." : "."));
     return;
   }
@@ -685,8 +686,11 @@ function redraw() {
     $("view-title").textContent = solved
       ? state.selected + "   the exact solver's routing on " + state.arrangement + ", one of many; not the firmware's router"
         + "   probe feed " + (on.feed ? "on" : "off") + " the fabric"
-      : state.arrangement + ": its copper. The run shown is on " + on.name + ": pick that arrangement to see it drawn"
-        + (state.info.solver ? ", or ask the solver for this case on " + state.arrangement + " (Ceiling)." : ".");
+      : state.run.drawn         // the netlist made by hand, on copper only the solver routes, and no routing of it yet
+        ? state.arrangement + ": its copper. The firmware made the netlist; routing it here is the exact solver's work"
+          + (state.info.solver ? " (ask under Ceiling)." : ", and the solver is not installed: python3 tools/routing_lab/lab.py solver-setup")
+        : state.arrangement + ": its copper. The run shown is on " + on.name + ": pick that arrangement to see it drawn"
+          + (state.info.solver ? ", or ask the solver for this case on " + state.arrangement + " (Ceiling)." : ".");
     drawSheet(null);                               // the sheet is V5's own
     drawFabric(solved);
     return;
@@ -1380,10 +1384,20 @@ function drawSheet(paint) {
 // ---------------------------------------------------------------- a netlist made by clicking nodes
 //
 // A click on a node picks it up; a click on a second makes a bridge between
-// the two. The netlist so made (state.drawn) is routed at once, with the
-// Router named, on the arrangement picked, and its result is shown as a run
-// of one case, "drawn". On an arrangement only the solver can route, the
-// firmware still makes the netlist (on V5's copper) and the solver routes it.
+// the two, added to what is on screen: to the bridges of the case shown, or
+// to nothing when no case is. The netlist so made (state.drawn) is routed at
+// once, with the Router named, on the arrangement picked, and its result is
+// shown as a run of one case, "drawn". On an arrangement only the solver can
+// route, the firmware still makes the netlist (on V5's copper) and the solver
+// routes it.
+
+// The bridges of the case shown, as a netlist to add to: its own pairs, each once, without the probe feed's (the
+// firmware makes that itself). Stacking and power are not a case's bridges and are not carried: they are the default.
+function shownBridges() {
+  const seen = new Set();
+  const once = ([a, b]) => !seen.has(Math.min(a, b) + "-" + Math.max(a, b)) && seen.add(Math.min(a, b) + "-" + Math.max(a, b));
+  return state.current.paint.bridges.filter((b) => !b.infra).map((b) => [b.n1, b.n2]).filter(once);
+}
 
 // The node on a wire, for a click on its pad: the lowest-numbered one when the copper has several names.
 function nodeOn(wire) {
@@ -1412,11 +1426,16 @@ function clickNode(wire) {
   const pair = [state.from, node];
   state.from = null;
   markFrom();
+  if (state.busy) {                                // nothing is added that would not be routed
+    renderDrawn();
+    showProblem("A run is in flight: click the two nodes again when it is done.");
+    return;
+  }
+  // on to what is on screen: the first bridge made while a case of a run is shown starts from that case's own
+  if (!state.drawn.length && state.current && !(state.run && state.run.drawn)) state.drawn = shownBridges();
   const same = ([a, b]) => (a === pair[0] && b === pair[1]) || (a === pair[1] && b === pair[0]);
-  if (!state.drawn.some(same)) {                   // the firmware would merge the same pair twice
-    state.drawn.push(pair);
-    routeDrawn(pair);
-  } else renderDrawn();
+  if (!state.drawn.some(same)) state.drawn.push(pair);      // the firmware would merge the same pair twice
+  routeDrawn(pair);
 }
 
 // Route state.drawn on the arrangement picked and show it. `added`: the bridge just put in, taken out again if
@@ -1436,7 +1455,7 @@ async function routeDrawn(added) {
     return;
   }
   if (state.busy) {
-    showProblem("A run is in flight: the netlist is routed when it is done (click Run, or change the netlist again).");
+    showProblem("A run is in flight: change the netlist made by hand again when it is done, and it is routed.");
     return;
   }
   state.busy = true;
@@ -1481,16 +1500,13 @@ function renderDrawn() {
   box.replaceChildren();
   const shown = state.current && !(state.run && state.run.drawn);
   const from = el("button", { type: "button", text: "start from the case shown", disabled: shown ? null : "",
-    title: "put the bridges of the case shown into the netlist, to add to them by clicking",
-    onclick: () => {
-      const seen = new Set();
-      state.drawn = state.current.paint.bridges.filter((b) => !b.infra).map((b) => [b.n1, b.n2])
-        .filter(([a, b]) => !seen.has(Math.min(a, b) + "-" + Math.max(a, b)) && seen.add(Math.min(a, b) + "-" + Math.max(a, b)));
-      routeDrawn();
-    } });
+    title: "make the netlist the bridges of the case shown, to take some out or add to them. Its stacking and power "
+      + "settings are not bridges and are not kept: the netlist is routed with the defaults.",
+    onclick: () => { state.drawn = shownBridges(); routeDrawn(); } });
   if (!state.drawn.length) {
     box.append(el("div", { class: "hint", text: state.from == null
-      ? "Click two nodes on the Fabric tab to connect them. The netlist is routed at once, on the arrangement picked."
+      ? "Click two nodes on the Fabric tab to connect them" + (shown ? ": the bridge is added to the case shown" : "")
+        + ". The netlist is routed at once, on the arrangement picked."
       : "From " + nodeName(state.from) + ": click another node to connect it (Esc lets go)." }), from);
     return;
   }
@@ -1515,6 +1531,7 @@ function renderDrawn() {
 // the drawing or the table, picks it to take away.
 
 const HEAT = ["#2f3347", "#4db6ac", "#fff176"];    // nothing, half, the most
+const GAIN = "#9ab4ff";                            // a wire the router routes more without
 const RANK_COLUMNS = [
   { key: "kind", head: "kind", tip: "lane: between two breadboard chips. sf lane: a breadboard chip to an SF chip. bounce: a chip's bounce row. hub: between two SF chips", of: (w) => w.kind },
   { key: "wire", head: "wire", tip: "a bounce row has no name of its own on the sheet: it is shown by its chip and pin", of: (w) => w.wire,
@@ -1555,22 +1572,26 @@ function drawHeat() {
       : "the primaries the firmware's router loses without each wire") + "   arrangement " + r.arrangement
       + ", probe feed " + (r.feed ? "on" : "off") + " the fabric";
   if (!r) return;
+  const byLoss = !(state.heat === "needed" && hasNeeded());
+  if (byLoss && r.wires.some((w) => w.loss.primaries < 0)) $("view-title").textContent += "   blue: the router routes more without it";
   const most = Math.max(1, ...r.wires.map(heatValue));
   for (const w of r.wires) {
     const path = fabric.wires[w.wire];
     if (!path) continue;
     path.classList.add("heat");
     path.classList.toggle("take", state.takeAway.includes(w.wire));
-    path.style.stroke = heatColour(heatValue(w) / most);
+    // a gain is not "nothing lost": it has a colour of its own (the page's blue for a change; never red)
+    path.style.stroke = byLoss && w.loss.primaries < 0 ? GAIN : heatColour(heatValue(w) / most);
   }
 }
 
 function rankTip(name) {
   const w = state.ranking && state.ranking.wires.find((x) => x.wire === name);
   if (!w) return name + "\nnot ranked: a node's own wire, or no ranking is shown";
-  const sign = (n) => (n > 0 ? "+" + n : String(n));
-  return name + "  (" + w.kind + ")\nthe router without it: " + sign(-w.loss.primaries) + " primaries, " + sign(-w.loss.fully_routed)
-    + " cases fully routed\nused in " + w.usage.cases + " cases"
+  const sign = (n) => (n > 0 ? "+" + n : String(n));       // a loss, as the table has it: positive is worse without the wire
+  return name + "  (" + w.kind + ")\nthe router's loss without it: " + sign(w.loss.primaries) + " primaries, " + sign(w.loss.fully_routed)
+    + " cases fully routed" + (w.loss.primaries < 0 ? "  (the router routes more without it)" : "")
+    + "\nused in " + w.usage.cases + " cases"
     + (w.needed_by ? "\nproved needed by " + w.needed_by.length + (w.needed_by.length ? " (" + w.needed_by.slice(0, 4).join(", ")
       + (w.needed_by.length > 4 ? ", ..." : "") + ")" : "") + ", not needed by " + w.not_needed + ", unknown for " + w.unknown.length : "")
     + "\nclick: " + (state.takeAway.includes(name) ? "keep it" : "take it away");
@@ -1619,10 +1640,12 @@ async function rankNow() {
     } catch (e) { /* the answer to the ranking itself will say */ }
   }, 1000);
   const classes = [...document.querySelectorAll("#classes input:checked")].map((box) => box.value);
+  const wanted = baseSpec() + "\n" + state.arrangement;
+  state.rankingFor = wanted;
   try {
     const made = await api("/api/rank", { variant: baseSpec(), arrangement: state.arrangement, classes: classes });
     if (made.build_error) throw new Error("the router did not build");
-    state.ranking = made;
+    if (state.rankingFor === wanted) state.ranking = made;    // else another arrangement was picked meanwhile: its own is shown
     state.rankNote = "";
   } catch (err) {
     state.rankNote = err.message;
@@ -1659,10 +1682,16 @@ function renderRanking() {
   tint.value = state.heat === "needed" && hasNeeded() ? "needed" : "loss";
   tint.addEventListener("change", () => { state.heat = tint.value; drawHeat(); });
   box.append(el("div", { class: "ask" }, now, tint, el("span", { class: "hint", text: state.rankNote })));
+  if (Object.keys(state.upload).length) {
+    box.append(el("div", { class: "hint", text: "The files dropped on the page are not part of a ranking: it is of the Router "
+      + "named, as it is on disk." }));
+  }
   if (!hasNeeded()) {
-    box.append(el("div", { class: "hint", text: "Whether a wire is needed is asked of the exact solver, which can take hours and is "
-      + "not started from here:" }), el("pre", { text: "python3 tools/routing_lab/lab.py rank --needed"
-        + (state.arrangement === "v6_feed_off" ? "" : " --arrangement " + JSON.stringify(state.arrangement)) }));
+    box.append(el("div", { class: "hint", text: "Whether a wire is needed is asked of the exact solver, which takes the better "
+      + "part of an hour and is not started from here" + (a.json ? ". This arrangement is no file: save its file first (left "
+        + "column, under the picker) as arrangements/NAME.json, then:" : ":") }),
+      el("pre", { text: "python3 tools/routing_lab/lab.py rank --needed"
+        + (state.arrangement === "v6_feed_off" ? "" : " --arrangement " + (a.json ? "NAME" : state.arrangement)) }));
   }
   if (!r) return;
 
@@ -1734,6 +1763,7 @@ function showTab(name) {
 
 async function start() {
   state.info = await api("/api/info");
+  state.v5nodes = state.info.nodes;                // V5's own, whatever arrangement is picked later
   state.ohms = state.info.ohms;
   $("ohms").value = state.ohms;
   $("verified").hidden = state.info.verified;

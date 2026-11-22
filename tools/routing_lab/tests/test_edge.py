@@ -65,6 +65,11 @@ class Edge(unittest.TestCase):
         case, info = self.grown(lambda n: "routable" if n <= 5 else "nothing")
         self.assertEqual((len(case.bridges), info["next_is"]), (5, "unknown"))
 
+    def test_a_node_the_arrangement_lacks_is_said_so_and_not_called_unknown(self):       # final review, 5 (Review Focus 2)
+        case, info = self.grown(lambda n: "routable" if n <= 5 else "unplaced")
+        self.assertEqual((len(case.bridges), info["next_is"]), (5, "unplaced"))
+        self.assertIn("one more bridge: it uses a node the arrangement does not have", case.notes)
+
     def test_all_of_it_proved(self):
         case, info = self.grown(lambda n: "routable")
         self.assertEqual((len(case.bridges), info["next_is"]), (20, "end"))

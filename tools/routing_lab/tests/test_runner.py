@@ -213,6 +213,23 @@ class OnAnArrangement(unittest.TestCase):
         with mock.patch.object(runner, "run_case", side_effect=AssertionError("ran again")):
             self.assertEqual(runner.run_battery(V, [CASE18], arrangement=other)[0]["arrangement"], "other")
 
+    def test_a_crosspoint_closed_on_a_pin_taken_away_fails_the_case(self):      # final review, 1
+        # GND's pin on chip K, blocked by hand: the firmware has GND as a node there and closes it all the same
+        k_gnd = [("X", 10, 15)]
+        with_gnd = [dataclasses.replace(c, probe=(0, 0)) for c in cases.dense_cases() if any(100 in b[:2] for b in c.bridges)]
+        results = [runner.run_case(BIN, c, block=k_gnd) for c in with_gnd]
+        refused = [r for r in results if r["status"] == "crash"]
+        self.assertTrue(refused)
+        for r in refused:
+            self.assertEqual(len(r["problems"]), 1)
+            self.assertIn("chip K x15", r["problems"][0])
+            self.assertIn("taken away", r["problems"][0])
+            self.assertIn("Bridge Array", r["b"])                       # the report is kept, to see what it did
+        for r in results:
+            if r["status"] != "crash":
+                self.assertEqual([c for c in copper.paint(r)["crosspoints"] if (c["chip"], c["x"]) == ("K", 15)], [], r["case"])
+        self.assertEqual(lab.exit_code(refused, with_gnd, []), 1)
+
     def test_net_59_and_blocked_pins_do_not_mix(self):                 # Review Focus 3
         sections = runner.parse_sections(runner.run_harness(BIN, CASE18)[0])["t"]
         self.assertIn("Net 6]", sections["b"])

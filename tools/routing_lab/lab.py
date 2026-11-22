@@ -448,7 +448,7 @@ def engines(a):
 
 
 NEXT_WORDS = {"not_routable": "not routable, proved", "unknown": "not known after %g s", "dropped": "the firmware drops a bridge",
-              "end": "none left in the list"}
+              "unplaced": "it uses a node the arrangement does not have", "end": "none left in the list"}
 
 
 def cmd_score(args, a):
@@ -498,7 +498,7 @@ def cmd_score(args, a):
         how_far = lambda name, d: "not one on %s" % name if not d["bridges"] else "%d bridges proved on %s (one more: %s)" % (
             d["bridges"], name, why(d))
         try:
-            for entry in score.lengths(v, a, b, lists=args.grow, seconds=probe_seconds):
+            for entry in score.lengths(v, a, b, lists=args.grow, seconds=probe_seconds, rule=args.rule):
                 print("random list %d: %s, %s" % (entry["list"], how_far(a.name, entry["a"]), how_far(b.name, entry["b"])),
                       flush=True)
         except edge.SolverFailed as e:
@@ -576,18 +576,20 @@ def cmd_rank(args):
     v = variants.resolve(args.variant)
     names = [w for w in (args.wires or "").split(",") if w] or None
     said = lambda done, of, item: print("%d/%d %s" % (done, of, item), file=sys.stderr, flush=True)
-    ranking = rank.save(rank.removal(v, case_list, a, wires=names, progress=said))   # kept even if the solver's part is stopped
+    # A ranking of some wires, or of one case, is printed (and written where --json says) but not kept: the file under
+    # build/rank is the whole ranking of this router on this arrangement, and may hold hours of the solver's work.
+    keep = (lambda r: r) if names or args.case else rank.save
+    ranking = keep(rank.removal(v, case_list, a, wires=names, progress=said))        # kept even if the solver's part is stopped
     by_loss = lambda w: (w["loss"]["primaries"], w["loss"]["fully_routed"])
     order, more, columns = by_loss, lambda w: (), ()
     if args.needed:
         asked = [c for c in battery([c for c in args.needed_classes.split(",") if c]) if not args.case or c.name == args.case]
-        ranking = rank.save(rank.needed(v, asked, a, ranking, seconds=args.seconds, progress=said))
+        ranking = keep(rank.needed(v, asked, a, ranking, seconds=args.seconds, progress=said))
     if "needed_cases" in ranking:                   # asked now, or kept from an earlier --needed of this variant and arrangement
         count = lambda w, key: len(w[key]) if key in w else 0
         order = lambda w: (count(w, "needed_by"), count(w, "unknown")) + by_loss(w)
         more = lambda w: (count(w, "needed_by"), w.get("not_needed", ""), count(w, "unknown")) if "needed_by" in w else ("", "", "")
         columns = ("needed by", "not needed", "unknown")
-    where = rank.path(v.hash, a.name)
     if args.json:
         with open(args.json, "w") as f:
             json.dump(ranking, f)
@@ -609,7 +611,8 @@ def cmd_rank(args):
     if columns:
         print("needed: the exact solver proves the netlist cannot be routed without the wire (firmware-shaped paths). "
               "not needed: a routing without it exists. The router's loss is beside these, not instead of them.")
-    print("written to %s" % where)
+    print("not kept: a ranking of some wires or of one case does not take the place of the whole one (--json FILE writes it)"
+          if names or args.case else "written to %s" % rank.path(v.hash, a.name))
     return 0
 
 

@@ -56,7 +56,7 @@ def compare(v, cases, a, b=None, rule="firmware", seconds=10.0, fewest=True, pro
             "rows": rows, "summary": summary}
 
 
-def lengths(v, a, b=None, lists=2, seed=1, seconds=20.0, longest=80, progress=None):
+def lengths(v, a, b=None, lists=2, seed=1, seconds=20.0, longest=80, progress=None, rule="firmware"):
     """How far the edge class's random lists grow on each arrangement:
     [{"list": i, "a": {"bridges": k, "next_is": why one more is not proved},
     "b": {...}}], bridges 0 (and next_is None) when not one is proved. List i
@@ -69,7 +69,7 @@ def lengths(v, a, b=None, lists=2, seed=1, seconds=20.0, longest=80, progress=No
     for i in range(lists):
         entry = {"list": i}
         for side, on in (("a", a), ("b", b)):
-            grown = edge.grow(binary, random.Random(seed * 100003 + i), "list_%d" % i, seconds, longest, arrangement=on)
+            grown = edge.grow(binary, random.Random(seed * 100003 + i), "list_%d" % i, seconds, longest, rule=rule, arrangement=on)
             entry[side] = {"bridges": grown[1]["bridges"], "next_is": grown[1]["next_is"]} if grown else \
                 {"bridges": 0, "next_is": None}
             if progress:
