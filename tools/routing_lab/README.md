@@ -267,6 +267,12 @@ edge may be several bridges further on: the case is the longest the solver
 could prove, not the longest that fits. `lab.py run --classes edge` is the
 headline score: how many of these the router routes in full.
 
+`lab.py ceiling --classes edge` can answer "unknown" for an edge case (two
+of the twelve, on 2026-11-21). It looks for the fewest crosspoints inside
+its limit, which is a harder search than the one that grew the case, and
+these cases sit at what the solver can do in 20 s. The saved proof is what
+stands.
+
 The headline on 2026-11-21, router at 5374d38: **1 of 12**. The twelve cases
 hold 49 to 60 bridges each; for five the next bridge is proved not to fit,
 for seven it is not known after 20 s. Of their 655 primaries (each case's
