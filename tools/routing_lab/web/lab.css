@@ -13,14 +13,16 @@ main { display: grid; grid-template-columns: 490px minmax(0, 1fr) 450px; height:
 section { min-height: 0; overflow: auto; }
 h1 { font-size: 15px; margin: 0 0 8px; font-weight: 600; }
 h2 { font-size: 12px; margin: 14px 0 4px; color: var(--dim); font-weight: 600; text-transform: uppercase; letter-spacing: .06em; }
-button, input { font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 3px 7px; }
+button, input, select { font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 3px 7px; }
 button { cursor: pointer; }
 button:hover { border-color: var(--dim); }
+button:disabled { opacity: .45; cursor: default; }
 .hint { color: var(--dim); }
 
 /* left: controls and battery */
 #left { padding: 10px; border-right: 1px solid var(--line); background: var(--panel); }
-#controls label { display: grid; grid-template-columns: 70px 1fr; align-items: center; gap: 6px; margin-bottom: 5px; }
+#controls label { display: grid; grid-template-columns: 92px 1fr; align-items: center; gap: 6px; margin-bottom: 5px; }
+#arrangement-bad div, #run-why { margin: 0 0 5px; line-height: 1.35; }
 #controls label.inline { display: inline-flex; gap: 6px; margin: 0 0 0 10px; color: var(--dim); }
 #controls label.inline.first { margin-left: 0; }
 #classes .count { color: var(--dim); font-size: 11px; }
@@ -72,6 +74,9 @@ table.battery { border-collapse: collapse; width: 100%; }
 .key .ring { width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--problem); }
 .key .dash { width: 14px; height: 0; border-top: 2px dashed var(--ink); }
 .key .dash.grey { border-color: var(--dim); }
+.key .ring.thin { border: 1px solid var(--ink); }
+.key .cross { font-style: normal; font-weight: 600; }
+#sheet-note { padding: 6px 12px; color: var(--dim); border-bottom: 1px solid var(--line); }
 .view { flex: 1; min-height: 0; }
 .view svg { width: 100%; height: 100%; display: block; cursor: grab; user-select: none; }
 .view svg.dragging { cursor: grabbing; }
@@ -90,6 +95,9 @@ table.battery { border-collapse: collapse; width: 100%; }
 .xp.dup { fill: var(--bg) !important; stroke-width: 2; }
 .held { fill: none; stroke-width: 1; opacity: .75; }
 .mismatch { fill: none; stroke: var(--problem); stroke-width: 2; }
+/* what an arrangement changes on a chip's edge: a design, not a fault */
+.pin-taken { fill: none; stroke: var(--dim); stroke-width: 1.4; }
+.pin-changed { fill: none; stroke: var(--ink); stroke-width: 1; }
 .pad.short > circle:first-child { fill: var(--problem); }
 /* dashed, in the net's colour: a path the copper had for a failed bridge, or a spare copy. Never red. */
 .wire.ghost { stroke-width: 2; stroke-dasharray: 5 4; }

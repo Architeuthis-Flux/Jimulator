@@ -22,9 +22,9 @@ import subprocess
 import urllib.parse
 from pathlib import Path
 
+import arrangement
 import board
 import ceiling
-import copper
 import fabric_view
 import lab
 import runner
@@ -34,7 +34,7 @@ LAB = Path(__file__).resolve().parent
 WEB_DIR = LAB / "web"
 SHEET_DIR = variants.BUILD_DIR / "sheet"
 MAX_UPLOAD = 5_000_000
-MAX_RUNS = 6            # variants whose results are held for /api/case; a full battery is about 9 MB each
+MAX_RUNS = 6            # runs (a variant on an arrangement) whose results are held for /api/case; about 9 MB each
 BOARD = "board"         # what uploaded board output is held under, where a run has its variant's hash
 TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
          ".css": "text/css; charset=utf-8", ".svg": "image/svg+xml", ".json": "application/json"}
@@ -55,7 +55,8 @@ class LabServer(http.server.ThreadingHTTPServer):
         super().__init__(("127.0.0.1", port), Handler)
         self.token = secrets.token_urlsafe(24)
         self.trees = [str(Path(t).expanduser().resolve()) for t in trees]
-        self.runs = {}                      # variant hash -> {case name: result}
+        self.runs = {}                      # (variant hash, arrangement name) -> {case name: result}
+        self.ran_on = {}                    # arrangement name -> the Arrangement its runs were made on
 
     @property
     def url(self):
@@ -185,25 +186,50 @@ class Handler(http.server.BaseHTTPRequestHandler):
         except ValueError as e:
             raise Refused(400, str(e)) from None
 
-    def battery_of(self, wanted, case_list):
-        """(variant, results). A file saved while the build ran makes the build
-        refuse to file its binary; resolve again and build once more."""
+    def arrangement_of(self, name):
+        """The arrangement the page named: one of the list's names, never a
+        path. 404 for any other, 400 with the problems for a file with a mistake."""
+        name = "v5" if name is None else name
+        if not isinstance(name, str) or name not in arrangement.names():
+            raise Refused(404, "there is no arrangement %s" % (name,))
+        try:
+            return arrangement.load(name)
+        except arrangement.Bad as e:
+            raise Refused(400, str(e), problems=e.problems) from None
+
+    def battery_of(self, wanted, case_list, a):
+        """(variant, results) of the battery on the arrangement `a`. A file
+        saved while the build ran makes the build refuse to file its binary;
+        resolve again and build once more."""
         for attempt in (0, 1):
             v = self.resolve(wanted)
             try:
-                results = runner.run_battery(v, case_list)
+                results = runner.run_battery(v, case_list, arrangement=a)
+            except arrangement.RouterCannot as e:
+                raise Refused(400, str(e)) from None
             except variants.BuildError as e:
                 if attempt == 0 and "sources changed" in e.stderr:
                     continue
                 e.variant = v
                 raise
-            self.keep(v.hash, results)
+            self.server.ran_on[a.name] = a
+            self.keep((v.hash, a.name), results)
             return v, results
 
+    def kept(self, variant, run, case):
+        """(result, arrangement): one case of the run of a variant (its hash) on an arrangement (its name)."""
+        key = (variant, run) if isinstance(variant, str) and isinstance(run, str) else None
+        result = self.server.runs.get(key, {}).get(case)
+        if result is None:
+            raise Refused(404, "no such run or case; run the battery first")
+        return result, self.server.ran_on.get(run)
+
     def keep(self, key, results):
-        """Hold results for /api/case under a variant's hash (or BOARD). Kept by
-        case, so a table from an earlier run of other classes still opens; the
-        newest key is last and the oldest goes when there are too many."""
+        """Hold results for /api/case under (a variant's hash or BOARD, the
+        arrangement's name): a run on one arrangement never stands in for a
+        run on another. Kept by case, so a table from an earlier run of other
+        classes still opens; the newest key is last and the oldest goes when
+        there are too many."""
         kept = self.server.runs.pop(key, {})
         kept.update((r["case"], r) for r in results)
         self.server.runs[key] = kept
@@ -223,23 +249,27 @@ class Handler(http.server.BaseHTTPRequestHandler):
             raise Refused(400, str(e)) from None
         if "variant" not in body:
             raise Refused(400, "no variant")
+        a = self.arrangement_of(body.get("arrangement"))
         try:
-            v, results = self.battery_of(body["variant"], case_list)
+            v, results = self.battery_of(body["variant"], case_list, a)
         except variants.BuildError as e:
             return {"build_error": e.stderr, "which": "variant", "variant": {"name": e.variant.name}}
         base_v = base = None
         if body.get("baseline"):
             try:
-                base_v, base = self.battery_of(body["baseline"], case_list)
+                base_v, base = self.battery_of(body["baseline"], case_list, a)
             except variants.BuildError as e:
                 return {"build_error": e.stderr, "which": "baseline", "variant": {"name": e.variant.name}}
-        return run_answer(v, results, base_v, base)
+        return run_answer(v, results, base_v, base, a)
 
     def api_get_case(self, query, body):
-        result = self.server.runs.get(query.get("variant"), {}).get(query.get("case"))
-        if result is None:
-            raise Refused(404, "no such run or case; run the battery first")
-        return {"result": result, "paint": ceiling.painted(result)}
+        result, a = self.kept(query.get("variant"), query.get("arrangement", "v5"), query.get("case"))
+        return {"result": result, "paint": ceiling.painted(result, a)}      # the searches, on the copper the run was on
+
+    def api_get_fabric(self, query, body):
+        """The drawing of an arrangement's copper, and its nodes."""
+        a = self.arrangement_of(query.get("arrangement"))
+        return {"fabric": fabric_view.layout(a), "nodes": nodes_of(a), "arrangement": arrangement_row(a)}
 
     def api_post_board(self, query, body):
         """What a board printed for `b` (see board.py), judged and kept as a
@@ -251,16 +281,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
             result = board.result(name, text)
         except ValueError as e:
             raise Refused(400, str(e)) from None
-        kept = self.keep(BOARD, [result])
+        kept = self.keep((BOARD, "v5"), [result])
         return {"variant": {"name": "board output", "hash": BOARD}, "baseline": None, "regressions": [],
+                "arrangement": arrangement_row(arrangement.V5),
                 "rows": [row(r) for r in kept.values()], "board": True, "shown": result["case"]}
 
     def api_post_ceiling(self, query, body):
-        """The exact solver's verdict on one case of a run, with its routing as a paint the page can draw."""
-        variant = body.get("variant")
-        result = self.server.runs.get(variant if isinstance(variant, str) else None, {}).get(body.get("case"))
-        if result is None:
-            raise Refused(404, "no such run or case; run the battery first")
+        """The exact solver's verdict on one case of a run (of "variant", on
+        the arrangement "run"), asked on that arrangement's copper, with its
+        routing as a paint the page can draw."""
+        result, a = self.kept(body.get("variant"), body.get("run", "v5"), body.get("case"))
         if body.get("rule") not in ("firmware", "copper"):
             raise Refused(400, "the rule is firmware or copper")
         try:
@@ -270,10 +300,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if not ceiling.solver_installed():
             raise Refused(409, "the solver is not installed", hint=ceiling.SETUP)
         try:
-            answer = ceiling.verdict(result, body["rule"], seconds)
+            answer = ceiling.verdict(result, body["rule"], seconds, arrangement=a)
         except ceiling.SolverMissing as e:
             raise Refused(409, str(e), hint=ceiling.SETUP) from None
-        return dict(answer, paint=solver_paint(answer["closed"]))
+        return dict(answer, paint=solver_paint(answer["closed"], a))
 
     def api_get_watch(self, query, body):
         return {"hash": self.resolve(query.get("spec", "worktree")).hash}
@@ -297,30 +327,56 @@ class Handler(http.server.BaseHTTPRequestHandler):
 def info(trees=()):
     """What the page needs before any run. Also what an exported page carries."""
     named = [{"spec": t, "name": os.path.basename(t)} for t in trees]
-    nodes = {str(n): {"wire": wire, "name": copper.NODE_NAME.get(n, str(n))}
-             for n, wire in copper.NODE_NET.items()}
     return {"classes": lab.CLASSES, "variants": [{"spec": "worktree", "name": "worktree"}] + named,
             "verified": lab.verified_against_a_board(), "ohms": lab.OHMS, "about": lab.about(),
-            "fabric": fabric_view.layout(),
-            "nodes": nodes, "sheet": (SHEET_DIR / "overlay.json").is_file(), "solver": ceiling.solver_installed()}
+            "fabric": fabric_view.layout(), "nodes": nodes_of(arrangement.V5), "arrangements": arrangements(),
+            "sheet": (SHEET_DIR / "overlay.json").is_file(), "solver": ceiling.solver_installed()}
 
 
-def solver_paint(closed):
-    """A solver's routing ([[chip, x, y, net]]) as the part of a paint the page
-    compares against: its crosspoints, and the nets on every wire they touch."""
+def nodes_of(a):
+    """{node number: {"wire", "name"}} for every node an arrangement has."""
+    return {str(n): {"wire": wire, "name": a.NODE_NAME.get(n, str(n))} for n, wire in a.NODE_NET.items()}
+
+
+def arrangement_row(a):
+    """An arrangement as the page names it: its feed, who can answer for it
+    ("router": the firmware's router and the solver; "solver": the solver
+    only), and why the router cannot when it cannot."""
+    why = arrangement.why_not_router(a)
+    return {"name": a.name, "about": a.about, "feed": a.feed, "engine": "solver" if why else "router", "why": why}
+
+
+def arrangements():
+    """Every arrangement there is to pick. A file with a mistake in it is
+    listed with its problems and no engine, and stops nothing else."""
+    out = []
+    for name in arrangement.names():
+        try:
+            out.append(arrangement_row(arrangement.load(name)))
+        except arrangement.Bad as e:
+            out.append({"name": name, "problems": e.problems})
+    return out
+
+
+def solver_paint(closed, a=None):
+    """A solver's routing ([[chip, x, y, net]]) on an arrangement's copper
+    (V5's when None) as the part of a paint the page compares against: its
+    crosspoints, and the nets on every wire they touch."""
+    ends = (ceiling.graph(a) if a is not None else ceiling.graph()).ends
     wires = {}
     for chip, x, y, net in closed:
-        for name in ceiling.graph().ends[chip, x, y]:
+        for name in ends[chip, x, y]:
             nets = wires.setdefault(name, {"nets": []})["nets"]
             if net not in nets:
                 nets.append(net)
     return {"crosspoints": [{"chip": chip, "x": x, "y": y, "net": net} for chip, x, y, net in closed], "wires": wires}
 
 
-def run_answer(v, results, base_v=None, base=None):
-    """The table of one battery run, against a baseline's run of the same cases if there is one."""
+def run_answer(v, results, base_v=None, base=None, a=None):
+    """The table of one battery run on an arrangement (V5 when None), against
+    a baseline's run of the same cases on the same arrangement if there is one."""
     before = {r["case"]: r for r in base or []}
-    return {"variant": {"name": v.name, "hash": v.hash},
+    return {"variant": {"name": v.name, "hash": v.hash}, "arrangement": arrangement_row(a or arrangement.V5),
             "baseline": {"name": base_v.name, "hash": base_v.hash} if base_v else None,
             "rows": [row(r, before.get(r["case"])) for r in results],
             "regressions": lab.regressions(base, results) if base else []}

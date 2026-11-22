@@ -3,9 +3,12 @@ import contextlib
 import http.client
 import json
 import os
+import shutil
 import subprocess
+import tempfile
 import threading
 import unittest
+import urllib.parse
 from unittest import mock
 
 import server
@@ -264,7 +267,7 @@ class Server(unittest.TestCase):
             self.srv.runs["old%d" % i] = {}
         self.c.post("/api/run", {"variant": "worktree", "classes": ["real"]})
         self.assertEqual(len(self.srv.runs), server.MAX_RUNS)
-        self.assertIn(run["variant"]["hash"], self.srv.runs)            # the newest stays
+        self.assertIn((run["variant"]["hash"], "v5"), self.srv.runs)    # the newest stays, under its variant and its arrangement
 
     def test_the_page_may_not_be_framed(self):
         self.assertEqual(self.c.get("/", token=None).headers.get("X-Frame-Options"), "DENY")
@@ -385,6 +388,106 @@ class Server(unittest.TestCase):
         case = self.c.get("/api/case?variant=%s&case=chain_all_chips" % run["variant"]["hash"]).json["result"]
         self.assertIs(case["must_route"], True)
         self.assertIn("must_route", run["rows"][0])
+        self.assertEqual(subprocess.run(["node", "--check", str(server.WEB_DIR / "lab.js")]).returncode, 0)
+
+    def test_info_lists_the_arrangements_and_a_broken_file_does_not_stop_the_page(self):     # Review Focus 1
+        listed = {a["name"]: a for a in self.c.get("/api/info").json["arrangements"]}
+        self.assertEqual(list(listed)[0], "v5")
+        self.assertEqual({n: (a["feed"], a["engine"]) for n, a in listed.items()},
+                         {"v5": (True, "router"), "v6_feed_off": (False, "router"), "v6_rails_on_chips": (False, "solver")})
+        self.assertIsNone(listed["v6_feed_off"]["why"])
+        self.assertRegex(listed["v6_rails_on_chips"]["why"], r"A\.X\d+ is on TOP_RAIL")
+        with tempfile.TemporaryDirectory() as tmp:
+            for good in server.arrangement.DIR.glob("*.json"):
+                shutil.copy(good, tmp)
+            with open(os.path.join(tmp, "mine.json"), "w") as f:
+                json.dump({"base": "v5", "pins": {"A.X16": "x"}, "colour": "blue"}, f)
+            with mock.patch.object(server.arrangement, "DIR", server.Path(tmp)):
+                info = self.c.get("/api/info")
+                self.assertEqual(info.status, 200, info.body)
+                mine = [a for a in info.json["arrangements"] if a["name"] == "mine"][0]
+                self.assertNotIn("engine", mine)
+                self.assertTrue(any("A.X16" in p for p in mine["problems"]) and any("colour" in p for p in mine["problems"]))
+                self.assertEqual(len(info.json["arrangements"]), 4)
+                bad = self.c.get("/api/fabric?arrangement=mine")
+                self.assertEqual((bad.status, bad.json["problems"]), (400, mine["problems"]))
+                self.assertEqual(self.c.post("/api/run", {"variant": "worktree", "classes": ["dense"], "arrangement": "mine"}).status, 400)
+
+    def test_fabric_of_an_arrangement(self):
+        r = self.c.get("/api/fabric?arrangement=v6_rails_on_chips")
+        self.assertEqual(r.status, 200, r.body)
+        self.assertEqual(len(r.json["fabric"]["changed"]), 24)
+        self.assertEqual(r.json["fabric"]["wires"]["TOP_RAIL"]["kind"], "bus")
+        self.assertEqual(r.json["nodes"]["101"], {"wire": "TOP_RAIL", "name": "TOP_RAIL"})
+        self.assertEqual((r.json["arrangement"]["name"], r.json["arrangement"]["engine"], r.json["arrangement"]["feed"]),
+                         ("v6_rails_on_chips", "solver", False))
+        self.assertEqual(self.c.get("/api/fabric?arrangement=v5").json["fabric"], self.c.get("/api/info").json["fabric"])
+        self.assertEqual(self.c.get("/api/fabric?arrangement=nope").status, 404)
+        self.assertEqual(self.c.get("/api/fabric?arrangement=%s" % urllib.parse.quote(
+            str(server.arrangement.DIR / "v6_feed_off.json"))).status, 404)        # a name, never a path
+        self.assertEqual(self.c.get("/api/fabric").json["arrangement"]["name"], "v5")
+
+    def test_a_run_on_an_arrangement(self):
+        r = self.c.post("/api/run", {"variant": "worktree", "classes": ["dense"], "arrangement": "v6_feed_off"})
+        self.assertEqual(r.status, 200, r.body)
+        self.assertEqual((r.json["arrangement"]["name"], r.json["arrangement"]["engine"]), ("v6_feed_off", "router"))
+        self.assertEqual({(row["arrangement"], row["feed"], row["engine"]) for row in r.json["rows"]}, {("v6_feed_off", False, "router")})
+        self.assertEqual(sum(row["fully_routed"] for row in r.json["rows"]), 21)       # the K overflow routes with the feed off
+        plain = self.c.post("/api/run", {"variant": "worktree", "classes": ["dense"]}).json
+        self.assertEqual((plain["arrangement"]["name"], plain["rows"][0]["feed"]), ("v5", True))
+        refused = self.c.post("/api/run", {"variant": "worktree", "classes": ["dense"], "arrangement": "v6_rails_on_chips"})
+        self.assertEqual(refused.status, 400)
+        self.assertRegex(refused.json["error"], r"A\.X\d+ is on TOP_RAIL")              # Review Focus 4
+        self.assertEqual(self.c.post("/api/run", {"variant": "worktree", "classes": ["dense"], "arrangement": "nope"}).status, 404)
+        both = self.c.post("/api/run", {"variant": "worktree", "baseline": "HEAD", "classes": ["dense"],
+                                        "arrangement": "v6_feed_off"}).json
+        self.assertEqual({row["base"]["metrics"]["primaries"] == row["metrics"]["primaries"] for row in both["rows"]}, {True})
+
+    def test_runs_on_two_arrangements_are_kept_apart(self):
+        feed = lambda run, name: [b for b in self.c.get("/api/case?variant=%s&arrangement=%s&case=chain_all_chips" % (
+            run["variant"]["hash"], name)).json["paint"]["bridges"] if b["infra"]]
+        for order in (("v5", "v6_feed_off"), ("v6_feed_off", "v5")):
+            for name in order:
+                run = self.c.post("/api/run", {"variant": "worktree", "classes": ["dense"], "arrangement": name}).json
+            self.assertEqual((len(feed(run, "v5")), len(feed(run, "v6_feed_off"))), (1, 0), order)
+        self.assertEqual(len(feed(run, "v5")), len([b for b in self.c.get(      # with no arrangement named, V5's
+            "/api/case?variant=%s&case=chain_all_chips" % run["variant"]["hash"]).json["paint"]["bridges"] if b["infra"]]))
+        self.assertEqual(self.c.get("/api/case?variant=%s&arrangement=nope&case=chain_all_chips" % run["variant"]["hash"]).status, 404)
+
+    def test_a_case_of_a_run_without_a_wire_is_searched_and_asked_on_that_copper(self):
+        without = server.arrangement.parse("no_kl", {"base": "v5", "feed": False, "remove": ["KL"]})
+        self.c.post("/api/run", {"variant": "worktree", "classes": ["dense"]})
+        with mock.patch.object(server.arrangement, "load", return_value=without), \
+                mock.patch.object(server.arrangement, "names", return_value=["v5", "no_kl"]):
+            run = self.c.post("/api/run", {"variant": "worktree", "classes": ["dense"], "arrangement": "no_kl"}).json
+        self.assertEqual(run["arrangement"]["name"], "no_kl")
+        fixed = {"verdict": "unknown", "fewest_proved": False, "crosspoints": None, "router_crosspoints": 16, "closed": [],
+                 "seconds": 0.3, "error": None}
+        ask = {"variant": run["variant"]["hash"], "run": "no_kl", "case": "same_chip_pairs", "rule": "firmware"}
+        with mock.patch.object(server.ceiling, "solver_installed", return_value=True), \
+                mock.patch.object(server.ceiling, "verdict", return_value=fixed) as asked, \
+                mock.patch.object(server.ceiling, "painted", wraps=server.ceiling.painted) as painted:
+            self.assertEqual(self.c.post("/api/ceiling", ask).status, 200)
+            self.assertIs(asked.call_args.kwargs["arrangement"], without)             # the solver is asked on the run's copper
+            self.assertEqual(self.c.post("/api/ceiling", dict(ask, run="v5")).status, 200)
+            self.assertIs(asked.call_args.kwargs["arrangement"], server.arrangement.V5)       # and of the run on V5, on V5's
+            self.assertEqual(self.c.post("/api/ceiling", dict(ask, run="never_ran")).status, 404)
+            self.c.get("/api/case?variant=%s&arrangement=no_kl&case=same_chip_pairs" % run["variant"]["hash"])
+            self.assertIs(painted.call_args.args[1], without)                         # and so are the missed and spare paths
+
+    def test_the_page_picks_an_arrangement(self):
+        js = self.c.get("/lab.js", token=None).body
+        for used in ("/api/fabric?arrangement=", "state.arrangement", "function pickArrangement", "the firmware's router",
+                     "probe feed ", "the sheet is V5's own; this arrangement is drawn on the Fabric tab", "&arrangement="):
+            self.assertIn(used, js)
+        self.assertRegex(js, r"variant\.hash \+ \"/\" \+ \S*arrangement\S* \+ \"/\" \+ name")    # the case store's key
+        page = self.c.get("/", token=None).body
+        self.assertIn('id="arrangement"', page)
+        self.assertLess(page.index('id="baseline"'), page.index('id="arrangement"'))
+        css = self.c.get("/lab.css", token=None).body
+        for rule in (".pin-taken", ".pin-changed"):
+            self.assertIn(rule, css)
+            self.assertNotIn("--problem", css[css.index(rule):].split("}")[0])        # red means a problem and nothing else
         self.assertEqual(subprocess.run(["node", "--check", str(server.WEB_DIR / "lab.js")]).returncode, 0)
 
     def test_watch_reports_the_tree_hash(self):

@@ -8,9 +8,10 @@ const STATIC = window.LAB_STATIC || null;   // an exported page carries its data
 const GREY = "#8a90ad";
 
 const state = {
-  info: null,        // /api/info: classes, variants, the fabric layout, node names
-  run: null,         // the last good /api/run answer
-  cases: {},         // "variant hash/case name" -> {result, paint}
+  info: null,        // /api/info: classes, variants, arrangements; the fabric layout and node names of the arrangement picked
+  arrangement: "v5", // the arrangement picked: the copper the Fabric tab draws and the next Run routes
+  run: null,         // the last good /api/run answer; run.arrangement is what it was routed on
+  cases: {},         // "variant hash/arrangement/case name" -> {result, paint}
   selected: null,    // case name
   current: null,     // {result, paint} of the selected case
   isolated: null,    // a net number lit alone, or null
@@ -121,6 +122,79 @@ function nodeName(node) {
   return known ? known.name : String(node);
 }
 
+// ---------------------------------------------------------------- arrangements
+//
+// An arrangement is the crossbar copper: V5's, or V5 with what a file under
+// arrangements/ changes. The one picked is what the Fabric tab draws and what
+// the next Run routes. A run remembers the one it was made on, and is drawn
+// only while that one is picked: its copper on another's wires would be a lie.
+
+const V5_ROW = { name: "v5", feed: true, engine: "router", why: null };
+
+// The picked arrangement's row of the list: {name, about, feed, engine: "router" | "solver", why}.
+function picked() {
+  return (state.info.arrangements || []).find((a) => a.name === state.arrangement) || V5_ROW;
+}
+
+// What the shown run was routed on (an exported page from before arrangements says nothing: V5).
+function ranOn() {
+  return (state.run && state.run.arrangement) || V5_ROW;
+}
+
+// Who answered, on what, and whether the probe feed is on the fabric: said wherever a routing is shown.
+function arrangementWords(a) {
+  return "arrangement " + a.name + ", " + (a.engine === "solver" ? "the exact solver" : "the firmware's router")
+    + ", probe feed " + (a.feed ? "on" : "off") + " the fabric";
+}
+
+// The picker and what hangs on it: whether Run can run, and the marks the drawing explains.
+function renderArrangement() {
+  const a = picked();
+  const select = $("arrangement");
+  select.replaceChildren();
+  const broken = [];
+  for (const row of state.info.arrangements || []) {
+    const bad = Boolean(row.problems);
+    if (bad) broken.push(row);
+    select.append(el("option", { value: row.name, disabled: bad ? "" : null, title: bad ? row.problems.join("\n") : row.about,
+      text: row.name + (bad ? "  (" + row.problems.length + " problems)"
+        : "  (feed " + (row.feed ? "on" : "off") + (row.engine === "solver" ? ", solver only" : "") + ")") }));
+  }
+  select.value = state.arrangement;
+  select.title = a.about || "";
+  select.disabled = Boolean(STATIC);
+  // a file with a mistake: listed, greyed, its problems on hover; nothing else stops
+  $("arrangement-bad").hidden = !broken.length;
+  $("arrangement-bad").replaceChildren(...broken.map((row) => el("div", { title: row.problems.join("\n"),
+    text: row.name + ".json has " + row.problems.length + (row.problems.length === 1 ? " problem" : " problems") + " (hover)" })));
+  const cannot = a.engine !== "router";
+  $("run").disabled = cannot || state.busy || Boolean(STATIC);
+  $("run-why").hidden = !cannot;
+  $("run-why").textContent = cannot ? "The firmware's router cannot route " + a.name + ": " + a.why
+    + ". It routes V5 with pins taken away; the exact solver takes any arrangement." : "";
+  const f = state.info.fabric;
+  const taken = (f.taken || []).length;
+  $("key-taken").hidden = !taken;
+  $("key-changed").hidden = (f.changed || []).length === taken;
+  $("sheet-note").textContent = "the sheet is V5's own; this arrangement is drawn on the Fabric tab";
+  $("sheet-note").hidden = state.tab !== "sheet" || !(f.changed || []).length;
+}
+
+// Pick an arrangement: fetch its drawing and its nodes, draw it, and draw the shown case again if it is a run on it.
+async function pickArrangement(name) {
+  const data = await api("/api/fabric?arrangement=" + encodeURIComponent(name));
+  state.arrangement = name;
+  state.info.fabric = data.fabric;
+  state.info.nodes = data.nodes;
+  const rows = state.info.arrangements || [];                  // the file may have changed since the list was made
+  const at = rows.findIndex((a) => a.name === name);
+  if (at >= 0) rows[at] = data.arrangement;
+  drawFabricBase();
+  renderArrangement();
+  if (state.current) redraw();
+  else $("view-title").textContent = name === "v5" ? "" : name + ": its copper";
+}
+
 // a wire drawn red: two nets on it (a short), or a net on a node that is in no net (a stray)
 function wrong(w) {
   return w.nets.length > 1 || Boolean(w.stray);
@@ -227,7 +301,7 @@ function renderShowing() {
   box.title = RUN_CHECKS + classes.map((c) => "\n" + c + ": " + (((state.info.about || {})[c] || {}).what || "")).join("");
   box.replaceChildren(el("b", { text: "Shown: " }), "router " + run.variant.name + " on "
     + classes.map((c) => c + " (" + run.rows.filter((r) => r.cls === c).length + ")").join(", ") + ", "
-    + run.rows.length + " cases, each routed and judged against the schematic"
+    + run.rows.length + " cases, each routed and judged against the schematic; " + arrangementWords(ranOn())
     + (run.baseline ? "; compared with " + run.baseline.name : "") + ".");
 }
 
@@ -405,14 +479,19 @@ function renderRegressions() {
 
 async function runBattery() {
   if (state.busy) return false;     // one run at a time: answers would otherwise land in the order they arrive
+  if (picked().engine !== "router") return false;      // the firmware's router cannot route it: Run says why
   const classes = [...document.querySelectorAll("#classes input:checked")].map((box) => box.value);
-  const body = { variant: variantSpec(), baseline: $("baseline").value.trim() || null, classes: classes };
+  const body = { variant: variantSpec(), baseline: $("baseline").value.trim() || null, classes: classes,
+    arrangement: state.arrangement };
   $("busy").textContent = "running " + (classes.join(", ") || "no class") + " on " + baseSpec()
-    + (Object.keys(state.upload).length ? " with the dropped files" : "") + (body.baseline ? " and on " + body.baseline : "") + "...";
+    + (Object.keys(state.upload).length ? " with the dropped files" : "") + (body.baseline ? " and on " + body.baseline : "")
+    + (body.arrangement === "v5" ? "" : ", arrangement " + body.arrangement) + "...";
   $("busy").hidden = false;
-  $("run").disabled = true;
   state.busy = true;
+  renderArrangement();
   try {
+    // the arrangement's file may have been edited since it was picked: draw what is about to be routed
+    if (body.arrangement !== "v5") await pickArrangement(body.arrangement);
     const data = await api("/api/run", body);
     if (data.build_error) {
       showBuildError(data);         // the last good table stays on screen
@@ -434,12 +513,12 @@ async function runBattery() {
     if (pick) await selectCase(pick);
     return true;
   } catch (err) {
-    showProblem(err.message);
+    showProblem(err.message + (err.data && err.data.problems ? ":\n" + err.data.problems.join("\n") : ""));
     return false;
   } finally {
     $("busy").hidden = true;
-    $("run").disabled = false;
     state.busy = false;
+    renderArrangement();
   }
 }
 
@@ -463,10 +542,11 @@ async function showBoards(list) {
   state.busy = true;
   $("busy").textContent = "reading the board's output...";
   $("busy").hidden = false;
-  $("run").disabled = true;
+  renderArrangement();
   try {
     let data = null;
     for (const [name, text] of list) data = await api("/api/board", { name: name, text: text });
+    if (state.arrangement !== "v5") await pickArrangement("v5");      // a board is V5: draw its output on V5's copper
     $("build-error").hidden = true;
     state.run = data;
     state.cases = {};
@@ -481,8 +561,8 @@ async function showBoards(list) {
     showProblem(err.message);
   } finally {
     $("busy").hidden = true;
-    $("run").disabled = false;
     state.busy = false;
+    renderArrangement();
   }
 }
 
@@ -498,11 +578,14 @@ function installPaste() {
   });
 }
 
+// One case of the shown run as a variant routed it. Kept and asked for by the variant and the arrangement
+// together: the same router on two arrangements is two runs.
 async function caseOf(variant, name) {
-  const key = variant.hash + "/" + name;
+  const arrangement = ranOn().name;
+  const key = variant.hash + "/" + arrangement + "/" + name;
   if (!state.cases[key]) {
     state.cases[key] = await api("/api/case?variant=" + encodeURIComponent(variant.hash)
-      + "&case=" + encodeURIComponent(name));
+      + "&arrangement=" + encodeURIComponent(arrangement) + "&case=" + encodeURIComponent(name));
   }
   return state.cases[key];
 }
@@ -533,9 +616,18 @@ async function selectCase(name) {
 // Both views of the selected case. The fabric is drawn against a second routing of the same case when there is
 // one: the solver's when that is asked for, else the baseline's.
 function redraw() {
+  const on = ranOn();
+  if (on.name !== state.arrangement) {             // the run is on other copper than the drawing: say so, draw none of it
+    $("view-title").textContent = state.arrangement + ": its copper. The run shown is on " + on.name
+      + ": pick that arrangement to see it drawn.";
+    drawSheet(null);
+    drawFabric(null);
+    return;
+  }
   const solved = state.ceiling.draw && state.ceiling.answer && state.ceiling.answer.paint;
   const base = solved || (state.base && state.base.paint);
   $("view-title").textContent = state.selected + "   " + state.run.variant.name
+    + (state.run.board ? "" : "   " + arrangementWords(on))
     + (solved ? "   against the solver's routing" : base ? "   against " + state.run.baseline.name : "");
   drawSheet(state.current.paint);
   drawFabric(state.current.paint, base, solved ? "the solver" : "the baseline");
@@ -682,7 +774,8 @@ async function askCeiling(rule) {
   renderCeiling();
   let answer;
   try {
-    answer = await api("/api/ceiling", { variant: c.run.variant.hash, case: state.selected, rule: rule, seconds: seconds });
+    answer = await api("/api/ceiling", { variant: c.run.variant.hash, run: (c.run.arrangement || V5_ROW).name,
+      case: state.selected, rule: rule, seconds: seconds });
   } catch (err) {
     answer = { verdict: "unknown", error: err.message + (err.data && err.data.hint ? ": " + err.data.hint : "") };
   }
@@ -852,14 +945,31 @@ function cellCentre(chip, x, y) {
   return [c.x + f.cell / 2 + f.cell * x, c.y + f.cell / 2 + f.cell * y];
 }
 
+// The copper of the arrangement picked (state.info.fabric), with nothing routed on it. Drawn again whenever
+// another arrangement is picked.
 function drawFabricBase() {
   const f = state.info.fabric;
+  fabric.wires = {};
+  fabric.pads = {};
   const view = svg("svg", { id: "fabric-svg", preserveAspectRatio: "xMidYMid meet" });
   const chips = svg("g", { class: "chips" });
   for (const [name, c] of Object.entries(f.chips)) {
     chips.append(svg("g", { class: "chip" },
       svg("rect", { x: c.x, y: c.y, width: 16 * f.cell, height: 8 * f.cell }),
       svg("text", { x: c.x + 16 * f.cell + 6, y: c.y + 14, text: name })));
+  }
+  // What the arrangement changes, on the chip's edge where the pin is: a grey cross for a pin taken away, a thin
+  // ring in the ink colour for a pin on another wire than V5 has it on. Neither is a fault, so neither is red.
+  const pinMarks = svg("g", { class: "pin-marks" });
+  const gone = new Set((f.taken || []).map((p) => p.chip + "." + p.axis + p.pin));
+  for (const p of f.changed || []) {
+    const [x, y] = pinPoint(p.chip, p.axis, p.pin);
+    const pin = p.chip + "." + p.axis + p.pin;
+    const mark = gone.has(pin)
+      ? svg("path", { class: "pin-taken", d: "M" + (x - 3) + " " + (y - 3) + "l6 6m0 -6l-6 6" })
+      : svg("circle", { class: "pin-changed", cx: x, cy: y, r: 4.2 });
+    hover(mark, pin + (gone.has(pin) ? ": taken away in " : ": not on V5's wire in ") + state.arrangement);
+    pinMarks.append(mark);
   }
   const wires = svg("g", { class: "wires" });
   const hits = svg("g", { class: "hits" });
@@ -876,9 +986,10 @@ function drawFabricBase() {
     fabric.wires[name] = path;
   }
   const pads = svg("g", { class: "pads" });
-  const above = f.chips.I.y;
+  const above = Math.min(...Object.values(f.chips).map((c) => c.y));      // the upper row of chips: pads over it slant
   for (const [name, p] of Object.entries(f.pads)) {
-    const text = p.y < above
+    const text = p.side === "right" ? svg("text", { x: p.x + 8, y: p.y + 3, text: p.label })     // at a bus's end
+      : p.y < above
       ? svg("text", { x: p.x + 3, y: p.y - 7, transform: "rotate(-60 " + (p.x + 3) + " " + (p.y - 7) + ")", text: p.label })
       : svg("text", { x: p.x, y: p.y + 13, "text-anchor": "middle", text: p.label });
     const g = svg("g", { class: "pad" }, svg("circle", { cx: p.x, cy: p.y, r: 3.6 }), text);
@@ -889,7 +1000,7 @@ function drawFabricBase() {
   fabric.dots = svg("g", { class: "dots" });
   fabric.marks = svg("g", { class: "marks" });
   fabric.ghost = svg("g", { class: "ghosts" });
-  view.append(chips, wires, fabric.ghost, fabric.dots, pads, fabric.marks, hits);
+  view.append(chips, wires, fabric.ghost, fabric.dots, pads, fabric.marks, hits, pinMarks);
   $("fabric").replaceChildren(view);
   panZoom(view, [0, 0, f.size[0], f.size[1]]);
 }
@@ -1169,6 +1280,7 @@ function showTab(name) {
   }
   $("fabric").hidden = name !== "fabric";
   $("sheet").hidden = name !== "sheet";
+  renderArrangement();                             // the sheet's note belongs to the sheet tab
 }
 
 async function start() {
@@ -1185,6 +1297,17 @@ async function start() {
   }
   drawFabricBase();
   await drawSheetBase();
+  renderArrangement();
+  $("arrangement").addEventListener("change", async () => {
+    const wanted = $("arrangement").value;
+    try {
+      await pickArrangement(wanted);
+      $("build-error").hidden = true;
+    } catch (err) {                                // a file that has gained a mistake since the list was made
+      $("arrangement").value = state.arrangement;
+      showProblem(err.message + (err.data && err.data.problems ? ":\n" + err.data.problems.join("\n") : ""));
+    }
+  });
 
   $("controls").addEventListener("submit", (event) => { event.preventDefault(); runBattery(); });
   $("ohms").addEventListener("input", () => {
@@ -1209,7 +1332,7 @@ async function start() {
   $("drop-hint").hidden = Boolean(STATIC);
 
   if (STATIC) {
-    for (const id of ["variant", "baseline", "run", "live"]) $(id).disabled = true;
+    for (const id of ["variant", "baseline", "arrangement", "run", "live"]) $(id).disabled = true;
     $("classes").hidden = true;
     $("exported").hidden = false;
     $("exported").textContent = "exported " + STATIC.when + " from " + STATIC.run.variant.name;
