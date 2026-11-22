@@ -3,6 +3,7 @@ import contextlib
 import http.client
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -11,6 +12,7 @@ import unittest
 import urllib.parse
 from unittest import mock
 
+import copper
 import server
 import variants
 
@@ -529,6 +531,114 @@ class Server(unittest.TestCase):
         for rule in (".pin-taken", ".pin-changed"):
             self.assertIn(rule, css)
             self.assertNotIn("--problem", css[css.index(rule):].split("}")[0])        # red means a problem and nothing else
+        self.assertEqual(subprocess.run(["node", "--check", str(server.WEB_DIR / "lab.js")]).returncode, 0)
+
+    def ranking(self, hash_, name="v6_feed_off", **more):
+        """A ranking as lab.py rank writes one, of two wires."""
+        wire = lambda name, kind, pins, loss: {
+            "wire": name, "kind": kind, "pins": pins, "usage": {"cases": 3, "primary": 4, "duplicate": 0},
+            "loss": {"primaries": loss, "fully_routed": 0, "crosspoints": 2, "worst_r": 0.0}, "by_class": {}, "worse": [],
+            "better": [], "used_after": 0}
+        return dict({"arrangement": name, "feed": False, "engine": "router", "variant": {"name": "worktree", "hash": hash_},
+                     "cases": 21, "baseline": {"primaries": 210, "fully_routed": 21, "crosspoints": 670, "worst_r": 4.0},
+                     "wires": [wire("KL", "hub", [["K", "X", 12], ["L", "X", 14]], -1),
+                               wire("AK", "sf lane", [["A", "X", 9], ["K", "Y", 0]], 4)]}, **more)
+
+    def test_rank_answers_the_ranking_on_file_or_says_how_to_make_one(self):
+        hash_ = self.c.get("/api/watch?spec=worktree").json["hash"]
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(server.rank, "DIR", server.Path(tmp)):
+            missing = self.c.get("/api/rank?variant=worktree&arrangement=v6_feed_off")
+            self.assertEqual((missing.status, missing.json["hint"]), (404, "python3 tools/routing_lab/lab.py rank --needed"))
+            server.rank.save(self.ranking(hash_))
+            r = self.c.get("/api/rank?variant=worktree&arrangement=v6_feed_off")
+            self.assertEqual(r.status, 200, r.body)
+            self.assertEqual(([w["wire"] for w in r.json["wires"]], r.json["arrangement"], r.json["engine"]),
+                             (["KL", "AK"], "v6_feed_off", "router"))
+            self.assertRegex(r.json["made"], r"^20\d\d-\d\d-\d\d \d\d:\d\d$")
+            self.assertEqual(self.c.get("/api/rank?variant=worktree&arrangement=v5").status, 404)       # another arrangement's
+            self.assertEqual(self.c.get("/api/rank?variant=worktree&arrangement=nope").status, 404)
+            self.assertEqual(self.c.get("/api/rank?variant=worktree").status, 404)                      # v5 when none is named
+
+    def test_rank_now_runs_the_routers_part_once_at_a_time_and_says_how_far_it_is(self):
+        hash_ = self.c.get("/api/watch?spec=worktree").json["hash"]
+        seen, second = [], []
+
+        def removal(v, case_list, a, wires=None, progress=None):
+            progress(1, 2, "KL")
+            seen.append(self.c.get("/api/job").json)
+            second.append(self.c.post("/api/rank", {"variant": "worktree", "arrangement": "v6_feed_off", "classes": ["dense"]}).status)
+            progress(2, 2, "AK")
+            return self.ranking(v.hash, a.name, cases=len(case_list))
+
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(server.rank, "DIR", server.Path(tmp)), \
+                mock.patch.object(server.rank, "removal", side_effect=removal) as ranked, \
+                mock.patch.object(server.rank, "needed", side_effect=AssertionError("the solver's part is not started from the page")):
+            r = self.c.post("/api/rank", {"variant": "worktree", "arrangement": "v6_feed_off", "classes": ["dense"]})
+            self.assertEqual(r.status, 200, r.body)
+            self.assertEqual((r.json["cases"], r.json["arrangement"], [w["wire"] for w in r.json["wires"]]), (21, "v6_feed_off", ["KL", "AK"]))
+            self.assertEqual(seen, [{"what": "ranking", "done": 1, "of": 2, "wire": "KL"}])
+            self.assertEqual(second, [409])                              # one at a time
+            self.assertEqual(self.c.get("/api/job").json, {"what": None, "done": 0, "of": 0, "wire": None})
+            self.assertEqual(ranked.call_args.args[2].name, "v6_feed_off")
+            self.assertEqual(self.c.get("/api/rank?variant=worktree&arrangement=v6_feed_off").json["wires"], r.json["wires"])   # the same file
+            refused = self.c.post("/api/rank", {"variant": "worktree", "arrangement": "v6_rails_on_chips", "classes": ["dense"]})
+            self.assertEqual(refused.status, 400)                        # the router cannot route it; nothing is left running
+        with mock.patch.object(server.rank, "removal", side_effect=server.arrangement.RouterCannot("the firmware's router cannot route x")):
+            self.assertEqual(self.c.post("/api/rank", {"variant": "worktree", "arrangement": "v6_feed_off", "classes": ["dense"]}).status, 400)
+        self.assertIsNone(self.c.get("/api/job").json["what"])
+        self.assertEqual(self.c.post("/api/rank", {"variant": "worktree", "classes": ["nope"]}).status, 400)
+
+    def test_a_ranking_made_again_keeps_what_the_solver_proved(self):
+        hash_ = "f" * 64
+        need = lambda w, by: dict(w, needed_by=by, not_needed=20 - len(by), unknown=[])
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(server.rank, "DIR", server.Path(tmp)):
+            first = self.ranking(hash_, engine="router and solver", rule="firmware", seconds=5.0, needed_cases=20)
+            first["wires"] = [need(first["wires"][0], []), need(first["wires"][1], ["k_rows_all_eight"])]
+            server.rank.save(first)
+            again = self.ranking(hash_)
+            again["wires"][1]["loss"]["primaries"] = 7                   # the router's part made anew
+            written = server.rank.save(again)
+            with open(server.rank.path(hash_, "v6_feed_off")) as f:
+                self.assertEqual(json.load(f), written)
+        self.assertEqual((written["engine"], written["needed_cases"], written["rule"]), ("router and solver", 20, "firmware"))
+        self.assertEqual([(w["loss"]["primaries"], w["needed_by"]) for w in written["wires"]], [(-1, []), (7, ["k_rows_all_eight"])])
+
+    def test_a_run_without_wires_names_them_and_hands_back_the_file(self):
+        body = {"variant": "worktree", "classes": ["dense"], "arrangement": "v6_feed_off", "without": ["KL", "IJ"]}
+        r = self.c.post("/api/run", body)
+        self.assertEqual(r.status, 200, r.body)
+        made = r.json["arrangement"]
+        self.assertEqual((made["name"], made["engine"], made["feed"]), ("v6_feed_off without KL, IJ", "router", False))
+        self.assertEqual(server.arrangement.check(json.loads(made["json"])), [])
+        self.assertEqual(len(server.arrangement.parse("pasted", json.loads(made["json"])).taken), 4)
+        self.assertEqual({row["arrangement"] for row in r.json["rows"]}, {"v6_feed_off without KL, IJ"})
+        quoted = urllib.parse.quote(made["name"])
+        case = self.c.get("/api/case?variant=%s&arrangement=%s&case=chain_all_chips" % (r.json["variant"]["hash"], quoted))
+        self.assertEqual(case.status, 200, case.body)
+        used = {copper.wire(c["chip"], "X", c["x"]) for c in case.json["paint"]["crosspoints"]}
+        self.assertFalse(used & {"KL", "IJ"})
+        drawn = self.c.get("/api/fabric?arrangement=%s" % quoted)        # what was run can be drawn, and run again, by its name
+        self.assertEqual((drawn.status, len(drawn.json["fabric"]["taken"]), drawn.json["arrangement"]["json"]), (200, 4, made["json"]))
+        self.assertEqual(self.c.post("/api/run", dict(body, arrangement=made["name"], without=["/AB0"])).json["arrangement"]["name"],
+                         "v6_feed_off without KL, IJ without /AB0")
+        self.assertNotIn("json", self.c.post("/api/run", dict(body, without=[])).json["arrangement"])
+        for bad in (["NO_SUCH"], "KL", [7]):
+            refused = self.c.post("/api/run", dict(body, without=bad))
+            self.assertEqual(refused.status, 400, bad)
+        self.assertIn("NO_SUCH", self.c.post("/api/run", dict(body, without=["NO_SUCH"])).json["error"])
+
+    def test_the_page_has_the_ranking_tab(self):
+        js = self.c.get("/lab.js", token=None).body
+        for used in ("/api/rank", "/api/job", "function drawHeat", "Run without these", "Rank now", "without: ",
+                     "lab.py rank --needed", "needed: the exact solver proves"):
+            self.assertIn(used, js)
+        page = self.c.get("/", token=None).body
+        self.assertIn('data-tab="ranking"', page)
+        css = self.c.get("/lab.css", token=None).body
+        self.assertIn(".heat", css)
+        for rule in re.findall(r"[^{}]*\.heat[^{}]*\{[^}]*\}", css):
+            self.assertNotIn("--problem", rule)                          # the heat uses no red
+            self.assertNotIn("#ff5252", rule)
         self.assertEqual(subprocess.run(["node", "--check", str(server.WEB_DIR / "lab.js")]).returncode, 0)
 
     def test_watch_reports_the_tree_hash(self):

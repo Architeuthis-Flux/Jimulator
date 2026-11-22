@@ -17,6 +17,7 @@
       <datalist id="variant-list"></datalist>
       <label title="The crossbar copper: V5's own, or V5 with what a file under tools/routing_lab/arrangements/ changes. It is what the Fabric tab draws and what Run routes.">Arrangement <select id="arrangement"></select></label>
       <div id="arrangement-bad" class="hint" hidden></div>
+      <details id="arrangement-json" class="hint" hidden><summary>this arrangement is no file yet: the text of one</summary><pre></pre></details>
       <div id="uploads" hidden></div>
       <div id="classes"></div>
       <div class="row">
@@ -46,6 +47,7 @@
     <nav id="tabs">
       <button type="button" data-tab="fabric" class="on">Fabric</button>
       <button type="button" data-tab="sheet">KiCad sheet</button>
+      <button type="button" data-tab="ranking" title="What the firmware's router loses without each lane, bounce row and hub lane, and whether any netlist is proved to need it">Ranking</button>
       <span id="view-title"></span>
       <label id="compare-box" hidden title="copper only this router closes is outlined; copper only the baseline closes is dashed grey"><input id="compare" type="checkbox"> compare with baseline</label>
       <span id="legend">
@@ -66,6 +68,7 @@
   </section>
 
   <section id="case"><p class="hint">Run a battery, then pick a case.</p></section>
+  <section id="ranking" hidden></section>
 </main>
 <script src="lab.js"></script>
 </body>

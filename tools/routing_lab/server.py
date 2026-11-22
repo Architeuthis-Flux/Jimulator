@@ -19,6 +19,8 @@ import json
 import os
 import secrets
 import subprocess
+import threading
+import time
 import urllib.parse
 from pathlib import Path
 
@@ -27,6 +29,7 @@ import board
 import ceiling
 import fabric_view
 import lab
+import rank
 import runner
 import variants
 
@@ -36,6 +39,8 @@ SHEET_DIR = variants.BUILD_DIR / "sheet"
 MAX_UPLOAD = 5_000_000
 MAX_RUNS = 6            # runs (a variant on an arrangement) whose results are held for /api/case; about 9 MB each
 BOARD = "board"         # what uploaded board output is held under, where a run has its variant's hash
+IDLE = {"what": None, "done": 0, "of": 0, "wire": None}        # /api/job when nothing long is running
+RANK_HINT = "python3 tools/routing_lab/lab.py rank --needed"
 TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
          ".css": "text/css; charset=utf-8", ".svg": "image/svg+xml", ".json": "application/json"}
 
@@ -57,6 +62,8 @@ class LabServer(http.server.ThreadingHTTPServer):
         self.trees = [str(Path(t).expanduser().resolve()) for t in trees]
         self.runs = {}                      # (variant hash, arrangement name) -> {case name: result}
         self.ran_on = {}                    # arrangement name -> the Arrangement its runs were made on
+        self.ranking = threading.Lock()     # one ranking at a time: it takes minutes and every core
+        self.job = IDLE                     # how far the ranking that is running has got (GET /api/job)
 
     @property
     def url(self):
@@ -187,15 +194,25 @@ class Handler(http.server.BaseHTTPRequestHandler):
             raise Refused(400, str(e)) from None
 
     def arrangement_of(self, name):
-        """The arrangement the page named: one of the list's names, never a
-        path. 404 for any other, 400 with the problems for a file with a mistake."""
+        """The arrangement the page named: one of the list's names (read from
+        its file afresh), or one this server has run that is no file ("x
+        without KL"); never a path. 404 for any other, 400 with the problems
+        for a file with a mistake."""
         name = "v5" if name is None else name
+        if isinstance(name, str) and name not in arrangement.names() and name in self.server.ran_on:
+            return self.server.ran_on[name]
         if not isinstance(name, str) or name not in arrangement.names():
             raise Refused(404, "there is no arrangement %s" % (name,))
         try:
             return arrangement.load(name)
         except arrangement.Bad as e:
             raise Refused(400, str(e), problems=e.problems) from None
+
+    def cases_of(self, body):
+        try:
+            return lab.battery(body.get("classes") or ["dense", "real"])
+        except (ValueError, TypeError) as e:
+            raise Refused(400, str(e)) from None
 
     def battery_of(self, wanted, case_list, a):
         """(variant, results) of the battery on the arrangement `a`. A file
@@ -242,14 +259,22 @@ class Handler(http.server.BaseHTTPRequestHandler):
         return info(self.server.trees)
 
     def api_post_run(self, query, body):
-        classes = body.get("classes") or ["dense", "real"]
-        try:
-            case_list = lab.battery(classes)
-        except (ValueError, TypeError) as e:
-            raise Refused(400, str(e)) from None
+        """The battery on an arrangement: {"variant", "baseline", "classes",
+        "arrangement": name, "without": [wires]}. With "without", on the
+        arrangement with those wires taken away as well; the answer's
+        arrangement then carries "json", the text of a file for it."""
+        case_list = self.cases_of(body)
         if "variant" not in body:
             raise Refused(400, "no variant")
         a = self.arrangement_of(body.get("arrangement"))
+        gone = body.get("without") or []
+        if not isinstance(gone, list) or not all(isinstance(w, str) for w in gone):
+            raise Refused(400, '"without" is a list of wire names')
+        if gone:
+            try:
+                a = rank.without(a, *gone)
+            except ValueError as e:
+                raise Refused(400, str(e)) from None
         try:
             v, results = self.battery_of(body["variant"], case_list, a)
         except variants.BuildError as e:
@@ -315,6 +340,48 @@ class Handler(http.server.BaseHTTPRequestHandler):
             raise Refused(409, str(e), hint=ceiling.SETUP) from None
         return dict(answer, paint=solver_paint(answer["closed"], a), solved=ceiling.solved(result, answer, a))
 
+    def api_get_rank(self, query, body):
+        """The ranking on file for a variant (its spec) and an arrangement, with when it was made."""
+        v = self.resolve(query.get("variant", "worktree"))
+        where = rank.path(v.hash, self.arrangement_of(query.get("arrangement")).name)
+        if not where.is_file():
+            raise Refused(404, "this router has not been ranked on this arrangement", hint=RANK_HINT)
+        return dict(json.loads(where.read_text()), made=time.strftime("%Y-%m-%d %H:%M", time.localtime(where.stat().st_mtime)))
+
+    def api_post_rank(self, query, body):
+        """Make the router's part of a ranking now ({"variant", "arrangement",
+        "classes"}): the battery without each wire in turn, minutes of every
+        core, so one at a time. GET /api/job says how far it is. The solver's
+        part can take hours and is made from the command line (RANK_HINT);
+        what it proved before is kept (rank.save)."""
+        case_list = self.cases_of(body)
+        a = self.arrangement_of(body.get("arrangement"))
+        v = self.resolve(body.get("variant", "worktree"))
+        try:
+            runner.taken_pins(a)
+        except arrangement.RouterCannot as e:
+            raise Refused(400, str(e)) from None
+        if not self.server.ranking.acquire(blocking=False):
+            raise Refused(409, "a ranking is being made; wait for it")
+
+        def progress(done, of, wire):
+            self.server.job = {"what": "ranking", "done": done, "of": of, "wire": wire}
+
+        try:
+            self.server.job = dict(IDLE, what="ranking")
+            written = rank.save(rank.removal(v, case_list, a, progress=progress))
+        except arrangement.RouterCannot as e:
+            raise Refused(400, str(e)) from None
+        except variants.BuildError as e:
+            return {"build_error": e.stderr, "which": "variant", "variant": {"name": v.name}}
+        finally:
+            self.server.job = IDLE
+            self.server.ranking.release()
+        return dict(written, made=time.strftime("%Y-%m-%d %H:%M"))
+
+    def api_get_job(self, query, body):
+        return self.server.job
+
     def api_get_watch(self, query, body):
         return {"hash": self.resolve(query.get("spec", "worktree")).hash}
 
@@ -353,7 +420,10 @@ def arrangement_row(a):
     ("router": the firmware's router and the solver; "solver": the solver
     only), and why the router cannot when it cannot."""
     why = arrangement.why_not_router(a)
-    return {"name": a.name, "about": a.about, "feed": a.feed, "engine": "solver" if why else "router", "why": why}
+    row = {"name": a.name, "about": a.about, "feed": a.feed, "engine": "solver" if why else "router", "why": why}
+    if a.name not in arrangement.names():           # no file holds it (say "x without KL"): here is the text of one
+        row["json"] = json.dumps(a.data, indent=1)
+    return row
 
 
 def arrangements():

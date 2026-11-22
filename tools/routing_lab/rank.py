@@ -59,7 +59,8 @@ def without(a, *names):
         raise ValueError("%s has no wire %s" % (a.name, ", ".join(missing)))
     gone = dict(a.data.get("pins") or {})
     gone.update(("%s.%s%d" % pin, None) for n in names for pin in pins[n])
-    return arrangement.parse("%s without %s" % (a.name, ", ".join(names)), dict(a.data, pins=gone))
+    less = "without %s" % ", ".join(names)
+    return arrangement.parse("%s %s" % (a.name, less), dict(a.data, pins=gone, about="; ".join(filter(None, [a.about, less]))))
 
 
 def usage(results):
@@ -220,8 +221,21 @@ def path(variant_hash, name):
 
 
 def save(ranking):
-    """Write a ranking to its place under DIR; returns the path."""
+    """Write a ranking to its place under DIR (`path`); returns it as written.
+    The router's part made again does not throw away what the solver proved:
+    when the ranking has no "needed" columns and the file already there has
+    them, they are carried over, wire by wire. They are about the netlists
+    and the copper, and the file is of the same variant and arrangement."""
     where = path(ranking["variant"]["hash"], ranking["arrangement"])
+    if "needed_cases" not in ranking and where.exists():
+        try:
+            old = json.loads(where.read_text())
+        except (OSError, ValueError):
+            old = {}
+        if "needed_cases" in old:
+            proved = {w["wire"]: {k: w[k] for k in ("needed_by", "not_needed", "unknown")} for w in old["wires"] if "needed_by" in w}
+            ranking = dict(ranking, engine=old["engine"], rule=old["rule"], seconds=old["seconds"], needed_cases=old["needed_cases"],
+                           wires=[dict(w, **proved.get(w["wire"], {})) for w in ranking["wires"]])
     where.parent.mkdir(parents=True, exist_ok=True)
     where.write_text(json.dumps(ranking) + "\n")
-    return where
+    return json.loads(json.dumps(ranking))          # as a reader of the file gets it: pins as lists

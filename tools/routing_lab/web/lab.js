@@ -28,6 +28,13 @@ const state = {
   spareOf: null,     // "n1-n2" of the bridge whose spare copies are the dashed paths, or null for the missed paths
   ceiling: newCeiling(null),   // what the exact solver said of the selected case
   ceilingSeconds: 20,          // the solver's time limit, as the box has it
+  ranking: null,     // /api/rank's answer for the Router named and the arrangement picked, or null
+  rankingFor: null,  // what the last ranking was asked for, so a slow answer cannot overwrite a later one
+  rankNote: "",      // progress of "Rank now", or why there is no ranking
+  rankBusy: false,   // a ranking is being made
+  rankSort: { key: "loss", down: false },
+  heat: "loss",      // what the Ranking tab tints the fabric by: "loss" (the router's) or "needed" (the solver's)
+  takeAway: [],      // wires picked on the Ranking tab to run without
 };
 
 // The solver's word on one case of one run: asked (busy) on the copper of the arrangement `on`, answered (answer,
@@ -159,11 +166,16 @@ function renderArrangement() {
     if (bad) broken.push(row);
     select.append(el("option", { value: row.name, disabled: bad ? "" : null, title: bad ? row.problems.join("\n") : row.about,
       text: row.name + (bad ? "  (" + row.problems.length + " problems)"
-        : "  (feed " + (row.feed ? "on" : "off") + (row.engine === "solver" ? ", solver only" : "") + ")") }));
+        : "  (feed " + (row.feed ? "on" : "off") + (row.engine === "solver" ? ", solver only" : "")
+          + (row.json ? ", not a file" : "") + ")") }));
   }
   select.value = state.arrangement;
   select.title = a.about || "";
   select.disabled = Boolean(STATIC);
+  // an arrangement made here (one without some wires) is no file: the text of one, to save under arrangements/
+  $("arrangement-json").hidden = !a.json;
+  $("arrangement-json").querySelector("pre").textContent = a.json || "";
+  $("arrangement-json").title = "save it as tools/routing_lab/arrangements/<a name>.json to keep it";
   // a file with a mistake: listed, greyed, its problems on hover; nothing else stops
   $("arrangement-bad").hidden = !broken.length;
   $("arrangement-bad").replaceChildren(...broken.map((row) => el("div", { title: row.problems.join("\n"),
@@ -193,10 +205,12 @@ async function pickArrangement(name) {
   drawFabricBase();
   renderArrangement();
   if (state.ceiling.on && state.ceiling.on !== name) state.ceiling = newCeiling(state.run);    // it was asked on other copper
+  state.takeAway = [];                             // wires picked on other copper
   if (state.current) {
     renderCase();
     redraw();
   } else $("view-title").textContent = name === "v5" ? "" : name + ": its copper";
+  if (state.tab === "ranking") loadRanking();
 }
 
 // The solver's routing as the picture itself: when the arrangement picked is not the one the shown run was routed
@@ -495,15 +509,18 @@ function renderRegressions() {
   }
 }
 
-async function runBattery() {
+// Run the ticked classes on the arrangement picked; with `without` (wire names), on that arrangement with those
+// wires taken away as well, which then becomes the arrangement picked.
+async function runBattery(without) {
   if (state.busy) return false;     // one run at a time: answers would otherwise land in the order they arrive
   if (picked().engine !== "router") return false;      // the firmware's router cannot route it: Run says why
   const classes = [...document.querySelectorAll("#classes input:checked")].map((box) => box.value);
   const body = { variant: variantSpec(), baseline: $("baseline").value.trim() || null, classes: classes,
-    arrangement: state.arrangement };
+    arrangement: state.arrangement, without: without || [] };
   $("busy").textContent = "running " + (classes.join(", ") || "no class") + " on " + baseSpec()
     + (Object.keys(state.upload).length ? " with the dropped files" : "") + (body.baseline ? " and on " + body.baseline : "")
-    + (body.arrangement === "v5" ? "" : ", arrangement " + body.arrangement) + "...";
+    + (body.arrangement === "v5" ? "" : ", arrangement " + body.arrangement)
+    + (body.without.length ? " without " + body.without.join(", ") : "") + "...";
   $("busy").hidden = false;
   state.busy = true;
   renderArrangement();
@@ -518,6 +535,13 @@ async function runBattery() {
     $("build-error").hidden = true;
     state.run = data;
     state.cases = {};
+    if (data.arrangement && data.arrangement.name !== state.arrangement) {
+      // routed without some wires: that arrangement is no file, so it joins the list as it is, and is the one drawn
+      state.current = null;
+      state.takeAway = [];
+      if (!state.info.arrangements.some((a) => a.name === data.arrangement.name)) state.info.arrangements.push(data.arrangement);
+      await pickArrangement(data.arrangement.name);
+    }
     $("compare-box").hidden = !data.baseline;
     if (!data.baseline) {
       state.compare = false;
@@ -634,6 +658,11 @@ async function selectCase(name) {
 // Both views of the selected case. The fabric is drawn against a second routing of the same case when there is
 // one: the solver's when that is asked for, else the baseline's.
 function redraw() {
+  if (state.tab === "ranking") {                   // that tab tints the copper by the ranking, with no case on it
+    drawFabric(null);
+    drawHeat();
+    return;
+  }
   const on = ranOn();
   if (on.name !== state.arrangement) {             // the run is on other copper than the drawing: draw none of it
     const solved = solvedShown();
@@ -971,6 +1000,7 @@ function hover(node, text) {
 }
 
 function wireTip(name) {
+  if (state.tab === "ranking") return rankTip(name);
   const paint = shownPaint();
   const w = paint && paint.wires[name];
   const kind = state.info.fabric.wires[name] ? state.info.fabric.wires[name].kind : "";
@@ -1032,6 +1062,7 @@ function drawFabricBase() {
     const hit = svg("path", { class: "hit", d: w.d });
     hover(hit, () => wireTip(name));
     hit.addEventListener("click", () => {
+      if (state.tab === "ranking") return toggleTakeAway(name);
       const paint = shownPaint();
       const live = paint && paint.wires[name];
       if (live && live.nets.length === 1) isolate(live.nets[0]);
@@ -1326,6 +1357,212 @@ function drawSheet(paint) {
   drawGhost();
 }
 
+// ---------------------------------------------------------------- the ranking tab
+//
+// What `lab.py rank` wrote for the Router named and the arrangement picked:
+// for each lane, bounce row and hub lane, what the firmware's router loses
+// without it (signed: it sometimes routes more) and, when the solver was
+// asked, how many netlists are proved to need it. The fabric is tinted by one
+// of the two, dim through teal to yellow and never red. A click on a wire, in
+// the drawing or the table, picks it to take away.
+
+const HEAT = ["#2f3347", "#4db6ac", "#fff176"];    // nothing, half, the most
+const RANK_COLUMNS = [
+  { key: "kind", head: "kind", tip: "lane: between two breadboard chips. sf lane: a breadboard chip to an SF chip. bounce: a chip's bounce row. hub: between two SF chips", of: (w) => w.kind },
+  { key: "wire", head: "wire", tip: "a bounce row has no name of its own on the sheet: it is shown by its chip and pin", of: (w) => w.wire,
+    show: (w) => (w.kind === "bounce" ? "chip " + w.pins[0][0] + " Y" + w.pins[0][2] : w.wire) },
+  { key: "used", head: "used", tip: "cases in which the router puts a net on it. This follows the router's search order and says nothing of need", of: (w) => w.usage.cases },
+  { key: "loss", head: "loss", tip: "primaries the firmware's router routes with every wire, minus what it routes without this one. Negative: it does better without", of: (w) => w.loss.primaries, signed: true },
+  { key: "cases", head: "cases", tip: "cases fully routed with every wire, minus without this one", of: (w) => w.loss.fully_routed, signed: true },
+  { key: "needed", head: "needed by", tip: "netlists the exact solver proves cannot be routed without the wire (firmware-shaped paths)", of: (w) => (w.needed_by ? w.needed_by.length : null), list: "needed_by" },
+  { key: "free", head: "not needed", tip: "netlists with a routing that does without the wire", of: (w) => (w.needed_by ? w.not_needed : null) },
+  { key: "unknown", head: "unknown", tip: "netlists for which neither was found in the solver's time", of: (w) => (w.unknown ? w.unknown.length : null), list: "unknown" },
+];
+
+function heatColour(t) {                           // 0 to 1 along HEAT
+  const rgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  const [from, to] = t < 0.5 ? [rgb(HEAT[0]), rgb(HEAT[1])] : [rgb(HEAT[1]), rgb(HEAT[2])];
+  const part = t < 0.5 ? t * 2 : t * 2 - 1;
+  return "rgb(" + from.map((v, i) => Math.round(v + (to[i] - v) * part)).join(",") + ")";
+}
+
+function hasNeeded() {
+  return Boolean(state.ranking && state.ranking.needed_cases != null);
+}
+
+// The number a wire is tinted by: the netlists proved to need it, or the router's loss (a gain tints as nothing lost).
+function heatValue(w) {
+  return state.heat === "needed" && hasNeeded() ? (w.needed_by ? w.needed_by.length : 0) : Math.max(0, w.loss.primaries);
+}
+
+function drawHeat() {
+  for (const path of Object.values(fabric.wires)) {
+    if (path.classList.contains("heat")) path.style.stroke = "";
+    path.classList.remove("heat", "take");
+  }
+  if (state.tab !== "ranking") return;
+  const r = state.ranking;
+  $("view-title").textContent = !r ? state.arrangement + ": not ranked yet"
+    : "tinted by " + (state.heat === "needed" && hasNeeded() ? "the netlists proved to need each wire (the exact solver)"
+      : "the primaries the firmware's router loses without each wire") + "   arrangement " + r.arrangement
+      + ", probe feed " + (r.feed ? "on" : "off") + " the fabric";
+  if (!r) return;
+  const most = Math.max(1, ...r.wires.map(heatValue));
+  for (const w of r.wires) {
+    const path = fabric.wires[w.wire];
+    if (!path) continue;
+    path.classList.add("heat");
+    path.classList.toggle("take", state.takeAway.includes(w.wire));
+    path.style.stroke = heatColour(heatValue(w) / most);
+  }
+}
+
+function rankTip(name) {
+  const w = state.ranking && state.ranking.wires.find((x) => x.wire === name);
+  if (!w) return name + "\nnot ranked: a node's own wire, or no ranking is shown";
+  const sign = (n) => (n > 0 ? "+" + n : String(n));
+  return name + "  (" + w.kind + ")\nthe router without it: " + sign(-w.loss.primaries) + " primaries, " + sign(-w.loss.fully_routed)
+    + " cases fully routed\nused in " + w.usage.cases + " cases"
+    + (w.needed_by ? "\nproved needed by " + w.needed_by.length + (w.needed_by.length ? " (" + w.needed_by.slice(0, 4).join(", ")
+      + (w.needed_by.length > 4 ? ", ..." : "") + ")" : "") + ", not needed by " + w.not_needed + ", unknown for " + w.unknown.length : "")
+    + "\nclick: " + (state.takeAway.includes(name) ? "keep it" : "take it away");
+}
+
+function toggleTakeAway(name) {
+  if (!state.ranking || !state.ranking.wires.some((w) => w.wire === name)) return;      // only a wire that is ranked
+  const at = state.takeAway.indexOf(name);
+  if (at >= 0) state.takeAway.splice(at, 1);
+  else state.takeAway.push(name);
+  renderRanking();
+  drawHeat();
+}
+
+// The ranking on file for the Router named and the arrangement picked, or none (and how to make one).
+async function loadRanking() {
+  const wanted = baseSpec() + "\n" + state.arrangement;
+  state.rankingFor = wanted;
+  let found = null;
+  let note = "";
+  try {
+    found = await api("/api/rank?variant=" + encodeURIComponent(baseSpec()) + "&arrangement=" + encodeURIComponent(state.arrangement));
+  } catch (err) {
+    note = err.status === 404 && err.data && err.data.hint ? "" : err.message;
+  }
+  if (state.rankingFor !== wanted) return;         // another arrangement was picked while this was asked
+  state.ranking = found;
+  state.rankNote = note;
+  renderRanking();
+  drawHeat();
+}
+
+// Make the router's part now. It takes minutes; /api/job says how far it is.
+async function rankNow() {
+  if (state.rankBusy) return;
+  state.rankBusy = true;
+  state.rankNote = "ranking: starting...";
+  renderRanking();
+  const watch = setInterval(async () => {
+    try {
+      const job = await api("/api/job");
+      if (job.what && state.rankBusy) {
+        state.rankNote = "ranking: " + job.done + " of " + job.of + (job.wire ? " (" + job.wire + ")" : "");
+        renderRanking();
+      }
+    } catch (e) { /* the answer to the ranking itself will say */ }
+  }, 1000);
+  const classes = [...document.querySelectorAll("#classes input:checked")].map((box) => box.value);
+  try {
+    const made = await api("/api/rank", { variant: baseSpec(), arrangement: state.arrangement, classes: classes });
+    if (made.build_error) throw new Error("the router did not build");
+    state.ranking = made;
+    state.rankNote = "";
+  } catch (err) {
+    state.rankNote = err.message;
+  } finally {
+    clearInterval(watch);
+    state.rankBusy = false;
+    renderRanking();
+    drawHeat();
+  }
+}
+
+function renderRanking() {
+  const box = $("ranking");
+  const r = state.ranking;
+  const a = picked();
+  box.replaceChildren(el("h1", { text: "Ranking" }));
+  box.append(el("div", { class: "hint", text: "Which lanes, bounce rows and hub lanes could a board do without. Two different "
+    + "answers: what the firmware's router loses without the wire, and whether any netlist is proved to need it." }));
+  if (r) {
+    box.append(el("div", { text: "router " + r.variant.name + ", arrangement " + r.arrangement + ", probe feed "
+      + (r.feed ? "on" : "off") + " the fabric: the firmware's router over " + r.cases + " cases"
+      + (hasNeeded() ? "; the exact solver (firmware-shaped paths, " + r.seconds + " s a question) over " + r.needed_cases + " netlists" : "")
+      + ". Made " + r.made + "." }));
+  } else {
+    box.append(el("div", { text: "No ranking of router " + baseSpec() + " on " + state.arrangement + " yet." }));
+  }
+  const cannot = a.engine !== "router";
+  const now = el("button", { type: "button", text: "Rank now", disabled: state.rankBusy || cannot ? "" : null,
+    title: cannot ? "the firmware's router cannot route this arrangement" : "the router's part: the ticked classes without each wire in turn, a few minutes",
+    onclick: rankNow });
+  const tint = el("select", { title: "what the fabric is tinted by" },
+    el("option", { value: "loss", text: "tint: router's loss" }),
+    hasNeeded() ? el("option", { value: "needed", text: "tint: needed by" }) : null);
+  tint.value = state.heat === "needed" && hasNeeded() ? "needed" : "loss";
+  tint.addEventListener("change", () => { state.heat = tint.value; drawHeat(); });
+  box.append(el("div", { class: "ask" }, now, tint, el("span", { class: "hint", text: state.rankNote })));
+  if (!hasNeeded()) {
+    box.append(el("div", { class: "hint", text: "Whether a wire is needed is asked of the exact solver, which can take hours and is "
+      + "not started from here:" }), el("pre", { text: "python3 tools/routing_lab/lab.py rank --needed"
+        + (state.arrangement === "v6_feed_off" ? "" : " --arrangement " + JSON.stringify(state.arrangement)) }));
+  }
+  if (!r) return;
+
+  // wires picked to take away, and the run without them
+  const away = el("div", { class: "away" }, state.takeAway.length ? el("span", { class: "hint", style: "border:0;cursor:default",
+    text: "take away:" }) : el("div", { class: "hint", text: "Click a wire, here or in the drawing, to take it away." }));
+  for (const name of state.takeAway) away.append(el("span", { text: name + " ×", title: "keep it", onclick: () => toggleTakeAway(name) }));
+  box.append(away);
+  if (state.takeAway.length) {
+    box.append(el("div", { class: "ask" },
+      el("button", { type: "button", text: "Run without these", disabled: state.busy || cannot ? "" : null,
+        title: "route the ticked classes on " + state.arrangement + " without these wires, and show it on the Fabric tab",
+        onclick: async () => { if (await runBattery(state.takeAway.slice())) showTab("fabric"); } }),
+      el("button", { type: "button", text: "clear", onclick: () => { state.takeAway = []; renderRanking(); drawHeat(); } }),
+      el("span", { class: "hint", text: "the run's arrangement can then be saved as a file (left column)" })));
+  }
+
+  const sort = state.rankSort;
+  const column = RANK_COLUMNS.find((c) => c.key === sort.key) || RANK_COLUMNS[3];
+  const columns = RANK_COLUMNS.filter((c) => hasNeeded() || !["needed", "free", "unknown"].includes(c.key));
+  const rows = r.wires.slice().sort((x, y) => {
+    const [p, q] = [column.of(x), column.of(y)];
+    const order = typeof p === "string" ? String(p).localeCompare(String(q)) : (p == null ? -1 : p) - (q == null ? -1 : q);
+    return (sort.down ? -order : order) || x.wire.localeCompare(y.wire);
+  });
+  const table = el("table", { class: "battery" }, el("tr", {}, columns.map((c) => el("th", {
+    text: c.head + (c.key === sort.key ? (sort.down ? " ▾" : " ▴") : ""), title: c.tip + (c.tip ? ". " : "") + "Click to sort.",
+    class: c.key === sort.key ? "on" : "",
+    onclick: () => { state.rankSort = { key: c.key, down: c.key === sort.key ? !sort.down : false }; renderRanking(); } }))));
+  for (const w of rows) {
+    table.append(el("tr", { class: "case" + (state.takeAway.includes(w.wire) ? " take" : ""), onclick: () => toggleTakeAway(w.wire),
+      title: rankTip(w.wire) },
+      columns.map((c) => {
+        const v = c.show ? c.show(w) : c.of(w);
+        return el("td", { text: v == null ? "" : c.signed && v > 0 ? "+" + v : String(v),
+          title: c.list && w[c.list] && w[c.list].length ? w[c.list].join("\n") : null });
+      })));
+  }
+  box.append(table);
+  box.append(el("div", { class: "hint", text: "usage counts follow the router's search order and say nothing of need; a negative "
+    + "loss is the router doing better without the wire" }));
+  if (hasNeeded()) {
+    box.append(el("div", { class: "hint", text: "needed: the exact solver proves the netlist cannot be routed without the wire "
+      + "(firmware-shaped paths). not needed: a routing without it exists. The router's loss is beside these, not instead of them. "
+      + "Each wire is taken away alone: several at once is another question, which \"Run without these\" asks of the router." }));
+  }
+}
+
 // ---------------------------------------------------------------- starting
 
 function showTab(name) {
@@ -1333,9 +1570,18 @@ function showTab(name) {
   for (const button of document.querySelectorAll("#tabs button")) {
     button.classList.toggle("on", button.dataset.tab === name);
   }
-  $("fabric").hidden = name !== "fabric";
+  $("fabric").hidden = name === "sheet";           // the ranking is drawn on the fabric too
   $("sheet").hidden = name !== "sheet";
+  $("case").hidden = name === "ranking";
+  $("ranking").hidden = name !== "ranking";
+  document.querySelector("main").classList.toggle("ranking", name === "ranking");      // its table is wider than a case's
   renderArrangement();                             // the sheet's note belongs to the sheet tab
+  if (name === "ranking") {
+    renderRanking();
+    loadRanking();
+  }
+  if (state.current || name === "ranking") redraw();
+  else drawHeat();                                 // nothing routed is shown: only the tint, if any, is taken off
 }
 
 async function start() {
@@ -1387,6 +1633,7 @@ async function start() {
   $("drop-hint").hidden = Boolean(STATIC);
 
   if (STATIC) {
+    document.querySelector('#tabs button[data-tab="ranking"]').hidden = true;      // a ranking is asked of the server
     for (const id of ["variant", "baseline", "arrangement", "run", "live"]) $(id).disabled = true;
     $("classes").hidden = true;
     $("exported").hidden = false;

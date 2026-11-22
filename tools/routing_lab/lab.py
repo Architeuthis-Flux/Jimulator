@@ -575,23 +575,25 @@ def cmd_rank(args):
     v = variants.resolve(args.variant)
     names = [w for w in (args.wires or "").split(",") if w] or None
     said = lambda done, of, item: print("%d/%d %s" % (done, of, item), file=sys.stderr, flush=True)
-    ranking = rank.removal(v, case_list, a, wires=names, progress=said)
-    rank.save(ranking)                              # the router's part is kept even if the solver's is stopped
+    ranking = rank.save(rank.removal(v, case_list, a, wires=names, progress=said))   # kept even if the solver's part is stopped
     by_loss = lambda w: (w["loss"]["primaries"], w["loss"]["fully_routed"])
     order, more, columns = by_loss, lambda w: (), ()
     if args.needed:
         asked = [c for c in battery([c for c in args.needed_classes.split(",") if c]) if not args.case or c.name == args.case]
-        ranking = rank.needed(v, asked, a, ranking, seconds=args.seconds, progress=said)
-        order = lambda w: (len(w["needed_by"]), len(w["unknown"])) + by_loss(w)
-        more, columns = lambda w: (len(w["needed_by"]), w["not_needed"], len(w["unknown"])), ("needed by", "not needed", "unknown")
-    where = rank.save(ranking)
+        ranking = rank.save(rank.needed(v, asked, a, ranking, seconds=args.seconds, progress=said))
+    if "needed_cases" in ranking:                   # asked now, or kept from an earlier --needed of this variant and arrangement
+        count = lambda w, key: len(w[key]) if key in w else 0
+        order = lambda w: (count(w, "needed_by"), count(w, "unknown")) + by_loss(w)
+        more = lambda w: (count(w, "needed_by"), w.get("not_needed", ""), count(w, "unknown")) if "needed_by" in w else ("", "", "")
+        columns = ("needed by", "not needed", "unknown")
+    where = rank.path(v.hash, a.name)
     if args.json:
         with open(args.json, "w") as f:
             json.dump(ranking, f)
     base = ranking["baseline"]
     print("arrangement: %s   engine: the firmware's router%s   variant: %s (%s)   %d cases" % (
         what(a), " for the loss, the exact solver (firmware-shaped paths, %g s a question) for what is needed, over %d cases"
-        % (args.seconds, ranking["needed_cases"]) if args.needed else "", v.name, v.hash[:12], ranking["cases"]))
+        % (ranking["seconds"], ranking["needed_cases"]) if columns else "", v.name, v.hash[:12], ranking["cases"]))
     print("with every wire: %d primaries routed, %d cases fully routed, %d crosspoints" % (
         base["primaries"], base["fully_routed"], base["crosspoints"]))
     line = "%-8s %-28s %8s %10s %7s %8s %6s %7s" + " %10s" * len(columns)
@@ -603,7 +605,7 @@ def cmd_rank(args):
           " fewer or more primaries routed")
     print("usage counts follow the router's search order and say nothing of need; a negative loss is the router doing better"
           " without the wire")
-    if args.needed:
+    if columns:
         print("needed: the exact solver proves the netlist cannot be routed without the wire (firmware-shaped paths). "
               "not needed: a routing without it exists. The router's loss is beside these, not instead of them.")
     print("written to %s" % where)

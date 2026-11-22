@@ -55,6 +55,7 @@ class Wires(unittest.TestCase):
         off = arrangement.load("v6_feed_off")
         a = rank.without(off, "KL", "IJ")
         self.assertEqual((a.name, a.feed, len(a.taken)), ("v6_feed_off without KL, IJ", False, 4))
+        self.assertEqual(a.about, off.about + "; without KL, IJ")       # its file says what it is, not what it came from
         self.assertEqual(arrangement.check(json.loads(json.dumps(a.data))), [])
         again = arrangement.parse("again", a.data)
         self.assertEqual((again.X_NET, again.Y_NET, again.feed), (a.X_NET, a.Y_NET, a.feed))

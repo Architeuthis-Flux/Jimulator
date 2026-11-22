@@ -10,6 +10,7 @@
 html, body { height: 100%; margin: 0; background: var(--bg); color: var(--ink);
   font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
 main { display: grid; grid-template-columns: 490px minmax(0, 1fr) 450px; height: 100vh; }
+main.ranking { grid-template-columns: 490px minmax(0, 1fr) 520px; }
 section { min-height: 0; overflow: auto; }
 h1 { font-size: 15px; margin: 0 0 8px; font-weight: 600; }
 h2 { font-size: 12px; margin: 14px 0 4px; color: var(--dim); font-weight: 600; text-transform: uppercase; letter-spacing: .06em; }
@@ -95,6 +96,9 @@ table.battery { border-collapse: collapse; width: 100%; }
 .xp.dup { fill: var(--bg) !important; stroke-width: 2; }
 .held { fill: none; stroke-width: 1; opacity: .75; }
 .mismatch { fill: none; stroke: var(--problem); stroke-width: 2; }
+/* the ranking's tint, from dim through teal to yellow (set by the page); a wire picked to take away is dashed */
+.wire.heat { stroke-width: 2.6; }
+.wire.heat.take { stroke-dasharray: 2 3; }
 /* what an arrangement changes on a chip's edge: a design, not a fault */
 .pin-taken { fill: none; stroke: var(--dim); stroke-width: 1.4; }
 .pin-changed { fill: none; stroke: var(--ink); stroke-width: 1; }
@@ -138,7 +142,15 @@ body.dropping #left { outline: 2px dashed var(--changed); outline-offset: -4px; 
 .bridges .was { color: var(--dim); }
 
 /* right: the case */
-#case { padding: 10px; border-left: 1px solid var(--line); background: var(--panel); }
+#case, #ranking { padding: 10px; border-left: 1px solid var(--line); background: var(--panel); }
+#ranking .hint { line-height: 1.35; margin: 4px 0; }
+#ranking .ask { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 8px 0; }
+#ranking th { cursor: pointer; }
+#ranking th:nth-child(2), #ranking td:nth-child(2) { text-align: left; max-width: 104px; overflow: hidden; text-overflow: ellipsis; }
+#ranking th.on { color: var(--ink); }
+#ranking tr.case.take td { color: var(--dim); text-decoration: line-through; }
+#ranking .away span { display: inline-block; border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px; margin: 0 4px 4px 0; cursor: pointer; }
+#arrangement-json pre { color: var(--ink); max-height: 160px; overflow: auto; margin: 4px 0; user-select: all; }
 #case h1 { word-break: break-all; }
 .status { display: inline-block; padding: 1px 7px; border-radius: 9px; border: 1px solid var(--line); }
 .status.problems, .status.crash, .status.timeout { color: var(--problem); border-color: var(--problem); }
