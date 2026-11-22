@@ -42,7 +42,7 @@ def _shown_name(name):
     return path.resolve().name if os.sep in name and path.is_dir() else name
 
 
-def write(path, variant_spec, baseline_spec=None, classes=("dense", "real", "stress", "beyond")):
+def write(path, variant_spec, baseline_spec=None, classes=("dense", "real", "stress", "beyond", "edge")):
     """Runs the battery and writes the file; returns its size in bytes."""
     case_list = lab.battery(list(classes))
     v = variants.resolve(variant_spec)

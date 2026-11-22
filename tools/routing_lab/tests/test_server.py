@@ -117,7 +117,7 @@ class Server(unittest.TestCase):
 
     def test_info(self):
         info = self.c.get("/api/info").json
-        self.assertEqual(info["classes"], ["dense", "real", "typical", "fuzz", "stress", "beyond"])
+        self.assertEqual(info["classes"], ["dense", "real", "typical", "fuzz", "stress", "beyond", "edge"])
         self.assertEqual(info["variants"][0], {"spec": "worktree", "name": "worktree"})
         self.assertEqual(info["ohms"], 60)
         self.assertIn("A", info["fabric"]["chips"])

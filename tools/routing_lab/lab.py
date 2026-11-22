@@ -10,6 +10,7 @@ of netlists with it, and judge the result against the schematic.
     lab.py clean
     lab.py solver-setup
     lab.py ceiling [--variant V] [--classes ...] [--case NAME] [--rule firmware|copper] [--seconds 20]
+    lab.py edge [--seed 1] [--count 12] [--seconds 20] [--longest 80]
     lab.py build [--variant V]
     lab.py fidelity CAPTURE_DIR [--variant V]
     lab.py import-state FILE.yaml --name NAME [--class real]
@@ -35,7 +36,7 @@ CASES_DIR = LAB / "cases"
 FIDELITY_DIR = LAB / "fidelity"
 GENERATED = {"dense": cases.dense_cases, "typical": generators.typical, "fuzz": generators.fuzz,
              "stress": generators.stress, "beyond": generators.beyond}
-CLASSES = ["dense", "real", "typical", "fuzz", "stress", "beyond"]
+CLASSES = ["dense", "real", "typical", "fuzz", "stress", "beyond", "edge"]      # edge: from files only (lab.py edge)
 
 
 def battery(classes):
@@ -346,6 +347,37 @@ def cmd_solver_setup(args):
     return 0
 
 
+def cmd_edge(args):
+    """Grow edge cases (see edge.py) and write each as cases/edge/<name>.json
+    with the routing that proves it in cases/edge/proof/. About two minutes a
+    case at the default limit; a case whose file is there is left alone."""
+    import random
+
+    import edge
+    if not ceiling.solver_installed():
+        print("growing edge cases needs the solver; install it once with: " + ceiling.SETUP)
+        return 1
+    binary = variants.build(variants.resolve("worktree"))
+    dest = CASES_DIR / "edge"
+    (dest / "proof").mkdir(parents=True, exist_ok=True)
+    for i in range(args.count):
+        name = "edge_%d_%d" % (args.seed, i)
+        if (dest / (name + ".json")).exists():
+            print("%s: already there" % name, flush=True)
+            continue
+        grown = edge.grow(binary, random.Random(args.seed * 100003 + i), name, args.seconds, args.longest)
+        if grown is None:
+            print("%s: not one bridge of its list is proved routable; nothing written" % name, flush=True)
+            continue
+        case, found = grown
+        with open(dest / "proof" / (name + ".json"), "w") as f:
+            json.dump({"rule": "firmware", "closed": found["closed"]}, f)
+            f.write("\n")
+        cases.save_json(case, dest / (name + ".json"))
+        print("%s: %s" % (name, case.notes), flush=True)
+    return 0
+
+
 def cmd_import_state(args):
     case = cases.import_state(args.file, args.name, args.cls)
     dest = CASES_DIR / args.cls
@@ -394,7 +426,7 @@ def main(argv):
     exp.add_argument("out", help="the .html to write")
     exp.add_argument("--variant", default="worktree")
     exp.add_argument("--baseline")
-    exp.add_argument("--classes", default="dense,real,stress,beyond", help="comma list of: " + ", ".join(CLASSES))
+    exp.add_argument("--classes", default="dense,real,stress,beyond,edge", help="comma list of: " + ", ".join(CLASSES))
     exp.set_defaults(fn=cmd_export)
     sub.add_parser("clean", help="delete the caches under build/ (results, variant trees, binaries)") \
         .set_defaults(fn=cmd_clean)
@@ -408,6 +440,12 @@ def main(argv):
                       help="firmware: each bridge its own path of at most four crosspoints; copper: any copper")
     ceil.add_argument("--seconds", type=float, default=20.0, help="the solver's limit for one case (20)")
     ceil.set_defaults(fn=cmd_ceiling)
+    edg = sub.add_parser("edge", help="grow random netlists to the longest the solver proves routable (cases/edge/)")
+    edg.add_argument("--seed", type=int, default=1)
+    edg.add_argument("--count", type=int, default=12, help="how many cases (12)")
+    edg.add_argument("--seconds", type=float, default=20.0, help="the solver's limit for one probe (20)")
+    edg.add_argument("--longest", type=int, default=80, help="bridges in the list a case is a prefix of (80)")
+    edg.set_defaults(fn=cmd_edge)
     args = ap.parse_args(argv)
     try:
         return args.fn(args)

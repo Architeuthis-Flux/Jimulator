@@ -1043,7 +1043,7 @@ async function start() {
   for (const v of state.info.variants) $("variant-list").append(el("option", { value: v.spec }));
   for (const name of state.info.classes) {
     $("classes").append(el("label", {},
-      el("input", { type: "checkbox", value: name, checked: ["dense", "real", "stress"].includes(name) ? "" : null }), name));
+      el("input", { type: "checkbox", value: name, checked: ["dense", "real", "stress", "edge"].includes(name) ? "" : null }), name));
   }
   drawFabricBase();
   await drawSheetBase();

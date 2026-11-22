@@ -5,9 +5,11 @@ netlists with it, and judges every result against the schematic with
 `test/hil/routing_check.py`. No board needed. Design:
 `CodeDocs/DESIGN_ROUTING_LAB.md`.
 
-Pieces 1 and 2 of 4 are built: the harness, battery, judge and command line,
-and the page that draws a result on the fabric and on the board's KiCad
-sheet. The ceiling search and the V6 lane ranking are not built yet.
+Pieces 1 to 3 of 4 are built: the harness, battery, judge and command line;
+the page that draws a result on the fabric and on the board's KiCad sheet;
+and the ceilings (the path a failed bridge had, the copies the free copper
+still allows, and an exact solver that says whether a netlist can be routed
+at all). The V6 lane ranking is not built yet.
 
 ## The page
 
@@ -56,6 +58,19 @@ click a case.
   bridge to GND or a rail, counted in crosspoints and multiplied by the
   "ohms per crosspoint" box (60 by default; duplicates in parallel lower
   it).
+- **miss** counts the bridges the router failed although the free copper
+  had a path for them. Select the case: each such path is drawn dashed in
+  its net's colour (hollow dashed dots where crosspoints would close), and
+  the bridge's row says how many crosspoints it needed. A failed bridge with
+  no such path says so.
+- **spare**, in the case's bridge table, is the copies the free copper still
+  allows for a routed bridge and the ohms with them ("+3 → 40"). Click the
+  cell to draw them dashed; click again for the missed paths.
+- **Ceiling**, under the bridges, asks the exact solver whether the case's
+  netlist can be routed at all, with firmware-shaped paths or with any
+  copper, and can draw the solver's routing against the router's.
+
+"Ceilings" below says what these three mean and what they do not.
 
 The server listens on 127.0.0.1 only, answers only its own page (a token and
 an origin check), and builds only this checkout, git refs of it, and the
@@ -67,9 +82,11 @@ python3 tools/routing_lab/lab.py clean
 ```
 
 `export` writes one battery run as a single HTML file that opens without the
-server (table, case panel, fabric view; not the KiCad backdrop). `clean`
-deletes the caches under `build/` (results, variant trees, binaries), which
-grow with every variant tried; the built sheet is kept.
+server (table, case panel, fabric view, missed paths and spare copies; not
+the KiCad backdrop, and it cannot ask the solver). `clean` deletes the caches
+under `build/` (results, variant trees, binaries, solver answers), which grow
+with every variant tried; the built sheet and the solver's environment are
+kept.
 
 ## Use from the command line
 
@@ -81,7 +98,7 @@ Routes the `dense` and `real` classes on this checkout's router and prints a
 table. Useful forms:
 
 ```bash
-python3 tools/routing_lab/lab.py run --classes dense,real,typical,fuzz,stress,beyond
+python3 tools/routing_lab/lab.py run --classes dense,real,typical,fuzz,stress,beyond,edge
 python3 tools/routing_lab/lab.py run --variant ~/Documents/GitHub/JumperlOS --baseline main
 python3 tools/routing_lab/lab.py run --classes fuzz --case fuzz_1_1
 python3 tools/routing_lab/lab.py import-state my_slot.yaml --name my_slot
@@ -91,7 +108,8 @@ python3 tools/routing_lab/lab.py import-state my_slot.yaml --name my_slot
   holds `src/` (another checkout, for example your main one while the lab
   lives on a branch), or a git ref.
 - `--baseline` routes the same cases on a second variant and lists what got
-  worse: a case that no longer routes fully, a new kind of problem, a crash.
+  worse: a case that no longer routes fully, a new kind of problem, a crash,
+  or more bridges left unrouted where the copper had a path.
 - `--case` prints that case's problems, notes and `b` report.
 - `--json FILE` writes every result.
 
@@ -100,8 +118,10 @@ copper does not join its nodes, a crash or hang, a must-route case with
 problems, or a regression against the baseline; 2 on a usage error; 3 when
 the variant does not build (the compiler's output is printed).
 
-The whole battery (about 2,250 cases) takes five to ten seconds. Results are
-cached under `build/` by variant, case and judging code.
+The whole battery (about 2,260 cases) takes five to ten seconds. Results are
+cached under `build/` by variant, case and judging code. The table's `missed`
+column is the class's total of failed bridges the copper had a path for; it
+does not change the exit status on its own.
 
 ## Classes
 
@@ -113,6 +133,7 @@ cached under `build/` by variant, case and judging code.
 | fuzz | 2,000 seeded random netlists |
 | stress | 21 cases each aimed at one scarce resource (one-chip floods, hub lanes, a 40-node net, maximum duplicates) |
 | beyond | 3 cases over the fabric on purpose; scored, and must stay short-free |
+| edge | 12 random netlists, each the longest prefix of its list that the solver proves routable with firmware-shaped paths (`cases/edge/`, grown by `lab.py edge`) |
 
 Only the dense cases that the HIL suite requires to route are required to
 route here. Everything else is scored. A JSON file dropped in `cases/<class>/`
@@ -152,6 +173,93 @@ reported apart from routing misses:
   "fully routed".
 
 A pair given twice is one bridge, merged as the firmware's loader merges it.
+
+## Ceilings
+
+How far a routing is from what the copper allows. The model is the judge's:
+a wire carries one net, and a node outside the net (in another net, or in no
+net) may not be touched. A bridge the firmware rejected, left out or refused
+is never searched for and never counts as a miss.
+
+**miss: the path a failed bridge had.** For each bridge the router failed,
+the cheapest path through copper that is free or already carries its net,
+with everything else where the router put it: fewest new crosspoints, then
+fewest in all. Each failed bridge is taken alone, so two of them may be shown
+the same free copper, and then only one could have had it. A miss is a
+statement about copper, not about the firmware's path shape: the path may be
+longer than the four crosspoints one firmware path holds, or ride copper the
+net already has.
+
+**spare: copies the free copper still allows.** For each routed bridge, up
+to eight more paths of at most four new crosspoints each, through wires that
+carry nothing and are no node's copper, sharing no wire with each other; then
+the bridge's resistance with all of them closed. Each bridge is taken alone,
+as if all the free copper were its own, and the firmware holds some copper
+back so sense taps stay reachable. So this is "available in copper", an upper
+bound, not what the firmware would give. The firmware's tap planner is not
+yet asked which of them it would allow.
+
+**The exact solver** answers what the two searches cannot: with everything
+free to move, can this netlist be routed at all, and with how few
+crosspoints?
+
+```bash
+python3 tools/routing_lab/lab.py solver-setup      # once; needs the network
+python3 tools/routing_lab/lab.py ceiling --classes dense,real,beyond
+python3 tools/routing_lab/lab.py ceiling --case nano_dense_metric --rule copper --seconds 60
+```
+
+`solver-setup` installs OR-tools 9.15 into `build/solver-venv`. Without it
+everything else works, the solver's tests skip, and the page says how to get
+it.
+
+The netlist asked about is the case's as the firmware built it: the bridges
+it allowed, its nets, and its probe feed where the firmware put it. Two
+rules:
+
+- **firmware-shaped paths**: every bridge is its own path of at most four
+  crosspoints, as `pathStruct` holds one; paths of one net may share copper.
+- **any copper**: a net is joined by any tree through the copper, of any
+  length.
+
+A verdict is one of:
+
+- **routable**, with the fewest crosspoints (`= 16`, proved) or the fewest
+  found before the time ran out (`<= 18`). The lab checks the solver's
+  routing with its own copper model before saying so (`ceiling.faults`: only
+  offered crosspoints, no piece of copper holding two nets, every bridge
+  joined, and under the firmware rule within four crosspoints). An answer
+  that fails is shown as an error, not a verdict. The routing drawn is one
+  of many with that count.
+- **not routable**, proved. This rests on the solver and on the model, which
+  the tests exercise on fabrics small enough to check on paper. If the
+  solver says it of a case the router routed in full, the lab reports that
+  the model is wrong instead of the verdict.
+- **unknown** after the time limit (20 s by default). An answer near the
+  limit is not the same from run to run; nothing committed rests on one.
+
+What a verdict does not say. The model does not hold the copper the firmware
+reserves for sense taps, nor its duplicates: "routable" is a ceiling for any
+router that keeps the rule's path shape, not a promise that this router's
+method could reach it. And fewer crosspoints is not better by itself: the
+fewest shares as much copper inside a net as it can.
+
+**Edge cases** (`lab.py edge --seed 1 --count 12`, about two minutes a case)
+are where the router and the ceiling are compared. A random legal list of 80
+bridges is drawn as `fuzz` draws its ends, and bisection finds the longest
+prefix the solver proves routable with firmware-shaped paths. A prefix of
+which the firmware itself drops a bridge is never asked about. Each case is
+saved with the routing that proves it (`cases/edge/proof/`), and a test
+checks every one of those routings against the harness's netlist with no
+solver, so "provably routable" does not depend on the solver being installed
+or on its luck with the clock. Bisection only decides where to look: the edge
+may sit a bridge short of the true one. `lab.py run --classes edge` is the
+headline score: how many of these the router routes in full.
+
+The headline on 2026-11-21, router at 5374d38: **1 of 12**. The twelve cases
+hold 49 to 60 bridges each; for five the next bridge is proved not to fit,
+for seven it is not known after 20 s. Of their 655 primaries (each case's
+probe feed is one) the router routes 603. "Findings so far" has the detail.
 
 ## Checked against a board
 
@@ -204,8 +312,9 @@ needs no board while the capture's commit still describes the router.
 
 ## Findings so far (router at 5374d38, from the host harness)
 
-Full battery, 2,247 cases: no short, stray, crash or hang. Every primary of
-every `typical`, `fuzz` and `stress` case routes.
+Full battery, 2,259 cases: no short, stray, crash or hang. Every primary of
+every `typical`, `fuzz` and `stress` case routes, and outside the `edge`
+class no failed bridge had a free path left in the copper (`missed` is 0).
 
 1. **A netlist with GND can route differently on the next rebuild.** 18 cases
    do, including `slot3_snapshot_2026-08-26`. All flip with the starting
@@ -227,6 +336,45 @@ every `typical`, `fuzz` and `stress` case routes.
    `NetVoltageScan.cpp`, `gndInUse` is true whenever any net lists GND, and
    the GND special net always does. Worth a check on a board.
 
+From the ceilings (2026-11-21; see "Ceilings" for what each number is worth):
+
+5. **On long random netlists the router stops well short of what fits.**
+   The twelve `edge` cases (49 to 60 bridges) are each proved routable with
+   firmware-shaped paths, by a routing saved beside the case. The router
+   routes one of them in full and leaves 52 bridges unrouted across the
+   other eleven (603 of 655 primaries). At the `fuzz` class's sizes, up to
+   twelve bridges, it routes everything. See one: `lab.py run --classes edge
+   --case edge_1_1`, or the page with the `edge` class ticked.
+6. **Most of those 52 need other paths moved, not a better last search.**
+   With everything else where the router put it, 12 of the 52 still had a
+   path through free or same-net copper, and only 2 of those 12 are within
+   the four crosspoints one firmware path holds. One (`GPIO_7`-`D11` in
+   `edge_1_3`) needs no new crosspoint at all: its two nodes are already
+   joined through the net's other bridges, eight crosspoints apart, and the
+   path table still lists it as not routed.
+7. **Stacking can cost primaries.** `edge_1_5` routes 55 of 61 primaries
+   with the default stacking and 58 of 61 with none. The other eleven edge
+   cases route the same number either way.
+8. **On the dense and real cases the router is at the ceiling for routing,
+   not for crosspoints.** `lab.py ceiling --classes dense,real,beyond`: 22 of
+   26 are provably routable with firmware-shaped paths and the router routes
+   all 22. Over the 19 of them whose fewest is proved, its primary paths use
+   31 crosspoints more than the fewest (`corner_rows` 20 against 16,
+   `slot3_snapshot_2026-08-26` 30 against 25). Fewer is not better by
+   itself.
+9. **What the router does not route there cannot be routed.**
+   `k_rows_overflow_metric` (with its probe feed on GPIO 6, as the firmware
+   builds it), `every_nano_pin` and `nine_k_nets` are proved not routable
+   under both rules. `max_bridges_random` can be routed with any copper (94
+   crosspoints or fewer); with firmware-shaped paths it is not known after
+   20 s.
+10. **The September router, for comparison** (`--variant "a1accf5^"`,
+    before the hub rescue tier): five misses in the dense class. Two are the
+    `nano_dense_metric` bridges that tier was written for (`A4`-`19`,
+    `A5`-`20`, four crosspoints each). Three are in `h2_through_sf_chips`,
+    and those three paths want the same hub copper, so one of them could
+    have been made, not all three.
+
 ## How it is built
 
 `harness/build.sh <src> <out>` compiles `NetsToChipConnections.cpp`,
@@ -236,6 +384,12 @@ with `harness/lab_harness.cpp` (protocol and printing) and
 `harness/firmware_stubs.cpp` (every stubbed firmware symbol, one line each).
 Nothing under `src/` is modified. The netlist is built and routed by firmware
 code only; a test fails if the harness defines any of those functions.
+
+The lab's Python imports only the standard library. `ceiling.py` holds the
+copper as a graph and the two searches over a painted result; the exact
+search is `solver/solve.py`, a CP-SAT model that knows nothing of the lab or
+of V5, run as a separate process with the Python of `build/solver-venv`.
+`edge.py` grows the edge cases.
 
 Sanitizers are on (ASan and UBSan, without the enum and bool checks, which
 the router's `memset(-1)` idiom trips on every case).

@@ -1,9 +1,11 @@
 # Routing lab: design
 
-Written 2026-11-17, approved the same day. Pieces 1 and 2 are built
-(2026-11-21, `tools/routing_lab/`; its README says how to use them); pieces 3
-and 4 are not. "Learned building piece 1" at the end changes what the later
-pieces must do. Piece 2 as built differs from the text below in one way: the
+Written 2026-11-17, approved the same day. Pieces 1, 2 and 3 are built
+(2026-11-21, `tools/routing_lab/`; its README says how to use them); piece 4
+is not. "Learned building piece 1" at the end changes what the later pieces
+must do. Piece 3 as built leaves out one thing the text below puts in it: the
+tap planner is not yet the oracle for spare copies (see "Honest limit").
+Piece 2 as built differs from the text below in one way: the
 r7 sheet draws its breadboard-to-breadboard lanes as buses and nearly
 everything else as a label on the pin, so the sheet view follows buses and
 lights labels and pin ends, not long wires.
@@ -260,6 +262,11 @@ wire and a Y wire on one chip; a real node outside the net may not be touched.
   copper". The firmware refuses some of them to keep sense taps reachable.
   Follow-on within this piece: use the firmware's own tap planner as the
   oracle (a copy is allowed if every node that had a tap route keeps one).
+  **Not built** (2026-11-21): spare copies are labelled "available in copper"
+  everywhere they show, and the solver's model does not hold the taps'
+  copper either, so its "routable" is a ceiling, not a promise. A cheap first
+  answer needs no new code: route the case with every stack setting at its
+  highest and count the copies the firmware makes.
 
 ## Piece 4: V6 lane ranking
 
