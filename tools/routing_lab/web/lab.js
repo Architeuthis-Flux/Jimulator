@@ -30,9 +30,10 @@ const state = {
   ceilingSeconds: 20,          // the solver's time limit, as the box has it
 };
 
-// The solver's word on one case of one run: asked (busy), answered (answer, under rule, after `asked` seconds), drawn.
+// The solver's word on one case of one run: asked (busy) on the copper of the arrangement `on`, answered (answer,
+// under rule, after `asked` seconds), drawn.
 function newCeiling(run) {
-  return { run: run, busy: false, rule: null, asked: 0, answer: null, draw: false };
+  return { run: run, busy: false, rule: null, asked: 0, answer: null, draw: false, on: null };
 }
 
 const $ = (id) => document.getElementById(id);
@@ -191,8 +192,25 @@ async function pickArrangement(name) {
   if (at >= 0) rows[at] = data.arrangement;
   drawFabricBase();
   renderArrangement();
-  if (state.current) redraw();
-  else $("view-title").textContent = name === "v5" ? "" : name + ": its copper";
+  if (state.ceiling.on && state.ceiling.on !== name) state.ceiling = newCeiling(state.run);    // it was asked on other copper
+  if (state.current) {
+    renderCase();
+    redraw();
+  } else $("view-title").textContent = name === "v5" ? "" : name + ": its copper";
+}
+
+// The solver's routing as the picture itself: when the arrangement picked is not the one the shown run was routed
+// on (the firmware's router may not be able to route it at all) and the solver has routed the selected case on it.
+function solvedShown() {
+  const c = state.ceiling;
+  return (state.run && ranOn().name !== state.arrangement && c.on === state.arrangement && c.answer && c.answer.solved) || null;
+}
+
+// The paint both views and the hover text are of: the solver's on the arrangement picked, else the run's when the
+// run is on the arrangement picked, else none.
+function shownPaint() {
+  if (!state.current) return null;
+  return solvedShown() || (ranOn().name === state.arrangement ? state.current.paint : null);
 }
 
 // a wire drawn red: two nets on it (a short), or a net on a node that is in no net (a stray)
@@ -617,11 +635,15 @@ async function selectCase(name) {
 // one: the solver's when that is asked for, else the baseline's.
 function redraw() {
   const on = ranOn();
-  if (on.name !== state.arrangement) {             // the run is on other copper than the drawing: say so, draw none of it
-    $("view-title").textContent = state.arrangement + ": its copper. The run shown is on " + on.name
-      + ": pick that arrangement to see it drawn.";
-    drawSheet(null);
-    drawFabric(null);
+  if (on.name !== state.arrangement) {             // the run is on other copper than the drawing: draw none of it
+    const solved = solvedShown();
+    $("view-title").textContent = solved
+      ? state.selected + "   the exact solver's routing on " + state.arrangement + ", one of many; not the firmware's router"
+        + "   probe feed " + (on.feed ? "on" : "off") + " the fabric"
+      : state.arrangement + ": its copper. The run shown is on " + on.name + ": pick that arrangement to see it drawn"
+        + (state.info.solver ? ", or ask the solver for this case on " + state.arrangement + " (Ceiling)." : ".");
+    drawSheet(null);                               // the sheet is V5's own
+    drawFabric(solved);
     return;
   }
   const solved = state.ceiling.draw && state.ceiling.answer && state.ceiling.answer.paint;
@@ -687,26 +709,36 @@ function toggleSpare(b) {
 
 function renderCase() {
   const box = $("case");
-  const { result, paint } = state.current;
+  const result = state.current.result;
+  const solved = solvedShown();                    // the solver's routing on the arrangement picked, when that is the picture
+  const paint = solved || state.current.paint;
   const m = result.metrics;
-  box.replaceChildren(
-    el("h1", { text: result.case }),
-    el("div", {}, el("span", { class: "status " + result.status, text: result.status }),
+  box.replaceChildren(el("h1", { text: result.case }));
+  if (solved) {
+    box.append(
+      el("div", { class: "about", text: "the exact solver's routing on " + state.arrangement
+        + ", one of many; not the firmware's router" }),
+      el("div", { class: "counts", text: solved.crosspoints.length + " crosspoints for "
+        + solved.bridges.filter((b) => b.state === "routed").length + " bridges; probe feed " + (ranOn().feed ? "on" : "off")
+        + " the fabric. The netlist is the firmware's, from the run on " + ranOn().name + "." }));
+  } else {
+    box.append(el("div", {}, el("span", { class: "status " + result.status, text: result.status }),
       // what kind of case this is: a board's own routing, one the bench suite requires to route, or one that is scored
       el("span", { class: "hint", text: "  " + result.cls + " · "
         + (result.cls === "board" ? "as a board routed it" : result.must_route ? "must route" : "scored") })));
-  if (result.about) box.append(el("div", { class: "about", text: result.about }));
-  if (["crash", "timeout"].includes(result.status)) {
-    box.append(el("h2", { text: "what the harness said" }),
-      el("ul", { class: "problems" }, result.problems.map((p) => el("li", { text: p }))),
-      el("pre", { class: "report", text: result.stderr || "(nothing on stderr)" }));
-    return;
+    if (result.about) box.append(el("div", { class: "about", text: result.about }));
+    if (["crash", "timeout"].includes(result.status)) {
+      box.append(el("h2", { text: "what the harness said" }),
+        el("ul", { class: "problems" }, result.problems.map((p) => el("li", { text: p }))),
+        el("pre", { class: "report", text: result.stderr || "(nothing on stderr)" }));
+      return;
+    }
+    box.append(el("div", { class: "counts",
+      text: m.routed_primaries + " of " + (m.primaries - (m.refused || 0)) + " primaries routed, "
+        + m.routed_duplicates + " copies, " + m.crosspoints + " crosspoints"
+        + (m.taps == null ? "" : ", " + (m.taps - m.taps_dead.length) + " of " + m.taps + " taps reachable")
+        + (m.repeat_same === false ? ", ROUTES DIFFER ON A SECOND REBUILD" : "") }));
   }
-  box.append(el("div", { class: "counts",
-    text: m.routed_primaries + " of " + (m.primaries - (m.refused || 0)) + " primaries routed, "
-      + m.routed_duplicates + " copies, " + m.crosspoints + " crosspoints"
-      + (m.taps == null ? "" : ", " + (m.taps - m.taps_dead.length) + " of " + m.taps + " taps reachable")
-      + (m.repeat_same === false ? ", ROUTES DIFFER ON A SECOND REBUILD" : "") }));
 
   if (paint.problems.length) {
     box.append(el("h2", { text: "problems" }),
@@ -719,7 +751,7 @@ function renderCase() {
       el("th", { text: "spare", title: SPARE_TIP })));
   // with compare on, the baseline's value follows in brackets where it differs
   const before = {};
-  for (const b of (state.base ? state.base.paint.bridges : [])) before[b.n1 + "-" + b.n2] = b;
+  for (const b of (state.base && !solved ? state.base.paint.bridges : [])) before[b.n1 + "-" + b.n2] = b;
   const versus = (now, was) => (was === undefined || was === now || was === "" ? []
     : [el("span", { class: "was", text: " (" + (was === "" ? "-" : was) + ")" })]);
   for (const b of paint.bridges) {
@@ -754,7 +786,8 @@ function renderCase() {
   if (paint.notes.length) {
     box.append(el("h2", { text: "notes" }), el("ul", { class: "notes" }, paint.notes.map((n) => el("li", { text: n }))));
   }
-  box.append(el("details", {}, el("summary", { text: "b report" }), el("pre", { text: result.b })));
+  box.append(el("details", {}, el("summary", { text: solved ? "b report of the run on " + ranOn().name : "b report" }),
+    el("pre", { text: result.b })));
   applyIsolation();
 }
 
@@ -766,22 +799,29 @@ async function askCeiling(rule) {
   const c = state.ceiling;
   if (c.busy || !c.run || !state.selected) return;
   const seconds = state.ceilingSeconds;
-  Object.assign(c, { busy: true, rule: rule, asked: seconds, answer: null });
-  if (c.draw) {                                    // the routing drawn belonged to the answer just dropped
-    c.draw = false;
+  const elsewhere = ranOn().name !== state.arrangement;      // asked on other copper than the run's: the answer is the picture
+  const drawn = c.draw || Boolean(solvedShown());
+  Object.assign(c, { busy: true, rule: rule, asked: seconds, answer: null, on: state.arrangement, draw: false });
+  if (drawn) {                                     // the routing drawn belonged to the answer just dropped
+    if (elsewhere) renderCase();
     redraw();
   }
   renderCeiling();
   let answer;
   try {
-    answer = await api("/api/ceiling", { variant: c.run.variant.hash, run: (c.run.arrangement || V5_ROW).name,
+    // the netlist is the shown run's; the copper asked on is the arrangement picked
+    answer = await api("/api/ceiling", { variant: c.run.variant.hash, run: ranOn().name, arrangement: state.arrangement,
       case: state.selected, rule: rule, seconds: seconds });
   } catch (err) {
     answer = { verdict: "unknown", error: err.message + (err.data && err.data.hint ? ": " + err.data.hint : "") };
   }
   c.busy = false;
   c.answer = answer;
-  if (c === state.ceiling) renderCeiling();        // else another case was picked while the solver worked
+  if (c !== state.ceiling) return;                 // another case or arrangement was picked while the solver worked
+  if (elsewhere) {
+    renderCase();
+    redraw();
+  } else renderCeiling();
 }
 
 function ceilingWords(c) {
@@ -789,11 +829,22 @@ function ceilingWords(c) {
   const shape = RULE_WORDS[c.rule];
   if (a.error) return [el("div", { class: "error", text: a.error })];
   if (a.verdict === "nothing") return [el("div", { text: "No bridge the firmware allowed" })];
+  if (a.verdict === "unplaced") {                  // neither routable nor not: the copper has no such node
+    const pairs = (a.unplaced || []).map((p) => p.map(nodeName).join("-")).join(", ");
+    return [el("div", { text: "Cannot be placed on " + c.on + ": the netlist uses a node it does not have"
+      + (pairs ? " (" + pairs + ")" : "") })];
+  }
   if (a.verdict === "unknown") return [el("div", { text: "Not known after " + c.asked + " s (" + shape + ")" })];
   if (a.verdict === "not_routable") {
     return [el("div", { text: "Cannot be routed, proved (" + shape + ")" }),
       c.rule === "firmware" ? el("div", { class: "hint",
         text: "try any copper to see whether the limit is the path shape or the fabric" }) : null];
+  }
+  const fewest = el("div", { text: "Can be routed, proved (" + shape + "). Fewest crosspoints: "
+    + (a.fewest_proved ? a.crosspoints + " (proved)" : "at most " + a.crosspoints + " (not proved in " + c.asked + " s)") });
+  if (c.on !== ranOn().name) {                     // asked on other copper than the run's: the routing is the picture
+    return [fewest, el("div", { class: "hint", text: "drawn: the exact solver's routing on " + c.on
+      + ". The run's own routing is on " + ranOn().name + "." })];
   }
   const row = state.run.rows.find((r) => r.case === state.selected);
   const draw = el("input", { type: "checkbox", checked: c.draw ? "" : null });
@@ -808,8 +859,7 @@ function ceilingWords(c) {
     redraw();
   });
   return [
-    el("div", { text: "Can be routed, proved (" + shape + "). Fewest crosspoints: "
-      + (a.fewest_proved ? a.crosspoints + " (proved)" : "at most " + a.crosspoints + " (not proved in " + c.asked + " s)") }),
+    fewest,
     el("div", { class: "hint", text: "the router's primaries use " + a.router_crosspoints
       + (row && row.fully_routed ? "" : ", for the bridges it routed") }),
     el("label", { class: "inline", title: "copper only the router closes is outlined; copper only the solver closes is dashed grey" },
@@ -830,6 +880,10 @@ function ceilingSection() {
   seconds.addEventListener("input", () => { state.ceilingSeconds = Math.min(120, Math.max(1, Number(seconds.value) || 20)); });
   const button = (rule, tip) => el("button", { type: "button", text: RULE_WORDS[rule], title: tip, disabled: c.busy ? "" : null,
     onclick: () => askCeiling(rule) });
+  // who is asked, on what copper, with the feed where the run had it
+  box.append(el("div", { class: "hint", text: "asked of the exact solver, on " + state.arrangement + ", probe feed "
+    + (ranOn().feed ? "on" : "off") + " the fabric" + (ranOn().name === state.arrangement ? ""
+      : " (the netlist is this run's, on " + ranOn().name + ")") }));
   box.append(el("div", { class: "ask" }, el("span", { class: "hint", text: "can it be routed with" }),
     button("firmware", "each bridge its own path of at most four crosspoints, as the firmware holds a path"),
     button("copper", "any way through the copper, of any length"),
@@ -917,7 +971,7 @@ function hover(node, text) {
 }
 
 function wireTip(name) {
-  const paint = state.current && state.current.paint;
+  const paint = shownPaint();
   const w = paint && paint.wires[name];
   const kind = state.info.fabric.wires[name] ? state.info.fabric.wires[name].kind : "";
   if (!w) return name + "  (" + kind + ")";
@@ -978,7 +1032,8 @@ function drawFabricBase() {
     const hit = svg("path", { class: "hit", d: w.d });
     hover(hit, () => wireTip(name));
     hit.addEventListener("click", () => {
-      const live = state.current && state.current.paint.wires[name];
+      const paint = shownPaint();
+      const live = paint && paint.wires[name];
       if (live && live.nets.length === 1) isolate(live.nets[0]);
     });
     wires.append(path);
@@ -1115,7 +1170,7 @@ function drawGhost() {
   fabric.ghost.replaceChildren();
   sheet.ghost.replaceChildren();
   if (sheet.live) sheet.live.append(sheet.ghost);
-  if (!paint) return;
+  if (!paint || ranOn().name !== state.arrangement) return;    // they are paths in the run's copper, not in this one's
   const wireAt = {};                                         // "A.X3" -> the name of the wire on that pin
   for (const [name, w] of Object.entries(paint.wires)) {
     for (const pin of w.pins) wireAt[pin.chip + "." + pin.axis + pin.pin] = name;

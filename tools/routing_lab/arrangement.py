@@ -98,6 +98,16 @@ def base(feed):
     return V5 if feed else _OFF
 
 
+def with_feed(a, feed):
+    """`a`'s copper, by `a`'s name, with the probe feed on the fabric or off
+    it: for asking of one arrangement the netlists another was given."""
+    if a.feed == feed:
+        return a
+    other = copy.copy(a)
+    other.feed = feed
+    return other
+
+
 def _pin_name(chip, axis, pin):
     return "%s.%s%d" % (chip, axis, pin)
 

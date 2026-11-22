@@ -42,25 +42,31 @@ def draw(rng, longest=80):
     return pairs
 
 
-def grow(binary, rng, name, seconds=20.0, longest=80, rule="firmware"):
+def grow(binary, rng, name, seconds=20.0, longest=80, rule="firmware", arrangement=None):
     """(case, {"bridges": k, "closed": the solver's routing of it, "next_is":
     why one more bridge is not proved}) for the longest prefix found proved
     routable, or None when not even one bridge is. next_is: "not_routable"
     (proved), "unknown" (not known in `seconds`), "dropped" (the firmware
     would not take the next prefix whole), "end" (all `longest` were proved).
 
+    On an arrangement the solver is asked on its copper, and every probe's
+    netlist is the firmware's with the probe feed as the arrangement has it
+    (the harness makes it on V5's copper: only the bridges it allows and
+    their nets are used). With none, V5 with its feed, as ever.
+
     A prefix of which the firmware rejected, left out or refused a bridge is
     never asked about, so an edge case holds only bridges the firmware took.
     Raises SolverFailed when an answer comes back with an error."""
     pairs = draw(rng, longest)
-    case_of = lambda k, notes="": cases.Case(name, "edge", [(a, b, -1) for a, b in pairs[:k]], notes=notes)
+    probe_line = {} if arrangement is None or arrangement.feed else {"probe": (0, 0)}
+    case_of = lambda k, notes="": cases.Case(name, "edge", [(a, b, -1) for a, b in pairs[:k]], notes=notes, **probe_line)
     routings = {}                                   # prefix length -> the routing that proved it; never asked for twice
 
     def probe(k):
         result = runner.run_case(binary, case_of(k))
         if result["rejected"] or result["left_out"] or result["refused"]:
             return "dropped"
-        said = ceiling.verdict(result, rule, seconds, fewest=False)
+        said = ceiling.verdict(result, rule, seconds, fewest=False, arrangement=arrangement)
         if said.get("error"):
             raise SolverFailed("asked about %d bridges: %s" % (k, said["error"]))
         if said["verdict"] == "routable":

@@ -288,9 +288,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def api_post_ceiling(self, query, body):
         """The exact solver's verdict on one case of a run (of "variant", on
-        the arrangement "run"), asked on that arrangement's copper, with its
-        routing as a paint the page can draw."""
-        result, a = self.kept(body.get("variant"), body.get("run", "v5"), body.get("case"))
+        the arrangement "run"), asked on the copper of "arrangement" (the
+        run's own when none is named). The answer carries the solver's routing
+        twice: "paint", the part the page lays over the router's, and
+        "solved", a whole paint on the arrangement's wires to draw by itself.
+        The netlist is the run's, so the two must agree on the probe feed."""
+        run = body.get("run", "v5")
+        result, a = self.kept(body.get("variant"), run, body.get("case"))
+        if body.get("arrangement", run) != run:
+            a = self.arrangement_of(body["arrangement"])
+            fed = bool(result.get("feed", True))
+            if fed != a.feed:
+                raise Refused(409, "this run has the probe feed %s the fabric and %s has it %s: run the classes on an "
+                              "arrangement with the same feed first" % ("on" if fed else "off", a.name, "on" if a.feed else "off"))
         if body.get("rule") not in ("firmware", "copper"):
             raise Refused(400, "the rule is firmware or copper")
         try:
@@ -303,7 +313,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             answer = ceiling.verdict(result, body["rule"], seconds, arrangement=a)
         except ceiling.SolverMissing as e:
             raise Refused(409, str(e), hint=ceiling.SETUP) from None
-        return dict(answer, paint=solver_paint(answer["closed"], a))
+        return dict(answer, paint=solver_paint(answer["closed"], a), solved=ceiling.solved(result, answer, a))
 
     def api_get_watch(self, query, body):
         return {"hash": self.resolve(query.get("spec", "worktree")).hash}

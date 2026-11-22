@@ -475,6 +475,47 @@ class Server(unittest.TestCase):
             self.c.get("/api/case?variant=%s&arrangement=no_kl&case=same_chip_pairs" % run["variant"]["hash"])
             self.assertIs(painted.call_args.args[1], without)                         # and so are the missed and spare paths
 
+    def test_ceiling_on_another_arrangement_than_the_run_answers_the_solvers_routing_as_a_picture(self):
+        run = self.c.post("/api/run", {"variant": "worktree", "classes": ["dense"], "arrangement": "v6_feed_off"}).json
+        fixed = {"verdict": "routable", "fewest_proved": True, "crosspoints": 2, "router_crosspoints": 12, "seconds": 0.3,
+                 "error": None, "closed": [["A", 7, 1, 6], ["A", 7, 2, 6]], "arrangement": "v6_rails_on_chips",
+                 "engine": "solver", "unplaced": []}
+        ask = {"variant": run["variant"]["hash"], "run": "v6_feed_off", "arrangement": "v6_rails_on_chips",
+               "case": "same_chip_pairs", "rule": "firmware"}
+        with mock.patch.object(server.ceiling, "solver_installed", return_value=True), \
+                mock.patch.object(server.ceiling, "verdict", return_value=fixed) as asked:
+            r = self.c.post("/api/ceiling", ask)
+            self.assertEqual(r.status, 200, r.body)
+            self.assertEqual(asked.call_args.kwargs["arrangement"].name, "v6_rails_on_chips")
+            solved = r.json["solved"]
+            self.assertEqual((r.json["arrangement"], solved["wires"]["TOP_RAIL"]["nets"], solved["status"]),
+                             ("v6_rails_on_chips", [6], "ok"))
+            self.assertIn("exact solver", solved["notes"][0])
+            self.assertEqual(len(solved["wires"]["TOP_RAIL"]["pins"]), 9)
+            self.assertEqual(r.json["paint"]["wires"]["TOP_RAIL"], {"nets": [6]})
+            asked.return_value = dict(fixed, verdict="unknown", closed=[], crosspoints=None)
+            self.assertIsNone(self.c.post("/api/ceiling", ask).json["solved"])
+            self.assertEqual(self.c.post("/api/ceiling", dict(ask, arrangement="nope")).status, 404)
+            # a netlist with the probe feed in it is never asked of an arrangement without one
+            self.c.post("/api/run", {"variant": "worktree", "classes": ["dense"]})
+            asked.reset_mock()
+            r = self.c.post("/api/ceiling", dict(ask, run="v5"))
+            self.assertEqual(r.status, 409)
+            self.assertIn("probe feed on the fabric", r.json["error"])
+            self.assertIn("v6_rails_on_chips has it off", r.json["error"])
+            asked.assert_not_called()
+            self.assertEqual(self.c.post("/api/ceiling", dict(ask, run="v5", arrangement="v5")).status, 200)
+            del ask["arrangement"]                                                   # none named: the run's own
+            self.c.post("/api/ceiling", ask)
+            self.assertEqual(asked.call_args.kwargs["arrangement"].name, "v6_feed_off")
+
+    def test_the_page_draws_the_solvers_routing_on_the_arrangement_picked(self):
+        js = self.c.get("/lab.js", token=None).body
+        for used in ("arrangement: state.arrangement", ".solved", "one of many; not the firmware's router",
+                     "Cannot be placed on", "function solvedShown"):
+            self.assertIn(used, js)
+        self.assertEqual(subprocess.run(["node", "--check", str(server.WEB_DIR / "lab.js")]).returncode, 0)
+
     def test_the_page_picks_an_arrangement(self):
         js = self.c.get("/lab.js", token=None).body
         for used in ("/api/fabric?arrangement=", "state.arrangement", "function pickArrangement", "the firmware's router",

@@ -13,6 +13,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+import arrangement
 import cases
 import ceiling
 import edge
@@ -78,6 +79,18 @@ class Edge(unittest.TestCase):
         self.assertEqual(len(case.bridges), 33)
         self.assertLessEqual(asked.call_count, 9)
         self.assertTrue(all(call.kwargs.get("fewest") is False for call in asked.call_args_list))    # only "is there one"
+
+    def test_on_an_arrangement_the_netlist_has_its_feed_and_the_solver_its_copper(self):
+        rails = arrangement.load("v6_rails_on_chips")
+        run, ask = pretend(lambda n: "routable" if n <= 7 else "unknown")
+        with run as ran, ask as asked:
+            case, info = edge.grow(None, random.Random(1), "edge_t", longest=20, arrangement=rails)
+            self.assertEqual({call.args[1].probe[0] for call in ran.call_args_list}, {0})          # no probe feed in any probe
+            self.assertTrue(all(call.kwargs["arrangement"] is rails for call in asked.call_args_list))
+            self.assertEqual((len(case.bridges), case.probe[0], info["bridges"]), (7, 0, 7))
+            edge.grow(None, random.Random(1), "edge_t", longest=20)                               # and without one, as before
+            self.assertEqual((ran.call_args.args[1].probe[0], asked.call_args.kwargs["arrangement"]), (1, None))
+        self.assertEqual([(a, b) for a, b, _ in case.bridges], edge.draw(random.Random(1), longest=20)[:7])     # the same list
 
     def test_the_case_is_a_prefix_of_the_list_the_seed_draws(self):
         case, _ = self.grown(lambda n: "routable" if n <= 7 else "unknown")

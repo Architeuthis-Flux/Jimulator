@@ -32,6 +32,7 @@ import cases
 import ceiling
 import generators
 import runner
+import score
 import variants
 
 LAB = Path(__file__).resolve().parent
@@ -445,9 +446,70 @@ def engines(a):
     return "router and solver" if arrangement.blocks(a) is not None else "solver only"
 
 
+NEXT_WORDS = {"not_routable": "not routable, proved", "unknown": "not known after %g s", "dropped": "the firmware drops a bridge",
+              "end": "none left in the list"}
+
+
+def cmd_score(args, a):
+    """Ask the exact solver the same netlists on `a` and on --against, and say
+    what only one of them fits and what each needs. Exit 1 when an answer does
+    not stand or there is no solver."""
+    case_list = _cases_of(args)
+    if case_list is None:
+        return 2
+    try:
+        b = arrangement.load(args.against)
+    except arrangement.Bad as e:
+        print("\n".join(e.problems))
+        return 1
+    if not ceiling.solver_installed():
+        print("scoring an arrangement needs the solver; install it once with: " + ceiling.SETUP)
+        return 1
+    v = variants.resolve(args.variant)
+    shape = "firmware-shaped paths" if args.rule == "firmware" else "any copper"
+    seconds, probe_seconds = args.seconds or 10.0, args.seconds or 20.0     # a list is grown as `lab.py edge` grows one
+    print("score: %s against %s   engine: the exact solver, %s, %g s a case   probe feed %s the fabric on both"
+          " (the netlists are the firmware's, as it makes them on V5's copper)"
+          % (a.name, b.name, shape, seconds, "on" if a.feed else "off"))
+    s = score.compare(v, case_list, a, b, rule=args.rule, seconds=seconds)
+    width = max(13, len(a.name), len(b.name))
+    line = "%-30s %-" + str(width) + "s %7s   %-" + str(width) + "s %7s"
+    print(line % ("case", a.name, "fewest", b.name, "fewest"))
+    fewest = lambda d: "" if d["verdict"] != "routable" else ("= %d" if d["fewest_proved"] else "<= %d") % d["crosspoints"]
+    for r in s["rows"]:
+        print(line % (r["case"][:30], r["a"]["verdict"].replace("_", " "), fewest(r["a"]),
+                      r["b"]["verdict"].replace("_", " "), fewest(r["b"])))
+    m = s["summary"]
+    print("fits only on %s: %s" % (a.name, ", ".join(m["only_a"]) or "none"))
+    print("fits only on %s: %s" % (b.name, ", ".join(m["only_b"]) or "none"))
+    print("fewest crosspoints over the %d cases proved on both: %d on %s, %d on %s" % (
+        m["proved_on_both"], m["fewest"]["a"], a.name, m["fewest"]["b"], b.name))
+    for word, said in (("unknown", "not known in %g s" % seconds), ("unplaced", "cannot be placed (a node is missing)")):
+        if m["a"][word] or m["b"][word]:
+            print("%s: %d on %s, %d on %s" % (said, m["a"][word], a.name, m["b"][word], b.name))
+    for r in s["rows"]:
+        for side in "ab":
+            if r[side].get("error"):
+                print("  not answered  %s on %s: %s" % (r["case"], s[side], r[side]["error"]))
+    if args.grow:
+        import edge
+        why = lambda d: NEXT_WORDS[d["next_is"]] % probe_seconds if d["next_is"] == "unknown" else NEXT_WORDS[d["next_is"]]
+        how_far = lambda name, d: "not one on %s" % name if not d["bridges"] else "%d bridges proved on %s (one more: %s)" % (
+            d["bridges"], name, why(d))
+        try:
+            for entry in score.lengths(v, a, b, lists=args.grow, seconds=probe_seconds):
+                print("random list %d: %s, %s" % (entry["list"], how_far(a.name, entry["a"]), how_far(b.name, entry["b"])),
+                      flush=True)
+        except edge.SolverFailed as e:
+            print("the solver failed while growing a list: %s" % e)
+            return 1
+    return 1 if m["errors"] else 0
+
+
 def cmd_arrangement(args):
     """list: every arrangement. show NAME: its copper, pin by pin, against V5.
-    check NAME: what is wrong with its file, if anything."""
+    check NAME: what is wrong with its file, if anything. score NAME: the
+    exact solver on it and on another, over the same netlists."""
     if args.what == "list":
         for name in arrangement.names():
             try:
@@ -466,6 +528,8 @@ def cmd_arrangement(args):
     if args.what == "check":
         print("%s: good" % a.name)
         return 0
+    if args.what == "score":
+        return cmd_score(args, a)
     print("%s: %s" % (a.name, a.about))
     print("probe feed %s the fabric. A pin that is not on V5's wire is starred; a pin taken away is a dash."
           % ("on" if a.feed else "off"))
@@ -561,9 +625,21 @@ def main(argv):
     edg.add_argument("--seconds", type=float, default=20.0, help="the solver's limit for one probe (20)")
     edg.add_argument("--longest", type=int, default=80, help="bridges in the list a case is a prefix of (80)")
     edg.set_defaults(fn=cmd_edge)
-    arr = sub.add_parser("arrangement", help="the crossbar arrangements under arrangements/: list, show, check")
-    arr.add_argument("what", choices=("list", "show", "check"))
+    arr = sub.add_parser("arrangement", help="the crossbar arrangements under arrangements/: list, show, check, and score "
+                                             "(the exact solver on one and on another, over the same netlists)")
+    arr.add_argument("what", choices=("list", "show", "check", "score"))
     arr.add_argument("name", nargs="?", help="an arrangement's name, or the path of its .json")
+    arr.add_argument("--against", default="v5", help="score: the other arrangement (v5)")
+    arr.add_argument("--variant", default="worktree", help="score: the firmware whose netlists are asked (worktree)")
+    arr.add_argument("--classes", default="dense,real,stress", help="score: comma list of: " + ", ".join(CLASSES))
+    arr.add_argument("--case", help="score: only this case")
+    arr.add_argument("--rule", default="firmware", choices=("firmware", "copper"),
+                     help="score: firmware: each bridge its own path of at most four crosspoints; copper: any copper")
+    arr.add_argument("--seconds", type=float, help="score: the solver's limit for one question (10 for a case, 20 for a "
+                                                   "probe of --grow)")
+    arr.add_argument("--grow", type=int, default=0, metavar="N",
+                     help="score: also grow N of the edge class's random lists on both (about a minute and a half a list "
+                          "an arrangement)")
     arr.set_defaults(fn=cmd_arrangement)
     args = ap.parse_args(argv)
     try:

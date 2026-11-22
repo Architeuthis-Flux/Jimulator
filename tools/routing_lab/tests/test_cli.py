@@ -238,6 +238,52 @@ class Cli(unittest.TestCase):
         self.assertEqual((code, line[-2:]), (0, ["=", "10"]), out)
         self.assertNotEqual(line[1], "-")                       # here the router ran on the arrangement itself
 
+    @unittest.skipUnless(ceiling.solver_installed(), "the solver is not installed: python3 tools/routing_lab/lab.py solver-setup")
+    def test_arrangement_score_asks_the_solver_on_both(self):
+        code, out = run(["arrangement", "score", "v6_rails_on_chips", "--case", "rail_stacking_light"])
+        self.assertEqual(code, 0, out)
+        first = out.splitlines()[0]
+        for words in ("v6_rails_on_chips", "v5", "the exact solver", "firmware-shaped paths", "probe feed off"):
+            self.assertIn(words, first)
+        line = [l for l in out.splitlines() if l.startswith("rail_stacking_light")][0]
+        self.assertRegex(line, r"routable\s+= 6\s+routable\s+= 10")
+        self.assertIn("fewest crosspoints over the 1 cases proved on both: 6 on v6_rails_on_chips, 10 on v5", out)
+        self.assertIn("fits only on v6_rails_on_chips: none", out)
+        self.assertEqual(run(["arrangement", "score", "v6_rails_on_chips", "--case", "no_such_case"])[0], 2)
+        self.assertEqual(run(["arrangement", "score", "v6_rails_on_chips", "--against", "no_such"])[0], 1)
+
+    def test_arrangement_score_prints_the_lengths_and_exits_1_on_an_error(self):
+        table = {"a": {"verdict": "routable", "crosspoints": 6, "fewest_proved": True, "error": None},
+                 "b": {"verdict": "unknown", "crosspoints": None, "fewest_proved": False, "error": "the solver died"}}
+        summary = {"cases": 1, "a": {"routable": 1, "not_routable": 0, "unknown": 0, "unplaced": 0},
+                   "b": {"routable": 0, "not_routable": 0, "unknown": 1, "unplaced": 0}, "only_a": [], "only_b": [],
+                   "proved_on_both": 0, "fewest": {"a": 0, "b": 0}, "errors": ["c"]}
+        said = {"a": "v6_feed_off", "b": "v5", "feed": False, "rule": "firmware", "seconds": 3.0, "engine": "solver",
+                "rows": [dict(table, case="c", cls="x")], "summary": summary}
+        grown = [{"list": 0, "a": {"bridges": 67, "next_is": "unknown"}, "b": {"bridges": 0, "next_is": None}}]
+        with mock.patch.object(ceiling, "solver_installed", return_value=True), \
+                mock.patch.object(lab.score, "compare", return_value=said) as compared, \
+                mock.patch.object(lab.score, "lengths", return_value=grown) as lengths:
+            code, out = run(["arrangement", "score", "v6_feed_off", "--seconds", "3", "--rule", "copper", "--grow", "1"])
+        self.assertEqual(code, 1, out)                                  # an answer that does not stand
+        self.assertIn("not answered  c", out)
+        self.assertIn("random list 0: 67 bridges proved on v6_feed_off (one more: not known after 3 s), "
+                      "not one on v5", out)
+        self.assertEqual((compared.call_args.args[2].name, compared.call_args.args[3].name), ("v6_feed_off", "v5"))
+        self.assertEqual((compared.call_args.kwargs["rule"], compared.call_args.kwargs["seconds"]), ("copper", 3.0))
+        self.assertEqual((lengths.call_args.kwargs["lists"], lengths.call_args.kwargs["seconds"]), (1, 3.0))
+        with mock.patch.object(ceiling, "solver_installed", return_value=True), \
+                mock.patch.object(lab.score, "compare", return_value=dict(said, seconds=10.0)) as compared, \
+                mock.patch.object(lab.score, "lengths", return_value=grown) as lengths:
+            code, out = run(["arrangement", "score", "v6_feed_off", "--grow", "1"])
+        # with no limit named: 10 s a case, and 20 s a probe for the lists, as `lab.py edge` grows them
+        self.assertEqual((compared.call_args.kwargs["seconds"], lengths.call_args.kwargs["seconds"]), (10.0, 20.0))
+        self.assertIn("(one more: not known after 20 s)", out)
+        with mock.patch.object(ceiling, "SOLVER_PYTHON", lab.Path("/nonexistent/python")):
+            code, out = run(["arrangement", "score", "v6_feed_off"])
+        self.assertEqual(code, 1, out)
+        self.assertIn("python3 tools/routing_lab/lab.py solver-setup", out)
+
     def test_build_prints_the_binary(self):
         code, out = run(["build"])
         self.assertEqual(code, 0)
