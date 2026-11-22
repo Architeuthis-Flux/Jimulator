@@ -46,12 +46,16 @@ PROBLEM = ceiling.problem(unrouted(TINY, [(1, 3, 6), (2, 4, 7)]), ceiling.graph(
 
 
 @contextlib.contextmanager
-def fake_solver(script):
-    """ceiling.SOLVER_PYTHON as an executable that runs `script` whatever its arguments."""
+def fake_solver(script, with_ortools=True):
+    """ceiling.SOLVER_PYTHON as an executable that runs `script` whatever its arguments, in something
+    laid out as the solver's environment is: bin/python, and (unless told not to) a package named ortools."""
     with tempfile.TemporaryDirectory() as tmp:
-        path = Path(tmp) / "python"
+        path = Path(tmp) / "bin" / "python"
+        path.parent.mkdir()
         path.write_text("#!%s\n%s\n" % (sys.executable, script))
         path.chmod(0o755)
+        if with_ortools:
+            (Path(tmp) / "lib" / "python3.13" / "site-packages" / "ortools").mkdir(parents=True)
         with mock.patch.object(ceiling, "SOLVER_PYTHON", path):
             yield
 
@@ -94,6 +98,23 @@ class Asking(unittest.TestCase):                                     # Review Fo
                 ceiling.ask(PROBLEM, "copper")
         self.assertTrue(str(cm.exception).endswith("python3 tools/routing_lab/lab.py solver-setup"))
         self.assertIsInstance(cm.exception, ValueError)
+
+    def test_an_environment_without_the_solver_in_it_is_not_installed(self):
+        # what a solver-setup that could not reach the network leaves behind: a python, and nothing to import
+        with fake_solver("import sys; sys.exit(1)", with_ortools=False):
+            self.assertFalse(ceiling.solver_installed())
+            with self.assertRaises(ceiling.SolverMissing):
+                ceiling.ask(PROBLEM, "copper")
+        with fake_solver("import sys; sys.exit(1)"):
+            self.assertTrue(ceiling.solver_installed())
+
+    def test_a_routing_that_is_not_a_routing_is_unknown(self):       # rubbish that parses is still rubbish
+        for closed in ([[1]], [["A", 0]], "everything", [["A", 0, 0, 6], None], [["A", "0", 0, 6]], None):
+            script = "import json; print(json.dumps({'verdict': 'routable', 'fewest_proved': True, 'closed': %r}))" % (closed,)
+            with fake_solver(script):
+                a = ceiling.ask(PROBLEM, "copper")
+            self.assertEqual((a["verdict"], a["closed"]), ("unknown", []), closed)
+            self.assertIn("cannot be read", a["error"], closed)
 
     def test_a_solver_that_dies_or_prints_rubbish_is_unknown(self):
         for script in ("import sys; sys.exit(3)", "print('not json')", "print('{\"verdict\": \"maybe\"}')",
@@ -231,6 +252,28 @@ class Standing(unittest.TestCase):
             self.assertIn("the model is wrong", v["error"])
             over = ceiling.verdict(runner.run_case(NEW, dense("k_rows_overflow_metric")), use_cache=False)
         self.assertEqual((over["verdict"], over["error"]), ("not_routable", None))          # the router did not route it all
+
+    def test_not_routable_is_the_models_fault_whenever_the_routers_own_routing_holds(self):
+        # routed in full, but judged "problems" for something that is not the copper (62 battery cases are)
+        flagged = dict(ROUTED_RESULT, status="problems", problems=["the same case routed twice gives different routes"])
+        with mock.patch.object(ceiling, "ask", return_value={"verdict": "not_routable", "fewest_proved": False, "closed": [], "seconds": 0.1}):
+            v = ceiling.verdict(flagged, use_cache=False)
+        self.assertEqual(v["verdict"], "unknown")
+        self.assertIn("the model is wrong", v["error"])
+
+    def test_an_answer_the_lab_does_not_stand_behind_is_not_kept(self):
+        asked = []
+
+        def joins_nothing(problem, rule, seconds, fewest):
+            asked.append(rule)
+            return {"verdict": "routable", "fewest_proved": True, "closed": [], "seconds": 0.1}
+
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(variants, "BUILD_DIR", Path(tmp)), \
+                mock.patch.object(ceiling, "ask", side_effect=joins_nothing):
+            for _ in range(2):
+                self.assertIn("lab's own check", ceiling.verdict(ROUTED_RESULT)["error"])
+            self.assertEqual(len(asked), 2)                          # asked again: the first answer was not kept
+            self.assertEqual(list(Path(tmp).rglob("*.json")), [])
 
     def test_a_crashed_result_has_nothing_to_ask(self):
         with mock.patch.object(ceiling, "ask", side_effect=AssertionError("asked about nothing")):

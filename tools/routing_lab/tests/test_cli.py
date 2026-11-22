@@ -11,7 +11,7 @@ import ceiling
 import lab
 import variants
 
-LAB =os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+LAB = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HIL = os.path.join(os.path.dirname(os.path.dirname(LAB)), "test", "hil")
 
 

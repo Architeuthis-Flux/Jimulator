@@ -184,11 +184,12 @@ is never searched for and never counts as a miss.
 **miss: the path a failed bridge had.** For each bridge the router failed,
 the cheapest path through copper that is free or already carries its net,
 with everything else where the router put it: fewest new crosspoints, then
-fewest in all. Each failed bridge is taken alone, so two of them may be shown
-the same free copper, and then only one could have had it. A miss is a
-statement about copper, not about the firmware's path shape: the path may be
-longer than the four crosspoints one firmware path holds, or ride copper the
-net already has.
+fewest in all. Each failed bridge is taken alone and shown its cheapest path,
+so two paths may use the same free copper. That does not by itself mean only
+one of those bridges could be made: there may be other paths (finding 10
+below is such a case). A miss is a statement about copper, not about the
+firmware's path shape: the path may be longer than the four crosspoints one
+firmware path holds, or ride copper the net already has.
 
 **spare: copies the free copper still allows.** For each routed bridge, up
 to eight more paths of at most four new crosspoints each, through wires that
@@ -211,7 +212,8 @@ python3 tools/routing_lab/lab.py ceiling --case nano_dense_metric --rule copper 
 
 `solver-setup` installs OR-tools 9.15 into `build/solver-venv`. Without it
 everything else works, the solver's tests skip, and the page says how to get
-it.
+it. An environment a failed setup left behind, with no OR-tools in it,
+counts as not installed.
 
 The netlist asked about is the case's as the firmware built it: the bridges
 it allowed, its nets, and its probe feed where the firmware put it. Two
@@ -219,8 +221,9 @@ rules:
 
 - **firmware-shaped paths**: every bridge is its own path of at most four
   crosspoints, as `pathStruct` holds one; paths of one net may share copper.
-- **any copper**: a net is joined by any tree through the copper, of any
-  length.
+- **any copper**: the nodes a net's bridges tie together are joined by any
+  tree through the copper, of any length. (Where the firmware dropped the
+  bridge between two parts of one net, the parts need not be joined.)
 
 A verdict is one of:
 
@@ -233,8 +236,9 @@ A verdict is one of:
   of many with that count.
 - **not routable**, proved. This rests on the solver and on the model, which
   the tests exercise on fabrics small enough to check on paper. If the
-  solver says it of a case the router routed in full, the lab reports that
-  the model is wrong instead of the verdict.
+  solver says it of a case whose copper, as the router left it, is a routing
+  the lab's own check accepts, the lab reports that the model is wrong
+  instead of the verdict.
 - **unknown** after the time limit (20 s by default). An answer near the
   limit is not the same from run to run; nothing committed rests on one.
 
@@ -252,8 +256,15 @@ which the firmware itself drops a bridge is never asked about. Each case is
 saved with the routing that proves it (`cases/edge/proof/`), and a test
 checks every one of those routings against the harness's netlist with no
 solver, so "provably routable" does not depend on the solver being installed
-or on its luck with the clock. Bisection only decides where to look: the edge
-may sit a bridge short of the true one. `lab.py run --classes edge` is the
+or on its luck with the clock. If the solver fails while a case is grown,
+the command stops with exit 1 and writes nothing for that case.
+
+How near the true edge a case sits depends on why it stopped. Where the next
+bridge is proved not to fit, it is at the edge of its list, save that
+bisection assumes a longer prefix never fits where a shorter one does not.
+Where the next bridge is only "not known" after the time limit, the true
+edge may be several bridges further on: the case is the longest the solver
+could prove, not the longest that fits. `lab.py run --classes edge` is the
 headline score: how many of these the router routes in full.
 
 The headline on 2026-11-21, router at 5374d38: **1 of 12**. The twelve cases
@@ -371,9 +382,10 @@ From the ceilings (2026-11-21; see "Ceilings" for what each number is worth):
 10. **The September router, for comparison** (`--variant "a1accf5^"`,
     before the hub rescue tier): five misses in the dense class. Two are the
     `nano_dense_metric` bridges that tier was written for (`A4`-`19`,
-    `A5`-`20`, four crosspoints each). Three are in `h2_through_sf_chips`,
-    and those three paths want the same hub copper, so one of them could
-    have been made, not all three.
+    `A5`-`20`, four crosspoints each). Three are in `h2_through_sf_chips`
+    (`16`-`46`, `17`-`47`, `18`-`48`). The cheapest path of each crosses
+    chip I by the same pin, but all three could have been made at once, four
+    crosspoints each, one through each of the chips I, J and K.
 
 ## How it is built
 

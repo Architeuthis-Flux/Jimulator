@@ -365,7 +365,11 @@ def cmd_edge(args):
         if (dest / (name + ".json")).exists():
             print("%s: already there" % name, flush=True)
             continue
-        grown = edge.grow(binary, random.Random(args.seed * 100003 + i), name, args.seconds, args.longest)
+        try:
+            grown = edge.grow(binary, random.Random(args.seed * 100003 + i), name, args.seconds, args.longest)
+        except edge.SolverFailed as e:          # no verdict at all: stop, do not write it down as "not known"
+            print("%s: the solver failed, nothing written for it (%s)" % (name, e), flush=True)
+            return 1
         if grown is None:
             print("%s: not one bridge of its list is proved routable; nothing written" % name, flush=True)
             continue

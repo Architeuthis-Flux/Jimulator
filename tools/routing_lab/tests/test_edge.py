@@ -111,6 +111,25 @@ class Edge(unittest.TestCase):
             self.assertEqual(code, 0, out)
             self.assertEqual(len(list((Path(tmp) / "edge").glob("*.json"))), 2)
 
+    def test_a_solver_that_fails_is_not_a_netlist_that_is_not_known(self):        # Review Focus 1 and 2
+        harness, _ = pretend(lambda n: "routable")
+        failing = lambda r, *a, **kw: ({"verdict": "routable", "closed": [["A", 0, 0, 6]], "error": None} if r["n"] <= 5 else
+                                       {"verdict": "unknown", "closed": [], "error": "the solver exited with 3: boom"})
+        with harness, mock.patch.object(ceiling, "verdict", side_effect=failing):
+            with self.assertRaises(edge.SolverFailed) as cm:
+                edge.grow(None, random.Random(1), "edge_t", longest=20)
+        self.assertIn("the solver exited with 3: boom", str(cm.exception))
+
+    def test_the_command_stops_with_exit_1_when_the_solver_fails(self):
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(lab, "CASES_DIR", Path(tmp)), \
+                mock.patch.object(ceiling, "solver_installed", return_value=True), \
+                mock.patch.object(edge, "grow", side_effect=edge.SolverFailed("the solver exited with 3: boom")) as grown:
+            code, out = run(["edge", "--seed", "5", "--count", "2"])
+            self.assertEqual(code, 1, out)
+            self.assertIn("the solver exited with 3: boom", out)
+            self.assertEqual(grown.call_count, 1)                                   # it does not go on to the next case
+            self.assertEqual(list((Path(tmp) / "edge").glob("*.json")), [])
+
     def test_the_command_without_the_solver_says_how_to_get_it(self):
         with mock.patch.object(ceiling, "SOLVER_PYTHON", Path("/nonexistent/python")):
             code, out = run(["edge", "--seed", "5", "--count", "1"])

@@ -182,7 +182,10 @@ def painted(result):
 # ---------------------------------------------------------------- the exact search
 
 def solver_installed():
-    return SOLVER_PYTHON.exists()
+    """True when the solver's environment is there with OR-tools in it. A
+    setup that could not reach the network leaves a python and nothing to
+    import; that is not installed."""
+    return SOLVER_PYTHON.exists() and any((SOLVER_PYTHON.parent.parent / "lib").glob("python*/site-packages/ortools"))
 
 
 def problem(paint, g=None):
@@ -241,6 +244,10 @@ def ask(problem, rule, seconds=20.0, fewest=True):
         answer = json.loads(p.stdout)
         if answer["verdict"] not in ("routable", "not_routable", "unknown"):
             raise ValueError(answer["verdict"])
+        # a routing is a list of [chip, x, y, net]; anything else is not an answer
+        if not all(isinstance(c, list) and len(c) == 4 and isinstance(c[0], str) and isinstance(c[1], int)
+                   and isinstance(c[2], int) for c in answer.setdefault("closed", [])):
+            raise ValueError("closed")
     except (ValueError, KeyError, TypeError):
         return unknown("the solver's answer cannot be read: %r" % p.stdout[:200])
     return answer
@@ -303,11 +310,12 @@ def verdict(result, rule="firmware", seconds=20.0, use_cache=True, fewest=True):
     "router_crosspoints", "closed", "seconds", "error"}.
 
     "nothing": no bridge to route. A routable answer is checked with `faults`
-    and one that fails is "unknown" with the reason; so is a "not routable"
-    for a case the router routed in full, which can only mean the model is
-    wrong. router_crosspoints counts the crosspoints of the router's primary
-    paths. Answers are kept under build/ceiling, but never one with an error.
-    Raises SolverMissing when the solver has to be asked and is not there."""
+    and one that fails is "unknown" with the reason. So is a "not routable"
+    when the router's own copper is a routing `faults` accepts: a routing
+    exists, so the model is wrong. router_crosspoints counts the crosspoints
+    of the router's primary paths. Answers are kept under build/ceiling, but
+    never one that ends with an error. Raises SolverMissing when the solver
+    has to be asked and is not there."""
     paint = copper.paint(result)
     out = {"verdict": "nothing", "fewest_proved": False, "crosspoints": None, "closed": [], "seconds": 0.0, "error": None,
            "router_crosspoints": sum(1 for c in paint["crosspoints"] if not c["dup"])}
@@ -315,15 +323,8 @@ def verdict(result, rule="firmware", seconds=20.0, use_cache=True, fewest=True):
     if given is None:
         return out
     path = _cache_path(given, rule, seconds, fewest)
-    if use_cache and path.exists():
-        answer = json.loads(path.read_text())
-    else:
-        answer = ask(given, rule, seconds, fewest)
-        if use_cache and not answer.get("error"):
-            path.parent.mkdir(parents=True, exist_ok=True)
-            tmp = path.with_name(path.name + ".tmp%d" % os.getpid())
-            tmp.write_text(json.dumps(answer))
-            os.replace(tmp, path)
+    kept = use_cache and path.exists()
+    answer = json.loads(path.read_text()) if kept else ask(given, rule, seconds, fewest)
     out.update(verdict=answer["verdict"], fewest_proved=bool(answer.get("fewest_proved")),
                closed=answer.get("closed") or [], seconds=answer.get("seconds", 0.0), error=answer.get("error"))
     if out["verdict"] == "routable":
@@ -333,7 +334,12 @@ def verdict(result, rule="firmware", seconds=20.0, use_cache=True, fewest=True):
                        error="the solver's answer fails the lab's own check: " + wrong[0])
         else:
             out["crosspoints"] = len(out["closed"])
-    elif out["verdict"] == "not_routable" and result.get("status") == "ok" \
-            and all(b["state"] == "routed" for b in paint["bridges"] if b["state"] in ASKED):
+    elif out["verdict"] == "not_routable" \
+            and not faults(given, [[c["chip"], c["x"], c["y"], c["net"]] for c in paint["crosspoints"]], rule):
         out.update(verdict="unknown", error="the solver says this cannot be routed, yet the router routed it: the model is wrong")
+    if use_cache and not kept and not out["error"]:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(path.name + ".tmp%d" % os.getpid())
+        tmp.write_text(json.dumps(answer))
+        os.replace(tmp, path)
     return out

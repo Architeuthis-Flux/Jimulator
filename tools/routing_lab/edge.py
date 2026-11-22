@@ -23,6 +23,11 @@ ROW_BIAS = 60                                       # percent of ends that are b
 RULE_WORDS = {"firmware": "firmware-shaped paths", "copper": "any copper"}
 
 
+class SolverFailed(Exception):
+    """The solver died, or the lab does not stand behind what it said. That is
+    no verdict on any netlist, and must not be written down as "not known"."""
+
+
 def draw(rng, longest=80):
     """`longest` random bridges, ends drawn as generators.fuzz draws them. No
     pair twice (in either order; the firmware would merge it), and the list
@@ -45,7 +50,8 @@ def grow(binary, rng, name, seconds=20.0, longest=80, rule="firmware"):
     would not take the next prefix whole), "end" (all `longest` were proved).
 
     A prefix of which the firmware rejected, left out or refused a bridge is
-    never asked about, so an edge case holds only bridges the firmware took."""
+    never asked about, so an edge case holds only bridges the firmware took.
+    Raises SolverFailed when an answer comes back with an error."""
     pairs = draw(rng, longest)
     case_of = lambda k, notes="": cases.Case(name, "edge", [(a, b, -1) for a, b in pairs[:k]], notes=notes)
     routings = {}                                   # prefix length -> the routing that proved it; never asked for twice
@@ -55,6 +61,8 @@ def grow(binary, rng, name, seconds=20.0, longest=80, rule="firmware"):
         if result["rejected"] or result["left_out"] or result["refused"]:
             return "dropped"
         said = ceiling.verdict(result, rule, seconds, fewest=False)
+        if said.get("error"):
+            raise SolverFailed("asked about %d bridges: %s" % (k, said["error"]))
         if said["verdict"] == "routable":
             routings[k] = said["closed"]
             return "routable"
