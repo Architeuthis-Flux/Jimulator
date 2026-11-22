@@ -27,7 +27,8 @@ button:hover { border-color: var(--dim); }
 #classes label { display: inline-flex; grid-template-columns: none; gap: 4px; margin: 0; }
 .row { display: flex; align-items: center; margin: 6px 0; }
 #run { background: #2b3350; padding: 4px 16px; }
-#verified, #exported { color: var(--dim); margin: 6px 0 0; }
+#verified, #exported, #drop-hint { color: var(--dim); margin: 6px 0 0; }
+#drop-hint b { color: var(--ink); font-weight: 600; }
 #build-error { border: 1px solid var(--problem); border-radius: 4px; padding: 6px 8px; margin: 8px 0; color: var(--problem); }
 #build-error pre { color: var(--ink); max-height: 220px; overflow: auto; white-space: pre-wrap; margin: 6px 0 0; }
 #regressions { border: 1px solid var(--worse); border-radius: 4px; padding: 6px 8px; margin: 8px 0; }

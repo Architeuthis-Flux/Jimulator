@@ -323,6 +323,49 @@ class Server(unittest.TestCase):
         self.assertEqual(subprocess.run(["node", "--check", str(server.WEB_DIR / "lab.js")]).returncode, 0)
         self.assertNotRegex(js, r"https?://(?!www\.w3\.org/)")
 
+    def test_board_output_is_judged_kept_and_served_like_a_run(self):
+        captures = server.lab.FIDELITY_DIR / "board_0621e4f44e23"
+        text = (captures / "k_rows_overflow_metric.b.txt").read_text(errors="replace")
+        r = self.c.post("/api/board", {"name": "my bench.txt", "text": text})
+        self.assertEqual(r.status, 200, r.body)
+        run = r.json
+        self.assertEqual((run["variant"], run["baseline"], run["board"], run["shown"]),
+                         ({"name": "board output", "hash": "board"}, None, True, "my_bench"))
+        row = [x for x in run["rows"] if x["case"] == "my_bench"][0]
+        self.assertEqual((row["cls"], row["metrics"]["routed_primaries"], row["metrics"]["primaries"]), ("board", 12, 13))
+        self.assertNotIn("b", row)
+        case = self.c.get("/api/case?variant=board&case=my_bench").json       # drawn as any case is
+        self.assertTrue(case["paint"]["crosspoints"])
+        self.assertIn("Bridge Array", case["result"]["b"])
+        self.assertTrue(any("crossbar" in n for n in case["result"]["notes"]))
+        # a second upload joins the first; the same name again replaces it
+        more = (captures / "same_chip_pairs.b.txt").read_text(errors="replace")
+        run = self.c.post("/api/board", {"name": "second", "text": more}).json
+        self.assertEqual(sorted(x["case"] for x in run["rows"]), ["my_bench", "second"])
+        run = self.c.post("/api/board", {"name": "my bench.txt", "text": more}).json
+        self.assertEqual(len(run["rows"]), 2)
+        self.assertEqual([x["metrics"]["primaries"] for x in run["rows"] if x["case"] == "my_bench"], [7])
+        with mock.patch.object(server.ceiling, "solver_installed", return_value=True), \
+                mock.patch.object(server.ceiling, "verdict", return_value={"verdict": "unknown", "closed": [], "error": None}):
+            self.assertEqual(self.c.post("/api/ceiling", {"variant": "board", "case": "second", "rule": "firmware"}).status, 200)
+
+    def test_board_output_that_cannot_be_read_is_a_400_with_the_reason(self):
+        for body in ({"name": "x", "text": "hello"}, {"name": "x"}, {"text": 5}, {"name": ["x"], "text": "hello"}):
+            r = self.c.post("/api/board", body)
+            self.assertEqual(r.status, 400, body)
+            self.assertIn("b report", r.json["error"])
+        self.assertEqual(self.c.get("/api/info").status, 200)
+
+    def test_the_page_takes_board_output_and_zooms_by_how_far_it_is_scrolled(self):
+        js = self.c.get("/lab.js", token=None).body
+        for used in ("/api/board", "function looksLikeBoard", '"paste"', "state.run.board", "event.deltaMode", "event.ctrlKey",
+                     "is not answering"):
+            self.assertIn(used, js)
+        self.assertNotIn("0.85", js)                                    # the fixed step a trackpad fired sixty times a second
+        self.assertIn('id="drop-hint"', self.c.get("/", token=None).body)
+        self.assertEqual(subprocess.run(["node", "--check", str(server.WEB_DIR / "lab.js")]).returncode, 0)
+        self.assertNotRegex(js, r"https?://(?!www\.w3\.org/)")
+
     def test_watch_reports_the_tree_hash(self):
         self.assertEqual(self.c.get("/api/watch?spec=worktree").json["hash"], variants.resolve("worktree").hash)
 

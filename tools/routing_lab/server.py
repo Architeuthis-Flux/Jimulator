@@ -22,6 +22,7 @@ import subprocess
 import urllib.parse
 from pathlib import Path
 
+import board
 import ceiling
 import copper
 import fabric_view
@@ -34,6 +35,7 @@ WEB_DIR = LAB / "web"
 SHEET_DIR = variants.BUILD_DIR / "sheet"
 MAX_UPLOAD = 5_000_000
 MAX_RUNS = 6            # variants whose results are held for /api/case; a full battery is about 9 MB each
+BOARD = "board"         # what uploaded board output is held under, where a run has its variant's hash
 TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
          ".css": "text/css; charset=utf-8", ".svg": "image/svg+xml", ".json": "application/json"}
 
@@ -195,13 +197,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     continue
                 e.variant = v
                 raise
-            # Kept by case, so a table from an earlier run of other classes still opens; newest variant last.
-            kept = self.server.runs.pop(v.hash, {})
-            kept.update((r["case"], r) for r in results)
-            self.server.runs[v.hash] = kept
-            while len(self.server.runs) > MAX_RUNS:
-                del self.server.runs[next(iter(self.server.runs))]
+            self.keep(v.hash, results)
             return v, results
+
+    def keep(self, key, results):
+        """Hold results for /api/case under a variant's hash (or BOARD). Kept by
+        case, so a table from an earlier run of other classes still opens; the
+        newest key is last and the oldest goes when there are too many."""
+        kept = self.server.runs.pop(key, {})
+        kept.update((r["case"], r) for r in results)
+        self.server.runs[key] = kept
+        while len(self.server.runs) > MAX_RUNS:
+            del self.server.runs[next(iter(self.server.runs))]
+        return kept
 
     # --- API -----------------------------------------------------------------------
     def api_get_info(self, query, body):
@@ -232,6 +240,20 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if result is None:
             raise Refused(404, "no such run or case; run the battery first")
         return {"result": result, "paint": ceiling.painted(result)}
+
+    def api_post_board(self, query, body):
+        """What a board printed for `b` (see board.py), judged and kept as a
+        case of the run named BOARD, so the page shows it as it shows any run."""
+        name, text = body.get("name", ""), body.get("text")
+        if not isinstance(name, str) or not isinstance(text, str):
+            raise Refused(400, "send {name, text}, the text being what a board prints for its b report")
+        try:
+            result = board.result(name, text)
+        except ValueError as e:
+            raise Refused(400, str(e)) from None
+        kept = self.keep(BOARD, [result])
+        return {"variant": {"name": "board output", "hash": BOARD}, "baseline": None, "regressions": [],
+                "rows": [row(r) for r in kept.values()], "board": True, "shown": result["case"]}
 
     def api_post_ceiling(self, query, body):
         """The exact solver's verdict on one case of a run, with its routing as a paint the page can draw."""

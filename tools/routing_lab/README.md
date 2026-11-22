@@ -52,8 +52,15 @@ click a case.
   routed while its copper does not connect), grey when the firmware refused
   or dropped it by rule. Net colours repeat after sixteen nets.
 - Click a net, a lit wire or a crosspoint to light that net alone; it holds
-  across the tabs. Wheel zooms, drag pans, double-click fits. Hover a wire
-  for its pins and claims.
+  across the tabs. The wheel (or a pinch) zooms about the pointer, by as
+  much as you scroll, so a trackpad and a wheel feel the same; drag pans;
+  double-click fits. Hover a wire for its pins and claims.
+- **A board's own output.** Drop a file holding what a Jumperless prints for
+  `b`, or copy it out of a terminal and paste it anywhere on the page. It is
+  judged by the same checker and shown as a run of its own, class `board`,
+  on both tabs, with the case panel, the missed paths and the Ceiling
+  section as for any case. Press Run to go back to the battery. Details
+  under "A board's own output" below.
 - **ohm** is the worst signal bridge's resistance and **rail** the worst
   bridge to GND or a rail, counted in crosspoints and multiplied by the
   "ohms per crosspoint" box (60 by default; duplicates in parallel lower
@@ -87,6 +94,39 @@ the KiCad backdrop, and it cannot ask the solver). `clean` deletes the caches
 under `build/` (results, variant trees, binaries, solver answers), which grow
 with every variant tried; the built sheet and the solver's environment are
 kept.
+
+## A board's own output
+
+The page shows what a board really routed from the text of its `b` report
+(terminal port: the bridge array, the path table, the chip status). V5 only.
+
+- **Getting it in.** Drop a file, or select the report in a terminal, copy,
+  and paste on the page. Several files can be dropped at once; each becomes
+  a case named after its file, and they stay in the table until the server
+  stops. The last whole report in a text is the one used.
+- **What is tolerated.** A raw serial log with the firmware's colour codes;
+  a copy out of a terminal, where every tab has become spaces; whatever a
+  log holds before and after the report. A path table or bridge array that
+  was wrapped at the window's edge or cut short is refused with a message
+  that quotes the line: read as it stands, a cut row is a shorter path, and
+  the board would be shown with a fault it does not have. Widen the window
+  or save a log, and try again.
+- **The crossbar dump.** The chips' own view is `:crossbar` on port 7
+  (`xbar{12x8:...}`). With it in the same text, or in a second file named
+  alike (`x.b.txt` and `x.xbar.txt`, as `JL_ROUTING_SNAP_DIR` writes them),
+  what was sent to the chips is checked against the path table. Without it,
+  sent is taken to be planned, and the case's notes say that this was not
+  checked.
+- **What it is judged as.** A scored case: shorts, strays, a bridge listed as
+  routed whose copper does not join, and claims that disagree with the
+  copper are problems; a bridge the board did not route is drawn as not
+  routed. Sense taps and the second-rebuild check need the harness and are
+  not there.
+
+Tested against the 21 captures of the 2026-11-21 board run, each as captured,
+with colour codes, and with tabs turned to spaces. Not yet tested with text
+copied out of a real terminal window; if one does not read, the message says
+which part did not come through.
 
 ## Use from the command line
 
@@ -419,7 +459,8 @@ The lab's Python imports only the standard library. `ceiling.py` holds the
 copper as a graph and the two searches over a painted result; the exact
 search is `solver/solve.py`, a CP-SAT model that knows nothing of the lab or
 of V5, run as a separate process with the Python of `build/solver-venv`.
-`edge.py` grows the edge cases.
+`edge.py` grows the edge cases. `board.py` turns a board's own `b` report
+into a result the page can show.
 
 Sanitizers are on (ASan and UBSan, without the enum and bool checks, which
 the router's `memset(-1)` idiom trips on every case).

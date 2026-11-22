@@ -68,11 +68,19 @@ async function api(path, body) {
     init.headers["Content-Type"] = "application/json";
     init.body = JSON.stringify(body);
   }
-  const reply = await fetch(path, init);
+  let reply;
+  try {
+    reply = await fetch(path, init);
+  } catch (e) {                                    // no answer at all: the server is not running
+    throw new Error("The lab server is not answering. Start it again (lab.py serve), then reload this page.");
+  }
   let data = {};
   try { data = await reply.json(); } catch (e) { /* an empty or non-JSON answer */ }
   if (!reply.ok) {
-    const err = new Error(data.error || ("the server answered " + reply.status));
+    // every start of the server makes a new token, and this page still holds the one it was served with
+    const stale = reply.status === 403 && /token/.test(data.error || "");
+    const err = new Error(stale ? "This page is from an earlier start of the lab server. Reload it."
+      : data.error || ("the server answered " + reply.status));
     err.status = reply.status;
     err.data = data;
     throw err;
@@ -279,7 +287,25 @@ function installDrop() {
     event.preventDefault();
     depth = 0;
     document.body.classList.remove("dropping");
-    for (const file of event.dataTransfer.files) await addUpload(file.name, await file.text());
+    // A file is board output (a `b` report), a crossbar dump that goes with one (same name before ".b.txt" /
+    // ".xbar.txt", as a capture directory has them), or a source file to try in the router.
+    const reports = {};
+    const dumps = {};
+    const sources = [];
+    for (const file of event.dataTransfer.files) {
+      const text = await file.text();
+      const stem = file.name.replace(/\.(b|xbar)\.txt$|\.[^.]*$/, "");
+      if (looksLikeBoard(text)) reports[stem] = text;
+      else if (/xbar\{12x8:/.test(text)) dumps[stem] = text;
+      else sources.push([file.name, text]);
+    }
+    const stems = Object.keys(reports);
+    if (!stems.length) {
+      for (const [name, text] of sources) await addUpload(name, text);
+      return;
+    }
+    const only = stems.length === 1 ? Object.values(dumps)[0] : undefined;      // one report, one dump: they belong together
+    await showBoards(stems.map((stem) => [stem, reports[stem] + "\n" + (dumps[stem] || only || "")]));
   });
 }
 
@@ -287,10 +313,11 @@ function installDrop() {
 
 function installLive() {
   setInterval(async () => {
-    if (!$("live").checked || state.busy || !state.run || Object.keys(state.upload).length) return;
+    // a board's output on screen is not a run of the router: live leaves it alone until Run is pressed
+    if (!$("live").checked || state.busy || !state.run || state.run.board || Object.keys(state.upload).length) return;
     let hash;
     try { hash = (await api("/api/watch?spec=" + encodeURIComponent(baseSpec()))).hash; } catch (e) { return; }
-    if (state.busy || !state.run || !$("live").checked) return;      // things moved while the question was out
+    if (state.busy || !state.run || state.run.board || !$("live").checked) return;      // things moved while the question was out
     if (hash === state.run.variant.hash) {
       // back at the tree the table shows (a broken edit undone): the error of the failed try is stale
       if (state.liveTried && state.liveTried !== hash) {
@@ -318,6 +345,12 @@ function showBuildError(data) {
     el("div", { text: what + (data.variant && data.variant.name ? " (" + data.variant.name + ")" : "") + " did not build: " + first }),
     el("details", {}, el("summary", { text: "compiler output" }), el("pre", { text: text })));
   box.hidden = false;
+}
+
+// Something went wrong that is not a build: the server is gone, a request was refused, an upload could not be read.
+function showProblem(text) {
+  $("build-error").replaceChildren(el("div", { text: text }));
+  $("build-error").hidden = false;
 }
 
 function renderRegressions() {
@@ -362,13 +395,67 @@ async function runBattery() {
     if (pick) await selectCase(pick);
     return true;
   } catch (err) {
-    showBuildError({ build_error: err.message, which: "request" });
+    showProblem(err.message);
     return false;
   } finally {
     $("busy").hidden = true;
     $("run").disabled = false;
     state.busy = false;
   }
+}
+
+// ---------------------------------------------------------------- a board's own output
+//
+// What a Jumperless prints for `b` (dropped as a file, or pasted) is judged by
+// the server and shown as a run of its own, class "board": the table, the
+// case panel and both views draw it as they draw anything the lab routed.
+
+function looksLikeBoard(text) {
+  return /Bridge Array/.test(text) && /Chip Status/.test(text);
+}
+
+// list: [[name, text]]. Every one is kept by the server; the last is the one selected.
+async function showBoards(list) {
+  if (!list.length) return;
+  if (state.busy) {                                // the drop or paste is not kept: say so, do not swallow it
+    showProblem("A run is in flight: drop or paste the board output again when it is done.");
+    return;
+  }
+  state.busy = true;
+  $("busy").hidden = false;
+  $("run").disabled = true;
+  try {
+    let data = null;
+    for (const [name, text] of list) data = await api("/api/board", { name: name, text: text });
+    $("build-error").hidden = true;
+    state.run = data;
+    state.cases = {};
+    state.compare = false;
+    $("compare").checked = false;
+    $("compare-box").hidden = true;
+    state.closed.board = false;
+    renderRegressions();
+    renderBattery();
+    await selectCase(data.shown);
+  } catch (err) {
+    showProblem(err.message);
+  } finally {
+    $("busy").hidden = true;
+    $("run").disabled = false;
+    state.busy = false;
+  }
+}
+
+let pasted = 0;
+
+function installPaste() {
+  window.addEventListener("paste", (event) => {
+    const text = event.clipboardData ? event.clipboardData.getData("text") : "";
+    if (!looksLikeBoard(text)) return;             // anything else is pasted where it was going
+    event.preventDefault();
+    pasted += 1;
+    showBoards([["pasted_" + pasted, text]]);
+  });
 }
 
 async function caseOf(variant, name) {
@@ -623,6 +710,8 @@ function renderCeiling() {
 
 // ---------------------------------------------------------------- pan, zoom, hover
 
+const ZOOM_PER_PIXEL = 0.002;      // doublings of the zoom for one pixel of scrolling: the one number to tune the feel
+
 // full: the box a double-click returns to; widest: how far out the wheel may go
 function panZoom(view, full, widest = full[2] * 1.5) {
   let box = full.slice();
@@ -637,11 +726,15 @@ function panZoom(view, full, widest = full[2] * 1.5) {
     return [box[0] + box[2] / 2 + (event.clientX - r.left - r.width / 2) * k,
             box[1] + box[3] / 2 + (event.clientY - r.top - r.height / 2) * k];
   };
+  // The wheel zooms about the pointer, as KiCad does, and by as much as was scrolled: a trackpad sends dozens of
+  // small steps a second and a wheel a few big ones, and both must come out the same. A step is in pixels, lines
+  // or pages (deltaMode); a pinch arrives as a wheel event with ctrl held, in much smaller steps.
   view.addEventListener("wheel", (event) => {
     event.preventDefault();
+    const unit = event.deltaMode === 1 ? ZOOM_PER_PIXEL * 25 : event.deltaMode === 2 ? ZOOM_PER_PIXEL * 500 : ZOOM_PER_PIXEL;
+    const wanted = Math.pow(2, event.deltaY * unit * (event.ctrlKey ? 10 : 1));
+    const k = Math.min(widest / box[2], Math.max(full[2] / 60 / box[2], wanted));    // stop at the limits, do not stick
     const [x, y] = at(event);
-    const k = event.deltaY < 0 ? 0.85 : 1 / 0.85;
-    if (box[2] * k > widest || box[2] * k < full[2] / 60) return;
     box = [x - (x - box[0]) * k, y - (y - box[1]) * k, box[2] * k, box[3] * k];
     apply();
   }, { passive: false });
@@ -1065,8 +1158,10 @@ async function start() {
   });
   if (!STATIC) {
     installDrop();
+    installPaste();
     installLive();
   }
+  $("drop-hint").hidden = Boolean(STATIC);
 
   if (STATIC) {
     for (const id of ["variant", "baseline", "run", "live"]) $(id).disabled = true;
