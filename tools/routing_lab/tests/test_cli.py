@@ -7,10 +7,11 @@ import tempfile
 import unittest
 from unittest import mock
 
+import ceiling
 import lab
 import variants
 
-LAB = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+LAB =os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HIL = os.path.join(os.path.dirname(os.path.dirname(LAB)), "test", "hil")
 
 
@@ -145,6 +146,33 @@ class Cli(unittest.TestCase):
             code, out = run(["import-state", os.path.join(HIL, "slot3_snapshot_2026-08-26.yaml"), "--name", "s3"])
             self.assertEqual(code, 0, out)
             self.assertEqual(lab.cases.load_json(os.path.join(tmp, "real", "s3.json")).name, "s3")
+
+    @unittest.skipUnless(ceiling.solver_installed(), "the solver is not installed: python3 tools/routing_lab/lab.py solver-setup")
+    def test_ceiling_prints_the_verdict_and_the_fewest(self):
+        code, out = run(["ceiling", "--case", "same_chip_pairs"])
+        self.assertEqual(code, 0, out)
+        line = [l for l in out.splitlines() if l.startswith("same_chip_pairs")][0]
+        self.assertIn("routable", line)
+        self.assertIn("= 16", line)
+        self.assertIn("provably routable: 1 of 1; the router routes 1 of those in full", out)
+        self.assertIn("the router uses 0 more crosspoints than the fewest over the 1 cases where both are known", out)
+
+    def test_ceiling_without_the_solver_says_how_to_get_it(self):
+        with mock.patch.object(ceiling, "SOLVER_PYTHON", lab.Path("/nonexistent/python")):
+            code, out = run(["ceiling", "--case", "same_chip_pairs"])
+        self.assertEqual(code, 1, out)
+        self.assertIn("python3 tools/routing_lab/lab.py solver-setup", out)
+
+    def test_ceiling_exits_1_on_an_answer_the_lab_does_not_stand_behind(self):
+        wrong = {"verdict": "unknown", "fewest_proved": False, "crosspoints": None, "router_crosspoints": 16, "closed": [],
+                 "seconds": 0.1, "error": "the solver says this cannot be routed, yet the router routed it: the model is wrong"}
+        with mock.patch.object(ceiling, "solver_installed", return_value=True), \
+                mock.patch.object(ceiling, "verdict", return_value=wrong) as asked:
+            code, out = run(["ceiling", "--case", "same_chip_pairs", "--rule", "copper", "--seconds", "3"])
+        self.assertEqual(code, 1, out)
+        self.assertIn("the model is wrong", out)
+        self.assertEqual(asked.call_args.args[1:], ("copper", 3.0))
+        self.assertEqual(run(["ceiling", "--case", "no_such_case"])[0], 2)
 
     def test_build_prints_the_binary(self):
         code, out = run(["build"])

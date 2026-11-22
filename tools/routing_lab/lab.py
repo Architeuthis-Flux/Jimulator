@@ -9,6 +9,7 @@ of netlists with it, and judge the result against the schematic.
     lab.py export OUT.html [--variant V] [--baseline V0] [--classes ...]
     lab.py clean
     lab.py solver-setup
+    lab.py ceiling [--variant V] [--classes ...] [--case NAME] [--rule firmware|copper] [--seconds 20]
     lab.py build [--variant V]
     lab.py fidelity CAPTURE_DIR [--variant V]
     lab.py import-state FILE.yaml --name NAME [--class real]
@@ -174,13 +175,9 @@ def print_case(result):
 
 
 def cmd_run(args):
-    classes = [c for c in args.classes.split(",") if c]
-    case_list = battery(classes)
-    if args.case:
-        case_list = [c for c in case_list if c.name == args.case]
-        if not case_list:
-            print("no case named %r in %s" % (args.case, ", ".join(classes)), file=sys.stderr)
-            return 2
+    case_list = _cases_of(args)
+    if case_list is None:
+        return 2
     v = variants.resolve(args.variant)
     results = runner.run_battery(v, case_list, jobs=args.jobs)
     print_table(v, results, args.ohms)
@@ -270,14 +267,67 @@ def cmd_export(args):
 def cmd_clean(args):
     import shutil
     freed = 0
-    for name in ("results", "variants", "bin"):          # build/sheet stays: it is small and slow to remake
+    # build/sheet stays (small, slow to remake) and so does build/solver-venv (it needs the network)
+    for name in ("results", "variants", "bin", "ceiling"):
         path = variants.BUILD_DIR / name
         if path.is_dir():
             freed += sum(f.stat().st_size for f in path.rglob("*") if f.is_file() and not f.is_symlink())
             shutil.rmtree(path)
-    print("freed %.0f MB (cached results, variant trees, harness binaries); the next run rebuilds what it needs"
-          % (freed / 1e6))
+    print("freed %.0f MB (cached results, variant trees, harness binaries, solver answers); the next run rebuilds what"
+          " it needs" % (freed / 1e6))
     return 0
+
+
+def _cases_of(args):
+    """The battery an invocation names with --classes and --case, or None after saying there is no such case."""
+    classes = [c for c in args.classes.split(",") if c]
+    case_list = battery(classes)
+    if args.case:
+        case_list = [c for c in case_list if c.name == args.case]
+        if not case_list:
+            print("no case named %r in %s" % (args.case, ", ".join(classes)), file=sys.stderr)
+            return None
+    return case_list
+
+
+def cmd_ceiling(args):
+    """Ask the solver of every case: can its netlist be routed at all, and
+    with how few crosspoints. Exit 1 when an answer does not stand (the
+    solver failed, or the lab's own check contradicts it) or there is no
+    solver."""
+    case_list = _cases_of(args)
+    if case_list is None:
+        return 2
+    if not ceiling.solver_installed():
+        print("the exact search needs the solver; install it once with: " + ceiling.SETUP)
+        return 1
+    v = variants.resolve(args.variant)
+    results = runner.run_battery(v, case_list)
+    shape = "firmware-shaped paths" if args.rule == "firmware" else "any copper"
+    print("variant: %s  (%s)   rule: %s, %g s a case" % (v.name, v.hash[:12], shape, args.seconds))
+    print("%-30s %9s %9s  %-13s %s" % ("case", "routed", "router xp", "verdict", "fewest"))
+    routable = routed_too = both = extra = 0
+    errors = []
+    for r in results:
+        m = r["metrics"]
+        d = ceiling.verdict(r, args.rule, args.seconds)
+        fewest = ""
+        if d["verdict"] == "routable":
+            fewest = ("= %d" if d["fewest_proved"] else "<= %d") % d["crosspoints"]
+            routable += 1
+            routed_too += fully_routed(r)
+            if d["fewest_proved"] and fully_routed(r):
+                both += 1
+                extra += d["router_crosspoints"] - d["crosspoints"]
+        if d["error"]:
+            errors.append("%s: %s" % (r["case"], d["error"]))
+        print("%-30s %9s %9d  %-13s %s" % (r["case"][:30], "%d/%d" % (m["routed_primaries"], m["primaries"] - m.get("refused", 0)),
+                                           d["router_crosspoints"], d["verdict"].replace("_", " "), fewest))
+    print("provably routable: %d of %d; the router routes %d of those in full" % (routable, len(results), routed_too))
+    print("the router uses %d more crosspoints than the fewest over the %d cases where both are known" % (extra, both))
+    for line in errors:
+        print("  not answered  " + line)
+    return 1 if errors else 0
 
 
 def cmd_solver_setup(args):
@@ -350,6 +400,14 @@ def main(argv):
         .set_defaults(fn=cmd_clean)
     sub.add_parser("solver-setup", help="install the exact solver (OR-tools) into build/solver-venv; needs the network once") \
         .set_defaults(fn=cmd_solver_setup)
+    ceil = sub.add_parser("ceiling", help="ask the exact solver: can each netlist be routed at all, with how few crosspoints")
+    ceil.add_argument("--variant", default="worktree")
+    ceil.add_argument("--classes", default="dense,real", help="comma list of: " + ", ".join(CLASSES))
+    ceil.add_argument("--case", help="only this case")
+    ceil.add_argument("--rule", default="firmware", choices=("firmware", "copper"),
+                      help="firmware: each bridge its own path of at most four crosspoints; copper: any copper")
+    ceil.add_argument("--seconds", type=float, default=20.0, help="the solver's limit for one case (20)")
+    ceil.set_defaults(fn=cmd_ceiling)
     args = ap.parse_args(argv)
     try:
         return args.fn(args)

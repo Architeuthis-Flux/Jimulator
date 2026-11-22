@@ -14,8 +14,10 @@ under build/. `problem` is what it is given and `ask` runs it; the lab works
 without it.
 """
 import collections
+import hashlib
 import heapq
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -242,3 +244,96 @@ def ask(problem, rule, seconds=20.0, fewest=True):
     except (ValueError, KeyError, TypeError):
         return unknown("the solver's answer cannot be read: %r" % p.stdout[:200])
     return answer
+
+
+def faults(problem, closed, rule):
+    """What is wrong with a routing of `problem` by the lab's own copper
+    model; empty when it holds. The closed crosspoints are read as copper and
+    the net each is tagged with is ignored: a crosspoint that was not offered
+    (which is what keeps a node in no net untouched), a piece of joined copper
+    holding the terminals of two nets, a bridge whose two wires are not
+    joined, and under "firmware" one whose wires are more than four
+    crosspoints apart."""
+    offered = {(c[0], c[1], c[2]): (c[3], c[4]) for c in problem["crosspoints"]}
+    out, joined = [], {}
+    for chip, x, y in sorted({(c[0], c[1], c[2]) for c in closed}):
+        if (chip, x, y) not in offered:
+            out.append("crosspoint %s x%s y%s is not one the problem offers" % (chip, x, y))
+            continue
+        wa, wb = offered[chip, x, y]
+        joined.setdefault(wa, set()).add(wb)
+        joined.setdefault(wb, set()).add(wa)
+
+    def reach(start):                               # wire -> crosspoints from start
+        far, queue = {start: 0}, collections.deque([start])
+        while queue:
+            w = queue.popleft()
+            for other in joined.get(w, ()):
+                if other not in far:
+                    far[other] = far[w] + 1
+                    queue.append(other)
+        return far
+
+    terminals, seen = problem["terminals"], set()
+    for w in sorted(terminals):
+        if w not in seen:
+            piece = reach(w)
+            seen |= set(piece)
+            nets = sorted({terminals[p] for p in piece if p in terminals})
+            if len(nets) > 1:
+                out.append("one piece of copper (through %s) holds nets %s" % (w, " and ".join(str(n) for n in nets)))
+    for a, b, net in problem["bridges"]:
+        far = reach(a).get(b)
+        if far is None:
+            out.append("bridge %s-%s (net %s) is not joined" % (a, b, net))
+        elif rule == "firmware" and far > 4:
+            out.append("bridge %s-%s (net %s) is %d crosspoints end to end, over a firmware path's four" % (a, b, net, far))
+    return out
+
+
+def _cache_path(problem, rule, seconds, fewest):
+    key = json.dumps([problem, rule, seconds, fewest], sort_keys=True).encode() + SOLVE_PY.read_bytes()
+    return variants.BUILD_DIR / "ceiling" / (hashlib.sha256(key).hexdigest() + ".json")
+
+
+def verdict(result, rule="firmware", seconds=20.0, use_cache=True, fewest=True):
+    """Can this result's netlist (the bridges the firmware allowed, as it
+    built them) be routed at all under `rule`: {"verdict": "routable" |
+    "not_routable" | "unknown" | "nothing", "fewest_proved", "crosspoints",
+    "router_crosspoints", "closed", "seconds", "error"}.
+
+    "nothing": no bridge to route. A routable answer is checked with `faults`
+    and one that fails is "unknown" with the reason; so is a "not routable"
+    for a case the router routed in full, which can only mean the model is
+    wrong. router_crosspoints counts the crosspoints of the router's primary
+    paths. Answers are kept under build/ceiling, but never one with an error.
+    Raises SolverMissing when the solver has to be asked and is not there."""
+    paint = copper.paint(result)
+    out = {"verdict": "nothing", "fewest_proved": False, "crosspoints": None, "closed": [], "seconds": 0.0, "error": None,
+           "router_crosspoints": sum(1 for c in paint["crosspoints"] if not c["dup"])}
+    given = problem(paint)
+    if given is None:
+        return out
+    path = _cache_path(given, rule, seconds, fewest)
+    if use_cache and path.exists():
+        answer = json.loads(path.read_text())
+    else:
+        answer = ask(given, rule, seconds, fewest)
+        if use_cache and not answer.get("error"):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = path.with_name(path.name + ".tmp%d" % os.getpid())
+            tmp.write_text(json.dumps(answer))
+            os.replace(tmp, path)
+    out.update(verdict=answer["verdict"], fewest_proved=bool(answer.get("fewest_proved")),
+               closed=answer.get("closed") or [], seconds=answer.get("seconds", 0.0), error=answer.get("error"))
+    if out["verdict"] == "routable":
+        wrong = faults(given, out["closed"], rule)
+        if wrong:
+            out.update(verdict="unknown", fewest_proved=False, closed=[],
+                       error="the solver's answer fails the lab's own check: " + wrong[0])
+        else:
+            out["crosspoints"] = len(out["closed"])
+    elif out["verdict"] == "not_routable" and result.get("status") == "ok" \
+            and all(b["state"] == "routed" for b in paint["bridges"] if b["state"] in ASKED):
+        out.update(verdict="unknown", error="the solver says this cannot be routed, yet the router routed it: the model is wrong")
+    return out

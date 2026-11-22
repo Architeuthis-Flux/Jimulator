@@ -71,12 +71,13 @@ class Export(unittest.TestCase):
         self.assertIn(str(out), said.getvalue())
 
     def test_clean_empties_the_caches(self):
-        for name in ("results", "variants", "bin", "sheet"):
+        for name in ("results", "variants", "bin", "sheet", "ceiling", "solver-venv"):
             (self.tmp / name).mkdir()
             (self.tmp / name / "f").write_text("x" * 1000)
         with mock.patch.object(variants, "BUILD_DIR", self.tmp), contextlib.redirect_stdout(io.StringIO()) as said:
             self.assertEqual(lab.main(["clean"]), 0)
-        self.assertEqual(sorted(p.name for p in self.tmp.iterdir()), ["sheet"])        # the sheet is kept
+        # the sheet and the solver's environment are kept: small or slow to remake, and one needs the network
+        self.assertEqual(sorted(p.name for p in self.tmp.iterdir()), ["sheet", "solver-venv"])
         self.assertIn("freed", said.getvalue())
 
 

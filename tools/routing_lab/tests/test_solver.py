@@ -14,9 +14,21 @@ from unittest import mock
 
 import ceiling
 import lab
-from tests.test_ceiling import TINY, tiny_paint
+import runner
+import variants
+from tests.test_ceiling import TINY, dense, tiny_paint
 
 NEEDS_SOLVER = "the solver is not installed: python3 tools/routing_lab/lab.py solver-setup"
+NEW = ROUTED_RESULT = None                          # today's harness, and a case it routes in full
+CRASHED_RESULT = {"case": "c", "cls": "x", "status": "crash", "problems": [], "notes": [], "b": ""}
+
+
+def setUpModule():
+    global NEW, ROUTED_RESULT
+    NEW = variants.build(variants.resolve("worktree"))
+    ROUTED_RESULT = runner.run_case(NEW, dense("same_chip_pairs"))
+
+
 ONE_LANE = types.SimpleNamespace(**{**vars(TINY), "X_NET": {"A": ["L0"], "B": ["L0"]}})
 CHAIN = types.SimpleNamespace(CHIPS="ABCD", X_NET={"A": ["AB"], "B": ["AB", "BC"], "C": ["BC", "CD"], "D": ["CD"]},
                               Y_NET={"A": ["1"], "B": ["bB"], "C": ["bC"], "D": ["4"]}, NODE_NET={1: "1", 4: "4"})
@@ -179,6 +191,104 @@ class FirmwareShaped(unittest.TestCase):
     def test_stopping_at_the_first_routing(self):
         a = ceiling.ask(PROBLEM, "firmware", fewest=False)
         self.assertEqual((a["verdict"], a["fewest_proved"]), ("routable", False))
+
+
+class Standing(unittest.TestCase):
+    """What the lab stands behind: a solver's answer checked by the lab's own copper model."""
+
+    def test_faults_of_made_up_answers(self):
+        p = ceiling.problem(tiny_paint([(1, 3, 6, "unrouted"), (2, 4, 7, "unrouted")]), ceiling.graph(TINY))
+        good = [["A", 0, 0, 6], ["B", 0, 0, 6], ["A", 1, 1, 7], ["B", 1, 1, 7]]
+        self.assertEqual(ceiling.faults(p, good, "firmware"), [])
+        self.assertTrue(ceiling.faults(p, good[:3], "copper"))                              # 2-4 not joined
+        self.assertTrue(ceiling.faults(p, good[:2] + [["A", 0, 1, 7], ["B", 0, 1, 7]], "copper"))   # L0 joins two nets
+        self.assertTrue(ceiling.faults(p, good + [["Z", 0, 0, 6]], "copper"))               # not offered
+        relabelled = [[c, x, y, 99] for c, x, y, _ in good]                                 # the tags are not trusted
+        self.assertEqual(ceiling.faults(p, relabelled, "firmware"), [])
+
+    def test_a_node_in_no_net_may_not_be_touched(self):                                     # Review Focus 5
+        p = ceiling.problem(tiny_paint([(1, 3, 6, "unrouted")]), ceiling.graph(TINY))
+        through_row_2 = [["A", 0, 0, 6], ["B", 0, 0, 6], ["A", 0, 1, 6]]                    # row 2 is in no net
+        self.assertTrue(ceiling.faults(p, through_row_2, "copper"))
+
+    def test_four_crosspoints_at_most_under_the_firmware_rule(self):
+        p = ceiling.problem(unrouted(CHAIN, [(1, 4, 6)]), ceiling.graph(CHAIN))
+        six = [["A", 0, 0, 6], ["B", 0, 0, 6], ["B", 1, 0, 6], ["C", 0, 0, 6], ["C", 1, 0, 6], ["D", 0, 0, 6]]
+        self.assertEqual(ceiling.faults(p, six, "copper"), [])
+        self.assertTrue(ceiling.faults(p, six, "firmware"))
+
+    def test_a_wrong_answer_is_unknown_with_the_reason(self):
+        with mock.patch.object(ceiling, "ask", return_value={"verdict": "routable", "fewest_proved": True, "closed": [], "seconds": 0.1}):
+            v = ceiling.verdict(ROUTED_RESULT, use_cache=False)
+        self.assertEqual(v["verdict"], "unknown")
+        self.assertIn("lab's own check", v["error"])
+        self.assertEqual((v["closed"], v["crosspoints"], v["fewest_proved"]), ([], None, False))
+
+    def test_not_routable_against_a_full_routing_is_the_models_fault(self):               # Review Focus 2
+        with mock.patch.object(ceiling, "ask", return_value={"verdict": "not_routable", "fewest_proved": False, "closed": [], "seconds": 0.1}):
+            v = ceiling.verdict(ROUTED_RESULT, use_cache=False)
+            self.assertEqual(v["verdict"], "unknown")
+            self.assertIn("the model is wrong", v["error"])
+            over = ceiling.verdict(runner.run_case(NEW, dense("k_rows_overflow_metric")), use_cache=False)
+        self.assertEqual((over["verdict"], over["error"]), ("not_routable", None))          # the router did not route it all
+
+    def test_a_crashed_result_has_nothing_to_ask(self):
+        with mock.patch.object(ceiling, "ask", side_effect=AssertionError("asked about nothing")):
+            v = ceiling.verdict(CRASHED_RESULT)
+        self.assertEqual((v["verdict"], v["error"], v["closed"], v["crosspoints"]), ("nothing", None, [], None))
+
+    def test_the_routers_own_routing_passes_the_check_and_is_counted(self):
+        import copper
+        paint = copper.paint(ROUTED_RESULT)
+        own = [[c["chip"], c["x"], c["y"], c["net"]] for c in paint["crosspoints"] if not c["dup"]]
+        self.assertEqual(ceiling.faults(ceiling.problem(paint), own, "firmware"), [])
+        with mock.patch.object(ceiling, "ask", return_value={"verdict": "routable", "fewest_proved": False, "closed": own, "seconds": 0.1}):
+            v = ceiling.verdict(ROUTED_RESULT, use_cache=False)
+        self.assertEqual((v["verdict"], v["error"], v["crosspoints"], v["router_crosspoints"]), ("routable", None, len(own), len(own)))
+
+    def test_answers_are_cached_but_not_one_with_an_error(self):
+        calls = []
+
+        def answer(problem, rule, seconds, fewest):
+            calls.append(rule)
+            return {"verdict": "unknown", "fewest_proved": False, "closed": [], "seconds": 0.1,
+                    **({"error": "the solver exited with 3"} if rule == "copper" else {})}
+
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(variants, "BUILD_DIR", Path(tmp)), \
+                mock.patch.object(ceiling, "ask", side_effect=answer):
+            for rule in ("firmware", "firmware", "copper", "copper"):
+                ceiling.verdict(ROUTED_RESULT, rule)
+            self.assertEqual(calls, ["firmware", "copper", "copper"])
+            ceiling.verdict(ROUTED_RESULT, "firmware", seconds=7)                            # another limit: asked again
+            self.assertEqual(len(calls), 4)
+
+
+@unittest.skipUnless(ceiling.solver_installed(), NEEDS_SOLVER)
+class OnTheBoardsFabric(unittest.TestCase):
+    def test_the_router_is_never_contradicted_on_the_dense_suite(self):
+        for r in runner.run_battery(variants.resolve("worktree"), lab.battery(["dense"])):
+            for rule in ("firmware", "copper"):
+                v = ceiling.verdict(r, rule, seconds=5)          # cached after the first run
+                self.assertIsNone(v["error"], (r["case"], rule, v["error"]))
+                if lab.fully_routed(r):
+                    self.assertNotEqual(v["verdict"], "not_routable", r["case"])
+                    if v["verdict"] == "routable" and v["fewest_proved"]:
+                        self.assertLessEqual(v["crosspoints"], v["router_crosspoints"], r["case"])
+
+    def test_what_is_beyond_the_fabric_is_proved_so(self):
+        by = {r["case"]: r for r in runner.run_battery(variants.resolve("worktree"), lab.battery(["beyond"]))}
+        for name in ("every_nano_pin", "nine_k_nets"):
+            self.assertEqual(ceiling.verdict(by[name], "firmware")["verdict"], "not_routable", name)
+        over = runner.run_case(NEW, dense("k_rows_overflow_metric"))
+        for rule in ("firmware", "copper"):
+            self.assertEqual(ceiling.verdict(over, rule)["verdict"], "not_routable", rule)
+        # 64 bridges: any copper can carry them. Nothing is asserted of firmware-shaped paths (not known in 20 s).
+        # fewest=False: the answer must not hang on how far the search for the fewest gets inside the limit.
+        self.assertEqual(ceiling.verdict(by["max_bridges_random"], "copper", fewest=False)["verdict"], "routable")
+
+    def test_a_case_with_a_proved_fewest(self):
+        v = ceiling.verdict(ROUTED_RESULT, "firmware")
+        self.assertEqual((v["verdict"], v["fewest_proved"], v["crosspoints"], v["router_crosspoints"]), ("routable", True, 16, 16))
 
 
 if __name__ == "__main__":
