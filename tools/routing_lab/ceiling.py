@@ -21,6 +21,7 @@ import os
 import subprocess
 from pathlib import Path
 
+import arrangement
 import copper                                       # puts test/hil on the path
 import variants
 
@@ -43,23 +44,28 @@ class SolverMissing(ValueError):
 
 
 def graph(fabric=fabric_v5):
-    """The copper of a fabric (anything with CHIPS, X_NET, Y_NET, NODE_NET).
-    edges[wire] is [(other wire, (chip, x, y))], one for every crosspoint on
-    the wire; owners[wire] is the nodes whose copper the wire is;
-    ends[(chip, x, y)] is that crosspoint's (X wire, Y wire)."""
-    if fabric is fabric_v5 and _BOARD:
+    """The copper of a fabric: the V5 model, an arrangement, or anything else
+    with CHIPS, X_NET, Y_NET and NODE_NET. edges[wire] is [(other wire, (chip,
+    x, y))], one for every crosspoint on the wire; owners[wire] is the nodes
+    whose copper the wire is; ends[(chip, x, y)] is that crosspoint's (X wire,
+    Y wire). A pin with no wire (None: taken away) is no copper: it has no
+    crosspoints at all."""
+    board = fabric is fabric_v5 or fabric is arrangement.V5     # the same copper
+    if board and _BOARD:
         return _BOARD[0]
     edges, owners, ends = {}, {}, {}
     for chip in fabric.CHIPS:
         for x, wx in enumerate(fabric.X_NET[chip]):
             for y, wy in enumerate(fabric.Y_NET[chip]):
+                if wx is None or wy is None:
+                    continue
                 edges.setdefault(wx, []).append((wy, (chip, x, y)))
                 edges.setdefault(wy, []).append((wx, (chip, x, y)))
                 ends[(chip, x, y)] = (wx, wy)
     for node, wire in fabric.NODE_NET.items():
         owners.setdefault(wire, []).append(node)
     g = Graph(edges, owners, ends)
-    if fabric is fabric_v5:
+    if board:
         _BOARD.append(g)
     return g
 
@@ -167,12 +173,14 @@ def spare(paint, g=None, limit=8):
     return out
 
 
-def painted(result):
+def painted(result, arrangement=None):
     """copper.paint(result) with both searches in it: paint["missed"], and on
-    every bridge "spare" (the count), "r_spare" and "spare_paths"."""
+    every bridge "spare" (the count), "r_spare" and "spare_paths". The
+    searches are made on the arrangement's copper (V5's when None)."""
+    g = graph(arrangement) if arrangement is not None else graph()
     paint = copper.paint(result)
-    paint["missed"] = missed(paint)
-    found = {(s["n1"], s["n2"], s["net"]): s for s in spare(paint)}
+    paint["missed"] = missed(paint, g)
+    found = {(s["n1"], s["n2"], s["net"]): s for s in spare(paint, g)}
     for b in paint["bridges"]:
         s = found.get((b["n1"], b["n2"], b["net"]), {})
         b["spare"], b["r_spare"], b["spare_paths"] = s.get("copies", 0), s.get("r"), s.get("paths", [])
@@ -191,30 +199,39 @@ def solver_installed():
 def problem(paint, g=None):
     """What a solver is given for one painted result, or None when there is
     nothing to route: {"bridges": [[wire a, wire b, net]], "terminals":
-    {wire: net}, "crosspoints": [[chip, x, y, X wire, Y wire]]}.
+    {wire: net}, "crosspoints": [[chip, x, y, X wire, Y wire]], "unplaced":
+    [[node, node]]}.
 
     The bridges are the ones the firmware allowed, the probe feed among them.
     A wire is offered when it is a terminal or no node's copper, so a node in
     no net (or in a net by a bridge the firmware refused) is never touched; a
     crosspoint is offered when both its wires are and it does not join the
     terminals of two nets. Two nodes on one piece of copper need nothing
-    closed: their wire stays a terminal and the bridge is left out."""
+    closed: their wire stays a terminal and the bridge is left out.
+
+    "unplaced" is the allowed bridges with a node this copper does not have
+    (an arrangement may have dropped it). They are not in "bridges": a
+    netlist with any of them cannot be placed, which is neither routable nor
+    not, and whoever asks must say so."""
     g = g or graph()
     wire_of = _wire_of(g)
-    bridges, terminals = [], {}
+    bridges, terminals, unplaced = [], {}, []
     for b in paint["bridges"]:
-        if b["state"] not in ASKED or b["n1"] not in wire_of or b["n2"] not in wire_of:
+        if b["state"] not in ASKED:
+            continue
+        if b["n1"] not in wire_of or b["n2"] not in wire_of:
+            unplaced.append([b["n1"], b["n2"]])
             continue
         a, z = wire_of[b["n1"]], wire_of[b["n2"]]
         terminals.setdefault(a, b["net"])
         terminals.setdefault(z, b["net"])
         if a != z:
             bridges.append([a, z, b["net"]])
-    if not bridges:
+    if not bridges and not unplaced:
         return None
     offered = lambda w: w in terminals or not g.owners.get(w)
     apart = lambda a, z: a in terminals and z in terminals and terminals[a] != terminals[z]
-    return {"bridges": bridges, "terminals": terminals,
+    return {"bridges": bridges, "terminals": terminals, "unplaced": unplaced,
             "crosspoints": [[chip, x, y, wx, wy] for (chip, x, y), (wx, wy) in g.ends.items()
                             if offered(wx) and offered(wy) and not apart(wx, wy)]}
 
@@ -303,13 +320,16 @@ def _cache_path(problem, rule, seconds, fewest):
     return variants.BUILD_DIR / "ceiling" / (hashlib.sha256(key).hexdigest() + ".json")
 
 
-def verdict(result, rule="firmware", seconds=20.0, use_cache=True, fewest=True):
+def verdict(result, rule="firmware", seconds=20.0, use_cache=True, fewest=True, arrangement=None):
     """Can this result's netlist (the bridges the firmware allowed, as it
-    built them) be routed at all under `rule`: {"verdict": "routable" |
-    "not_routable" | "unknown" | "nothing", "fewest_proved", "crosspoints",
-    "router_crosspoints", "closed", "seconds", "error"}.
+    built them) be routed at all under `rule`, on the arrangement's copper
+    (V5's when None): {"verdict": "routable" | "not_routable" | "unknown" |
+    "nothing" | "unplaced", "fewest_proved", "crosspoints",
+    "router_crosspoints", "closed", "seconds", "error", "arrangement",
+    "engine": "solver", "unplaced": [[node, node]]}.
 
-    "nothing": no bridge to route. A routable answer is checked with `faults`
+    "nothing": no bridge to route. "unplaced": the netlist uses a node the
+    arrangement does not have; nothing is asked. A routable answer is checked with `faults`
     and one that fails is "unknown" with the reason. So is a "not routable"
     when the router's own copper is a routing `faults` accepts: a routing
     exists, so the model is wrong. router_crosspoints counts the crosspoints
@@ -318,9 +338,13 @@ def verdict(result, rule="firmware", seconds=20.0, use_cache=True, fewest=True):
     has to be asked and is not there."""
     paint = copper.paint(result)
     out = {"verdict": "nothing", "fewest_proved": False, "crosspoints": None, "closed": [], "seconds": 0.0, "error": None,
-           "router_crosspoints": sum(1 for c in paint["crosspoints"] if not c["dup"])}
-    given = problem(paint)
+           "router_crosspoints": sum(1 for c in paint["crosspoints"] if not c["dup"]),
+           "arrangement": arrangement.name if arrangement is not None else "v5", "engine": "solver", "unplaced": []}
+    given = problem(paint, graph(arrangement) if arrangement is not None else graph())
     if given is None:
+        return out
+    if given["unplaced"]:
+        out.update(verdict="unplaced", unplaced=given["unplaced"])
         return out
     path = _cache_path(given, rule, seconds, fewest)
     kept = use_cache and path.exists()
@@ -343,3 +367,57 @@ def verdict(result, rule="firmware", seconds=20.0, use_cache=True, fewest=True):
         tmp.write_text(json.dumps(answer))
         os.replace(tmp, path)
     return out
+
+
+def solved(result, answer, arrangement=None):
+    """A routable `verdict` answer as a paint of its own, on the arrangement's
+    wires, for the page to draw as the picture: the solver's crosspoints, the
+    nets they put on each wire, and every bridge it was given as routed, with
+    its crosspoints end to end and its resistance in the solver's copper.
+    None when the answer is not a routing. It is one routing of many, and not
+    what the firmware's router did; its one note says so."""
+    if answer.get("verdict") != "routable":
+        return None
+    fabric = arrangement if arrangement is not None else fabric_v5
+    g = graph(fabric)
+    wire_of = _wire_of(g)
+    paint = copper.paint(result)
+    riding, edges = {}, {}
+    for chip, x, y, net in answer["closed"]:
+        for w in g.ends[chip, x, y]:
+            riding.setdefault(w, set()).add(net)
+        edges.setdefault(net, []).append(g.ends[chip, x, y])
+
+    def apart(net, a, z):                           # crosspoints from wire a to wire z in the net's copper
+        far, queue = {a: 0}, collections.deque([a])
+        while queue:
+            w = queue.popleft()
+            for u, v in edges.get(net, ()):
+                other = v if u == w else u if v == w else None
+                if other is not None and other not in far:
+                    far[other] = far[w] + 1
+                    queue.append(other)
+        return far.get(z)
+
+    wires = {}
+    for chip in fabric.CHIPS:
+        for axis, table in (("X", fabric.X_NET), ("Y", fabric.Y_NET)):
+            for pin, name in enumerate(table[chip]):
+                if name is not None:
+                    w = wires.setdefault(name, {"kind": copper.wire_kind(name), "nets": sorted(riding.get(name, ())),
+                                                "stray": False, "pins": []})
+                    w["pins"].append({"chip": chip, "axis": axis, "pin": pin, "claim": None, "mark": None})
+    bridges = []
+    for b in paint["bridges"]:
+        entry = dict(b, copies=0, hops=0, r=None, spare=0, r_spare=None, spare_paths=[])
+        if b["state"] in ASKED:                     # the solver was given it, and its answer passed the lab's check
+            a, z = wire_of[b["n1"]], wire_of[b["n2"]]
+            entry.update(state="routed", copies=1, hops=apart(b["net"], a, z) or 0,
+                         r=copper.effective_resistance(edges.get(b["net"], []), a, z))
+        bridges.append(entry)
+    return {"nets": paint["nets"], "wires": wires, "bridges": bridges, "missed": [],
+            "crosspoints": [{"chip": chip, "x": x, "y": y, "net": net, "dup": False, "path": None}
+                            for chip, x, y, net in answer["closed"]],
+            "problems": [], "status": "ok", "stderr": "",
+            "notes": ["the exact solver's routing on %s: one of many, and not what the firmware's router did"
+                      % answer.get("arrangement", getattr(fabric, "name", "v5"))]}

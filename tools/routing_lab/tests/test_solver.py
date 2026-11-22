@@ -3,6 +3,7 @@
 missing or misbehaves, and, where OR-tools is installed, its answers on
 fabrics small enough to check on paper."""
 import contextlib
+import dataclasses
 import io
 import subprocess
 import sys
@@ -12,6 +13,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+import arrangement
 import ceiling
 import lab
 import runner
@@ -304,6 +306,47 @@ class Standing(unittest.TestCase):
             self.assertEqual(calls, ["firmware", "copper", "copper"])
             ceiling.verdict(ROUTED_RESULT, "firmware", seconds=7)                            # another limit: asked again
             self.assertEqual(len(calls), 4)
+
+
+class Arrangements(unittest.TestCase):
+    def feed_off(self, name):
+        return runner.run_case(NEW, dataclasses.replace(dense(name), probe=(0, 0)))
+
+    def test_a_netlist_that_cannot_be_placed_is_not_asked(self):       # Review Focus 2
+        without_row_1 = arrangement.parse("t", {"base": "v5", "nodes": {"1": None}})
+        with mock.patch.object(ceiling, "ask", side_effect=AssertionError("asked")):
+            v = ceiling.verdict(self.feed_off("same_chip_pairs"), arrangement=without_row_1, use_cache=False)
+        self.assertEqual((v["verdict"], v["error"], v["arrangement"], v["engine"]), ("unplaced", None, "t", "solver"))
+        self.assertTrue(v["unplaced"] and all(1 in pair for pair in v["unplaced"]))
+        self.assertEqual((v["closed"], v["crosspoints"]), ([], None))
+
+    def test_a_verdict_says_who_answered_and_on_what(self):
+        answer = {"verdict": "unknown", "fewest_proved": False, "closed": [], "seconds": 0.1}
+        with mock.patch.object(ceiling, "ask", return_value=answer) as asked:
+            plain = ceiling.verdict(ROUTED_RESULT, use_cache=False)
+            on_rails = ceiling.verdict(ROUTED_RESULT, use_cache=False, arrangement=arrangement.load("v6_rails_on_chips"))
+        self.assertEqual((plain["arrangement"], plain["engine"], plain["unplaced"]), ("v5", "solver", []))
+        self.assertEqual((on_rails["arrangement"], on_rails["engine"]), ("v6_rails_on_chips", "solver"))
+        v5_offered, rails_offered = (call.args[0]["crosspoints"] for call in asked.call_args_list)
+        on_a7 = lambda offered: {c[3] for c in offered if c[:2] == ["A", 7]}
+        self.assertEqual(on_a7(v5_offered), {"/AD1"})                   # each was asked on its own copper:
+        self.assertEqual(on_a7(rails_offered), set())                   # there the pin is a rail, and no rail is in this netlist
+
+    @unittest.skipUnless(ceiling.solver_installed(), NEEDS_SOLVER)
+    def test_rails_on_every_chip_cost_fewer_crosspoints(self):
+        r, rails = self.feed_off("rail_stacking_light"), arrangement.load("v6_rails_on_chips")
+        on_v5, on_rails = ceiling.verdict(r), ceiling.verdict(r, arrangement=rails)
+        self.assertEqual([(v["verdict"], v["fewest_proved"], v["crosspoints"]) for v in (on_v5, on_rails)],
+                         [("routable", True, 10), ("routable", True, 6)])
+        self.assertEqual((on_v5["arrangement"], on_rails["arrangement"]), ("v5", "v6_rails_on_chips"))
+        p = ceiling.solved(r, on_rails, rails)
+        self.assertEqual((len(p["crosspoints"]), p["status"], p["problems"]), (6, "ok", []))
+        self.assertTrue(all(b["state"] == "routed" and b["r"] is not None and b["hops"] <= 4 for b in p["bridges"]))
+        self.assertEqual(len(p["wires"]["TOP_RAIL"]["pins"]), 9)       # K's pin and one on each breadboard chip
+        self.assertIn("exact solver", p["notes"][0])
+        self.assertIn("v6_rails_on_chips", p["notes"][0])
+        self.assertEqual({c["net"] for c in p["crosspoints"]} - {int(n) for n in p["nets"]}, set())
+        self.assertIsNone(ceiling.solved(r, dict(on_rails, verdict="unknown"), rails))
 
 
 @unittest.skipUnless(ceiling.solver_installed(), NEEDS_SOLVER)

@@ -161,6 +161,28 @@ class Spare(unittest.TestCase):
         self.assertEqual([b["spare"] for b in p["bridges"] if b["infra"]], [0])
 
 
+class OnAnArrangement(unittest.TestCase):
+    def test_a_pin_taken_away_is_not_copper(self):                     # Review Focus 5
+        gone = types.SimpleNamespace(**{**vars(TINY), "X_NET": {"A": ["L0", None], "B": ["L0", "L1"]}})
+        g = ceiling.graph(gone)
+        self.assertEqual(sorted(w for w, _ in g.edges["1"]), ["L0"])
+        self.assertEqual([xp for xp in g.ends if xp[:2] == ("A", 1)], [])
+        self.assertNotIn(None, g.edges)
+        closed = [("A", 0, 0, 6), ("B", 0, 0, 6)]                      # 1-3 on L0; L1 has lost its end on chip A
+        self.assertEqual(ceiling.spare(tiny_paint([(1, 3, 6, "routed")], closed, fabric=TINY), g)[0]["copies"], 0)
+        self.assertIsNone(ceiling.missed(tiny_paint([(1, 3, 6, "unrouted")], riding={"L0": [7]}), g)[0]["path"])
+        given = ceiling.problem(tiny_paint([(1, 3, 6, "unrouted")]), g)
+        self.assertEqual([c for c in given["crosspoints"] if c[:2] == ["A", 1]], [])
+
+    def test_a_bridge_on_a_node_the_arrangement_lacks_is_unplaced(self):     # Review Focus 2
+        p = ceiling.problem(tiny_paint([(1, 3, 6, "unrouted"), (1, 77, 6, "unrouted")]), ceiling.graph(TINY))
+        self.assertEqual((p["bridges"], p["unplaced"]), ([["1", "3", 6]], [[1, 77]]))
+        self.assertEqual(ceiling.problem(tiny_paint([(1, 3, 6, "unrouted")]), ceiling.graph(TINY))["unplaced"], [])
+        only = ceiling.problem(tiny_paint([(1, 77, 6, "unrouted")]), ceiling.graph(TINY))      # nothing else to route:
+        self.assertEqual((only["bridges"], only["unplaced"]), ([], [[1, 77]]))                 # still said, not "nothing"
+        self.assertIsNone(ceiling.problem(tiny_paint([(1, 77, 6, "refused")]), ceiling.graph(TINY)))    # the firmware said no first
+
+
 class OnTheRouter(unittest.TestCase):
     def test_the_router_before_the_hub_tier_missed_two_paths_of_four(self):
         found = ceiling.missed(copper.paint(runner.run_case(OLD, dense("nano_dense_metric"))))
