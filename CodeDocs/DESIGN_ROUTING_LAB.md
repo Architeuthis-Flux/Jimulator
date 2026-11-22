@@ -2,8 +2,9 @@
 
 Written 2026-11-17, approved the same day. Pieces 1, 2 and 3 are built
 (2026-11-21, `tools/routing_lab/`; its README says how to use them); piece 4
-is not. "Learned building piece 1" at the end changes what the later pieces
-must do. Piece 3 as built leaves out one thing the text below puts in it: the
+is not; its plan is `PLAN_ROUTING_LAB_4_ARRANGEMENTS.md`, and its section
+below was widened on 2026-11-22. "Learned building piece 1" at the end
+changes what the later pieces must do. Piece 3 as built leaves out one thing the text below puts in it: the
 tap planner is not yet the oracle for spare copies (see "Honest limit").
 Piece 2 as built differs from the text below in one way: the
 r7 sheet draws its breadboard-to-breadboard lanes as buses and nearly
@@ -268,11 +269,43 @@ wire and a Y wire on one chip; a real node outside the net may not be touched.
   answer needs no new code: route the case with every stack setting at its
   highest and count the copies the firmware makes.
 
-## Piece 4: V6 lane ranking
+## Piece 4: arrangements and the V6 lane ranking
 
-- For each of the 86 lanes, 8 bounce rows and 6 hub lanes: block it, re-run
-  the battery, record the loss in bridges routed, cases fully routed,
-  crosspoints and resistance, per class. Rank by least loss.
+Widened on 2026-11-22 by two answers from Kevin: V6 takes the probe feed off
+the crossbars, and the crossbar arrangement must be easy to change while V6
+is being worked out. The second is new scope; the lane ranking below is one
+use of it.
+
+- **An arrangement is the fabric as a small file**: V5, plus what differs
+  (a pin given another wire, a wire taken away, a chip added, a node moved,
+  the probe feed on the fabric or off it). Changing the arrangement is
+  editing that file; the page redraws from it. There is no on-page editor.
+- **Two engines, never mixed up.** The firmware's router has V5 literals
+  (`V6_CROSSBAR_MATRIX.md` section 7), so it can route an arrangement only
+  when that is V5 with wires taken away, by blocking their pins. The exact
+  solver takes any arrangement, since the fabric is data to it. Every table
+  and every command says which engine answered, on which arrangement, with
+  the feed on or off.
+- **What the solver's answer is worth for V6**: a ceiling for any router that
+  keeps the path shape (each bridge its own path of at most four
+  crosspoints), not what a V6 router would do.
+- **Scoring an arrangement**: the battery's netlists, as the firmware builds
+  them with the feed off, asked of the solver on the arrangement and on V5.
+  Reported: which netlists change verdict, and the fewest crosspoints where
+  both are proved. At edge sizes many answers are "unknown", so the count of
+  routable netlists is not the headline by itself.
+
+The lane ranking:
+
+- For each of the 80 lanes (48 between breadboard chips, 32 from a
+  breadboard chip to an SF chip), the 8 bounce rows and the 6 hub lanes, 94
+  wires in all: block it, re-run the battery, record the loss in bridges
+  routed, cases fully routed, crosspoints and resistance, per class. Rank by
+  least loss. (This text first said "86 lanes", which counted the hub lanes
+  twice.)
+- The loss is signed. The router is not monotone: with one lane blocked it
+  sometimes routes a bridge more. The router's loss is therefore shown
+  beside, not as, the answer to "is this wire needed".
 - The same against the global search, to separate "the copper needs this
   lane" from "this router happens to use it".
 - Raw usage counts are shown beside the loss, labelled as biased by search
@@ -280,10 +313,10 @@ wire and a Y wire on one chip; a real node outside the net may not be touched.
 - Custom sets: block several wires together (for example one lane of each
   doubled pair, or three X pins per breadboard chip) and see the combined loss.
 - The fabric view takes the loss as a heat overlay.
-- The probe feed changes the answer for KL and the K rows. The ranking runs
-  with the feed as the firmware decides it. A switch re-runs it with the feed
-  off, for a V6 that takes the feed off the fabric (`V6_CROSSBAR_MATRIX.md`
-  P2). My call; the second run doubles the job, so it is on request.
+- The probe feed changes the answer for KL and the K rows. Since V6 takes
+  the feed off the fabric (`V6_CROSSBAR_MATRIX.md` P2; Kevin, 2026-11-22),
+  the ranking runs with the feed off. A switch runs it with the feed on, as
+  a V5 has it.
 - Runs as a background job with progress; results are cached by variant, case
   and blocked set.
 
@@ -326,6 +359,7 @@ Four plans, each usable when it lands: (1) harness, battery, judge, CLI;
   go-ahead for me to flash it and run the suite, which snapshots and restores
   the bench. The lab is usable before it, with the banner.
 - For the ranking: whether V6 keeps the probe feed on the crossbar.
+  (Answered 2026-11-22: it does not.)
 - Any real netlists beyond the two YAML snapshots in `test/hil/`.
 
 ## Learned building piece 1
