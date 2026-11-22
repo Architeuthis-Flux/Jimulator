@@ -257,7 +257,10 @@ saved with the routing that proves it (`cases/edge/proof/`), and a test
 checks every one of those routings against the harness's netlist with no
 solver, so "provably routable" does not depend on the solver being installed
 or on its luck with the clock. If the solver fails while a case is grown,
-the command stops with exit 1 and writes nothing for that case.
+the command stops with exit 1 and writes nothing for that case. A proof
+routes the probe feed too, from where today's firmware puts it: a firmware
+change that moves the feed fails that test although the case's own bridges
+still fit, and the cases are then grown again.
 
 How near the true edge a case sits depends on why it stopped. Where the next
 bridge is proved not to fit, it is at the edge of its list, save that
@@ -362,29 +365,38 @@ From the ceilings (2026-11-21; see "Ceilings" for what each number is worth):
    other eleven (603 of 655 primaries). At the `fuzz` class's sizes, up to
    twelve bridges, it routes everything. See one: `lab.py run --classes edge
    --case edge_1_1`, or the page with the `edge` class ticked.
-6. **Most of those 52 need other paths moved, not a better last search.**
-   With everything else where the router put it, 12 of the 52 still had a
-   path through free or same-net copper, and only 2 of those 12 are within
-   the four crosspoints one firmware path holds. One (`GPIO_7`-`D11` in
-   `edge_1_3`) needs no new crosspoint at all: its two nodes are already
-   joined through the net's other bridges, eight crosspoints apart, and the
-   path table still lists it as not routed.
+6. **Most of those 52 need other bridges' paths moved, not a better last
+   search.** With everything else where the router put it (other paths and
+   their duplicate copies), 12 of the 52 still had a path through free or
+   same-net copper, and only 2 of those 12 are within the four crosspoints
+   one firmware path holds. Copies are not what is in the way: routed with
+   no stacking, so with no copy in the copper, 49 bridges fail and 15 of
+   them have such a path, 4 within four crosspoints. One bridge
+   (`GPIO_7`-`D11` in `edge_1_3`) needs no new crosspoint at all: its two
+   nodes are already joined through the net's other bridges, eight
+   crosspoints apart, and the path table still lists it as not routed.
 7. **Stacking can cost primaries.** `edge_1_5` routes 55 of 61 primaries
    with the default stacking and 58 of 61 with none. The other eleven edge
    cases route the same number either way.
 8. **On the dense and real cases the router is at the ceiling for routing,
-   not for crosspoints.** `lab.py ceiling --classes dense,real,beyond`: 22 of
-   26 are provably routable with firmware-shaped paths and the router routes
-   all 22. Over the 19 of them whose fewest is proved, its primary paths use
-   31 crosspoints more than the fewest (`corner_rows` 20 against 16,
-   `slot3_snapshot_2026-08-26` 30 against 25). Fewer is not better by
-   itself.
-9. **What the router does not route there cannot be routed.**
-   `k_rows_overflow_metric` (with its probe feed on GPIO 6, as the firmware
-   builds it), `every_nano_pin` and `nine_k_nets` are proved not routable
-   under both rules. `max_bridges_random` can be routed with any copper (94
-   crosspoints or fewer); with firmware-shaped paths it is not known after
-   20 s.
+   not for crosspoints.** `lab.py ceiling --classes dense,real`: 22 of the 23
+   are provably routable with firmware-shaped paths and the router routes
+   all 22; the 23rd is `k_rows_overflow_metric`, below. Over the 19 of them
+   whose fewest is proved, its primary paths use 31 crosspoints more than
+   the fewest (`corner_rows` 20 against 16, `slot3_snapshot_2026-08-26` 30
+   against 25). Fewer is not better by itself.
+9. **Three netlists are proved too big for the fabric as a whole; one
+   "beyond" case is not beyond.** `k_rows_overflow_metric` (with its probe
+   feed on GPIO 6, as the firmware builds it), `every_nano_pin` and
+   `nine_k_nets` are proved not routable under both rules. That is about
+   each netlist as a whole. For `k_rows_overflow_metric` it makes the
+   router's 12 of 13 the most there can be. For the other two it does not
+   say the router's 16 of 23 or 8 of 10 is the most that fits; that was not
+   asked. `max_bridges_random` (64 bridges; the router routes 61 of the 63
+   the firmware allowed) can be routed: with any copper in 94 crosspoints
+   or fewer, and with firmware-shaped paths in 117 or fewer. The solver
+   found the firmware-shaped routing in one 20 s run and not in another, so
+   `lab.py ceiling` may still print "unknown" for it.
 10. **The September router, for comparison** (`--variant "a1accf5^"`,
     before the hub rescue tier): five misses in the dense class. Two are the
     `nano_dense_metric` bridges that tier was written for (`A4`-`19`,
