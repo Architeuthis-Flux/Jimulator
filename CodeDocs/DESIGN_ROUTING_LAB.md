@@ -1,10 +1,11 @@
 # Routing lab: design
 
-Written 2026-11-17, approved the same day. Pieces 1, 2 and 3 are built
-(2026-11-21, `tools/routing_lab/`; its README says how to use them); piece 4
-is not; its plan is `PLAN_ROUTING_LAB_4_ARRANGEMENTS.md`, and its section
-below was widened on 2026-11-22. "Learned building piece 1" at the end
-changes what the later pieces must do. Piece 3 as built leaves out one thing the text below puts in it: the
+Written 2026-11-17, approved the same day. All four pieces are built
+(`tools/routing_lab/`; its README says how to use them): 1, 2 and 3 on
+2026-11-21, and piece 4 on 2026-11-22 from `PLAN_ROUTING_LAB_4_ARRANGEMENTS.md`.
+Piece 4's section below was widened that day, and "Piece 4 as built" under
+it says where the build differs from the text. "Learned building piece 1" at
+the end changes what the later pieces must do. Piece 3 as built leaves out one thing the text below puts in it: the
 tap planner is not yet the oracle for spare copies (see "Honest limit").
 Piece 2 as built differs from the text below in one way: the
 r7 sheet draws its breadboard-to-breadboard lanes as buses and nearly
@@ -319,6 +320,38 @@ The lane ranking:
   a V5 has it.
 - Runs as a background job with progress; results are cached by variant, case
   and blocked set.
+
+### Piece 4 as built (2026-11-22)
+
+Built as above, with these differences:
+
+- **A netlist can be made by clicking nodes.** Asked for by Kevin while the
+  piece was being built: click two nodes on the Fabric tab and the bridge is
+  routed at once on the arrangement picked, by the router when it can route
+  that copper and by the solver when it cannot. Not in the text above.
+- **Only the router's part of the ranking runs from the page.** "Rank now"
+  routes the battery without each wire (three minutes for 256 cases) and
+  shows its progress. The solver's part ("is the wire needed") is started
+  from the command line (`lab.py rank --needed`), because it runs for 40
+  minutes over the 244 netlists of its default classes; the page shows its
+  columns when the file has them, and a ranking made again keeps them.
+- **Needed is asked one wire at a time.** For each netlist and each wire the
+  solver is asked whether a routing exists without that wire. Two wires that
+  are each not needed may be needed together; that is not asked.
+- **A custom set is a run, not a number.** Wires picked on the Ranking tab
+  are taken away together and the battery is run on what is left; the run is
+  shown like any other, and the arrangement can be saved as a file and
+  scored. No combined loss against the baseline is printed.
+- **The drawing of a wire V5 has no shape for** (a rail on a pin of every
+  chip) is a bus on a level of its own between the two rows of chips. Its
+  pins on an SF chip's X side join on a second level above that row, with one
+  vertical run beside the last chip, because an SF chip's columns line up
+  with the columns of the breadboard chip under it.
+- **Resistance is in the ranking's file, not its table.** The table prints
+  primaries, cases and crosspoints; `worst_r` is in the file, for every wire
+  and class.
+
+What it measured is in the README's "Findings so far", 11 to 16.
 
 ## How we know it works
 

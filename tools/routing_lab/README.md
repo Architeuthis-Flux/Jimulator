@@ -5,11 +5,21 @@ netlists with it, and judges every result against the schematic with
 `test/hil/routing_check.py`. No board needed. Design:
 `CodeDocs/DESIGN_ROUTING_LAB.md`.
 
-Pieces 1 to 3 of 4 are built: the harness, battery, judge and command line;
-the page that draws a result on the fabric and on the board's KiCad sheet;
-and the ceilings (the path a failed bridge had, the copies the free copper
-still allows, and an exact solver that says whether a netlist can be routed
-at all). The V6 lane ranking is not built yet.
+All four pieces of the design are built: the harness, battery, judge and
+command line; the page that draws a result on the fabric and on the board's
+KiCad sheet; the ceilings (the path a failed bridge had, the copies the free
+copper still allows, and an exact solver that says whether a netlist can be
+routed at all); and, for V6, crossbar arrangements other than V5's and a
+ranking of the wires a board could do without.
+
+Two engines answer, and everything the lab prints or draws says which one,
+on which arrangement, and whether the probe feed is on the fabric:
+
+- **The firmware's router**, the real code. It has V5 written into it, so it
+  routes V5, and V5 with pins taken away.
+- **The exact solver.** It takes any copper. What it says of a changed
+  arrangement is a ceiling: what a router that keeps the firmware's path
+  shape could reach there, not what a V6 router will do.
 
 ## The page
 
@@ -38,9 +48,30 @@ click a case.
   the left column: it is built as "worktree + 1 file" without touching the
   checkout. A router that does not compile shows the compiler's output and
   keeps the last table.
-- **Fabric tab.** The twelve crossbars as grids with every piece of copper
-  between them, generated from `test/hil/fabric_v5.py`. A lit wire carries
-  the net of its colour; a dot is a closed crosspoint.
+- **Arrangement** is the crossbar copper: V5's, or one of the files under
+  `arrangements/` (see "Arrangements"). It is what the Fabric tab draws and
+  what Run routes. Run is greyed, with the reason beside it, for an
+  arrangement the firmware's router cannot route. A run is drawn only while
+  the arrangement it was routed on is the one picked.
+- **Click two nodes to connect them.** A click on a node (its dot or its
+  label) picks it up, a click on a second makes a bridge, and the netlist so
+  made is routed at once with the Router named, on the arrangement picked.
+  The box under the controls lists the bridges; each can be taken out. "start
+  from the case shown" puts the open case's bridges into it, to add to. Pick
+  another arrangement and the same netlist is routed there. On an arrangement
+  only the solver can route, the firmware still makes the netlist and the
+  solver's routing is what is drawn. Esc, or a second click on the same
+  node, lets go.
+- **Fabric tab.** The crossbars as grids with every piece of copper between
+  them, generated from the arrangement's tables (V5's are
+  `test/hil/fabric_v5.py`). A lit wire carries the net of its colour; a dot
+  is a closed crosspoint. On another arrangement than V5 a grey cross is a
+  pin taken away and a thin ring a pin on another wire than V5 has it on; a
+  wire of no shape V5 has (a rail on a pin of every chip) is drawn as a bus
+  on a level of its own.
+- **Ranking tab.** The fabric tinted by what the router loses without each
+  wire, or by how many netlists are proved to need it, with the table beside
+  it. See "The lane ranking".
 - **KiCad sheet tab.** The board's own schematic with the same result drawn
   over it: lit wires, lanes followed along their bus from chip to chip, a
   dot at each label and pin of a live net, and each closed crosspoint as a
@@ -83,7 +114,11 @@ click a case.
   cell to draw them dashed; click again for the missed paths.
 - **Ceiling**, under the bridges, asks the exact solver whether the case's
   netlist can be routed at all, with firmware-shaped paths or with any
-  copper, and can draw the solver's routing against the router's.
+  copper, and can draw the solver's routing against the router's. It is
+  asked on the arrangement picked. When that is not the one the run was
+  routed on, the solver's routing is drawn as the picture itself and the
+  panel's head says whose it is; the run and the arrangement must have the
+  probe feed in the same place.
 
 "Ceilings" below says what these three mean and what they do not.
 
@@ -100,8 +135,8 @@ python3 tools/routing_lab/lab.py clean
 server (table, case panel, fabric view, missed paths and spare copies; not
 the KiCad backdrop, and it cannot ask the solver). `clean` deletes the caches
 under `build/` (results, variant trees, binaries, solver answers), which grow
-with every variant tried; the built sheet and the solver's environment are
-kept.
+with every variant tried; the built sheet, the solver's environment and the
+rankings are kept.
 
 ## A board's own output
 
@@ -163,6 +198,11 @@ python3 tools/routing_lab/lab.py import-state my_slot.yaml --name my_slot
   or more bridges left unrouted where the copper had a path.
 - `--case` prints that case's problems, notes and `b` report.
 - `--json FILE` writes every result.
+- `--arrangement NAME` routes on another arrangement than V5 (`run`,
+  `ceiling` and `rank` all take it). The table's first line says which, who
+  routed, and where the probe feed is. The router refuses an arrangement that
+  is not V5 with pins taken away, names the first pin that is the reason, and
+  exits 2.
 
 Exit status: 0 clean; 1 on a short, a stray, a bridge listed as routed whose
 copper does not join its nodes, a crash or hang, a must-route case with
@@ -332,6 +372,133 @@ hold 49 to 60 bridges each; for five the next bridge is proved not to fit,
 for seven it is not known after 20 s. Of their 655 primaries (each case's
 probe feed is one) the router routes 603. "Findings so far" has the detail.
 
+## Arrangements
+
+An arrangement is the crossbar copper: which wire is on each chip pin, and
+which node is which wire. V5's is `test/hil/fabric_v5.py`. Any other is a
+small JSON file under `arrangements/` that says what it changes from V5:
+
+| key | what it says |
+|---|---|
+| `"about"` | one line of text |
+| `"base"` | `"v5"`, the only base there is |
+| `"feed"` | `false` when the probe feed is not routed through the fabric (V6 takes it off); `true` when not given |
+| `"remove"` | wire names: every pin on such a wire is taken away |
+| `"pins"` | `{"A.X7": "TOP_RAIL", "K.X2": null}`: a pin put on a wire (and so joined to every other pin of that name), or taken away |
+| `"chips"` | `{"M": {"role": "sf", "x": [16 names or null], "y": [8 names or null]}}`: a chip added; role `"bb"` or `"sf"` |
+| `"nodes"` | `{"150": {"wire": "PORT_0", "name": "PORT_0"}, "139": null}`: a node added or moved, or removed |
+
+A pin taken away is no copper at all: nothing routes over it and no search
+passes it. A node whose last pin is taken away drops out, and a netlist that
+uses it "cannot be placed" there, which is neither routable nor not.
+
+Two ship. `v6_feed_off` is V5's copper with the probe feed off the fabric.
+`v6_rails_on_chips` is the worked example, P1 + P2 of
+`CodeDocs/V6_CROSSBAR_MATRIX.md`: the feed off, and on every breadboard chip
+the second lane of three doubled pairs given to TOP_RAIL, BOTTOM_RAIL and
+GND. Its file is the feed line and 24 pins:
+
+```json
+{"about": "...", "base": "v5", "feed": false,
+ "pins": {"A.X7": "TOP_RAIL", "A.X11": "BOTTOM_RAIL", "A.X15": "GND", "B.X5": "TOP_RAIL", "...": "..."}}
+```
+
+```bash
+python3 tools/routing_lab/lab.py arrangement list                       # each one: feed, who can answer for it
+python3 tools/routing_lab/lab.py arrangement show v6_rails_on_chips     # pin by pin; changed pins starred
+python3 tools/routing_lab/lab.py arrangement check my_idea.json         # every mistake, each with its pin or name
+python3 tools/routing_lab/lab.py arrangement score v6_rails_on_chips    # the solver, against V5, on the same netlists
+```
+
+To try an idea: write the file, `check` it, pick it on the page. A file with
+a mistake is listed greyed with its problems; nothing runs on it, and
+nothing else stops.
+
+**Who can answer for it.** The firmware's router can route an arrangement
+only when that is V5 with pins taken away (`"remove"`, or pins set to
+`null`): the harness blocks those pins and the real router routes around
+them. `lab.py run --arrangement`, the page's Run and the ranking do that.
+Any arrangement that moves a pin, adds a chip or adds a node is the solver's
+alone, because the router has V5's chips and pins as literals in its code.
+
+**`arrangement score NAME [--against v5]`** asks the solver the same netlists
+on both. The netlists are the firmware's own: each case is run once by the
+harness on V5's copper with NAME's feed, for the bridges the firmware allows
+and the nets it makes of them, and then both arrangements are asked. It
+prints both verdicts and both fewest-crosspoint counts for every case, then
+what fits on only one, and the crosspoints each needs over the cases proved
+on both. `--grow N` also grows N of the edge class's random lists on each
+(the longest prefix proved routable; about a minute and a half a list an
+arrangement). On the page, pick the arrangement, open a case of a run with
+the same feed, and ask under "ceiling": the solver's routing is drawn as the
+picture, and the case panel says whose routing it is.
+
+**What the solver's answer is worth for V6.** It says a routing exists on
+that copper with each bridge on its own path of at most four crosspoints, or
+proves there is none. A V6 router may find less than that, and one with
+longer paths or other rules may find more. It knows nothing of sense taps,
+of what the firmware reserves, or of resistance beyond counting crosspoints.
+So read a score as: this copper can carry these netlists, and for this many
+crosspoints at best.
+
+## The lane ranking
+
+Which wires could a board do without? The wires ranked are the ones that are
+only copper between chips: the 48 lanes between breadboard chips, the 32
+lanes from a breadboard chip to an SF chip, the 8 bounce rows and the 6 hub
+lanes. That is 94 on V5. A node's own wire is not ranked.
+
+```bash
+python3 tools/routing_lab/lab.py rank                    # the router's part, about three minutes
+python3 tools/routing_lab/lab.py rank --needed           # and the solver's; see below for how long
+python3 tools/routing_lab/lab.py rank --wires KL,AK --classes dense
+```
+
+It routes the battery on the arrangement (`v6_feed_off` unless
+`--arrangement` says otherwise: V6 takes the probe feed off the fabric),
+then again without each wire in turn, and prints one line a wire. The
+ranking is kept under `build/rank/`, one file a router and arrangement.
+
+There are two answers, and they are different questions:
+
+- **loss**: what the firmware's router loses without the wire, in primaries
+  routed and in cases fully routed. **It is signed.** With a wire gone the
+  router sometimes routes more, because its search takes another turn, and
+  that is printed as a negative loss, not as zero. A loss is about this
+  router. It is not the answer to "is the wire needed".
+- **needed by / not needed / unknown** (`--needed`): for every netlist the
+  solver is asked whether it can be routed without the wire at all. "Needed"
+  is said only on a proof that it cannot. "Not needed" is said only on a
+  routing that does without it. Anything else, a solver out of time
+  included, is "unknown" and counts as neither.
+
+**Usage is no guide.** The table has how many cases use each wire, because
+people ask, but it follows the router's search order. With the feed off the
+least used wire, IJ, is in 10 of 256 cases and costs the router nine
+primaries.
+
+**One wire at a time.** Every line is about taking that one wire away. Two
+wires that are each not needed may be needed together. To ask about a set,
+take them all away and run: on the page's Ranking tab, click the wires (in
+the drawing or the table), then "Run without these". The run is on the
+arrangement "NAME without A, B"; the text of a file for it is shown under
+the Arrangement picker, to save under `arrangements/` if it is worth
+keeping, and then `arrangement score` can ask the solver about it.
+
+`--needed` asks only where it has to (a wire no known routing of the case
+touches is settled without a question), about a second a question. Over its
+default classes (dense, real, typical and stress, 244 netlists) it took 40
+minutes on top of the router's three; with `--needed-classes
+dense,real,stress` (44 netlists), six. Run nothing else heavy beside it: an
+answer that runs out of its 5 s is "unknown". A ranking made again without
+`--needed` keeps what the solver proved before.
+
+**The Ranking tab** shows the file for the Router named and the arrangement
+picked: the fabric tinted by the router's loss or by how many netlists need
+each wire (dim through teal to yellow; nothing there is red), and the table,
+sorted by a click on a heading. "Rank now" makes the router's part from the
+page, with its progress; the solver's part is started from the command line.
+
 ## Checked against a board
 
 On 2026-11-21 a V5 was flashed with this tree's firmware (commit 0621e4f,
@@ -387,6 +554,20 @@ needs no board while the capture's commit still describes the router.
   and buses on the root sheet, as r7 uses them. A board drawn another way
   (crossbars on a sub-sheet, for instance) may light less than it should;
   the fabric tab does not depend on it.
+- **The firmware's router on a changed fabric.** It is never run on one. It
+  has V5's chips and pins written into it, so an arrangement that moves a
+  pin is answered by the solver alone, and a pin taken away is the only
+  change the router ever sees.
+- **What a V6 router will do.** The solver's answer for a changed
+  arrangement is a ceiling for routers that keep the path shape. A real V6
+  router may do worse than it, and one with other rules may do better.
+- **Special nodes in the ranking.** Only lanes, bounce rows and hub lanes
+  are ranked. Whether a board could lose AREF or ADC4 depends on how often
+  people use them, which a routing battery does not know.
+- **A board with the feed off, or with a wire cut.** The board check is of
+  V5 as built. Runs with the feed off the fabric or with pins blocked have
+  no board behind them; no crosspoint was ever closed on a blocked pin in
+  any run, and that is all that is claimed.
 
 ## Findings so far (router at 5374d38, from the host harness)
 
@@ -463,6 +644,65 @@ From the ceilings (2026-11-21; see "Ceilings" for what each number is worth):
     chip I by the same pin, but all three could have been made at once, four
     crosspoints each, one through each of the chips I, J and K.
 
+For V6 (2026-11-22, router at 5374d38; each says its arrangement, its engine
+and where the probe feed is):
+
+11. **The probe feed costs the router one case, and the copper some room.**
+    The firmware's router, V5's copper, 256 cases of dense, real, typical,
+    stress and edge: 244 fully routed with the feed on the fabric, 245 with
+    it off (`v6_feed_off`); the one is `k_rows_overflow_metric`, which is
+    proved not routable with the feed and routes without it. The exact
+    solver on V5's copper, growing the edge class's first two random lists:
+    the first reaches 54 bridges with the feed (`edge_1_0`) and 54 without,
+    the 55th proved not to fit either way; the second reaches 54 with the
+    feed (`edge_1_1`, the 55th proved not to fit) and 62 without (the 63rd
+    not known in 20 s).
+12. **Rails and GND on every breadboard chip save crosspoints and lose no
+    netlist.** The exact solver, firmware-shaped paths, feed off,
+    `v6_rails_on_chips` against V5's copper, the 44 netlists of dense, real
+    and stress (`lab.py arrangement score v6_rails_on_chips --grow 2`): all
+    44 are routable on both; over the 38 whose fewest is proved on both, 861
+    crosspoints against 955 (`rail_stacking_light` 6 against 10,
+    `k_rows_overflow_metric` 18 against 26, `gnd_spread` 8 against at most
+    16). The twelve lanes given up cost nothing here. Two random lists grown
+    on each: 54 bridges on both for the first (the 55th proved not to fit on
+    either), 65 against 62 for the second (the next not known in 20 s on
+    either).
+13. **The router is not monotone in the copper.** The firmware's router,
+    `v6_feed_off`, 256 cases, one wire taken away at a time (`lab.py rank`):
+    it routes more primaries without 13 of the 94 wires, the same without
+    24, fewer without 57. Without `/DG0` it routes four more. So a loss, and
+    a gain, is this router's search taking another turn.
+14. **For this router the lanes between breadboard chips are nearly free,
+    one at a time, and the lanes to the SF chips are not.** Same run.
+    Primaries lost, summed over taking one wire away at a time: the 48 lanes
+    between breadboard chips -1 in all (each between -4 and +4); the 32
+    lanes to SF chips +151; the 8 bounce rows +22; the 6 hub lanes +32. The
+    most costly: `CI` +10, `IJ` +9, `CL`, `JL` and `BL` +8.
+15. **Hardly any single wire is needed by the copper.** The exact solver,
+    firmware-shaped paths, 5 s a question, `v6_feed_off`, the 244 netlists
+    of dense, real, typical and stress, one wire taken away at a time
+    (`lab.py rank --needed`, 43 minutes): 86 of the 94 wires are needed by
+    no netlist, each of the 244 having a routing without the wire. The eight
+    lanes into K (`AK` to `HK`) are each proved needed by one netlist,
+    `k_rows_overflow_metric`, which puts twelve rows on K. No answer was
+    left unknown. (A first run, over the 44 netlists of dense, real and
+    stress, left one: `max_duplicates` without `AK`. Answers near the limit
+    vary from run to run.) `IJ`, the hub lane the router loses nine
+    primaries without, is needed by none: the netlists the router loses
+    there have routings that do without it.
+16. **With the feed off the router leaves one more unclaimed pin.** The
+    firmware's router, `v6_feed_off`: `stress/six_hub_lanes` closes chip D's
+    x7 for net 6 while the chip status shows it free (the kind finding 2
+    describes; `edge_1_8` shows one on V5 as built). See it: `lab.py run
+    --arrangement v6_feed_off --classes stress --case six_hub_lanes`.
+
+What 13 to 15 say together: a wire's loss in the router's column is about
+the router, and most of it would come back with a router that searched
+differently. What the copper needs, one wire at a time, is the lanes into K
+when K is full. Which sets of wires can go together is not answered by
+either column: take a set away and run it, or score it.
+
 ## How it is built
 
 `harness/build.sh <src> <out>` compiles `NetsToChipConnections.cpp`,
@@ -479,6 +719,16 @@ search is `solver/solve.py`, a CP-SAT model that knows nothing of the lab or
 of V5, run as a separate process with the Python of `build/solver-venv`.
 `edge.py` grows the edge cases. `board.py` turns a board's own `b` report
 into a result the page can show.
+
+`arrangement.py` reads an arrangement file into the same tables
+`fabric_v5.py` has, says what differs from V5, and says whether the router
+can run it (then with which pins blocked). The copper searches, the solver's
+problem and the drawing (`fabric_view.py`) all take those tables, so none of
+them knows V5 from any other arrangement. `score.py` asks two arrangements
+the same netlists; `rank.py` is the ranking. The router's side of an
+arrangement is two lines of the harness's own protocol: `probe 0 x` (the
+feed off) and `block` (a pin claimed for a net that is in no netlist, so
+the router sees it as taken).
 
 Sanitizers are on (ASan and UBSan, without the enum and bool checks, which
 the router's `memset(-1)` idiom trips on every case).

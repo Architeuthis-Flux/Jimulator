@@ -313,7 +313,8 @@ def cmd_export(args):
 def cmd_clean(args):
     import shutil
     freed = 0
-    # build/sheet stays (small, slow to remake) and so does build/solver-venv (it needs the network)
+    # build/sheet stays (small, slow to remake), and so do build/solver-venv (it needs the network) and build/rank
+    # (a ranking with the solver's columns is hours of work)
     for name in ("results", "variants", "bin", "ceiling"):
         path = variants.BUILD_DIR / name
         if path.is_dir():
