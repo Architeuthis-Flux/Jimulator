@@ -12,8 +12,10 @@ out: {"verdict": "routable" | "not_routable" | "unknown", "fewest_proved": bool,
       "closed": [[chip, x, y, net]], "seconds": taken}
 
 "copper": every bridge's two wires end up joined by its net's closed
-crosspoints, by any way through the copper. With "fewest" false the search
-stops at the first routing it finds. A malformed problem is exit 2.
+crosspoints, by any way through the copper. "firmware": every bridge is its
+own path of at most four crosspoints (what the firmware's pathStruct holds);
+paths of one net may share copper. With "fewest" false the search stops at the
+first routing it finds. A malformed problem is exit 2.
 """
 import collections
 import json
@@ -21,6 +23,8 @@ import sys
 import time
 
 from ortools.sat.python import cp_model
+
+MAX_HOPS = 4                                        # crosspoints in one firmware path
 
 
 def read(text):
@@ -57,8 +61,6 @@ def components(bridges):
 
 
 def solve(bridges, terminals, crosspoints, rule, seconds, fewest):
-    if rule != "copper":
-        raise ValueError("rule %r is not built yet" % rule)
     nets = sorted({net for _, _, net in bridges})
     wires = sorted({w for c in crosspoints for w in c[3:]} | set(terminals))
     m = cp_model.CpModel()
@@ -85,23 +87,38 @@ def solve(bridges, terminals, crosspoints, rule, seconds, fewest):
                     if w not in terminals:
                         m.AddImplication(closed[i, net], owns[w, net])
 
-    # any copper: each group of wires its bridges tie together is one tree. One
-    # of them sends a unit of flow to each of the others, through the net's
-    # closed crosspoints only.
-    for net, group in components(bridges):
-        need, root = len(group) - 1, group[0]
-        flow = {}                                   # (crosspoint, wire) -> the flow leaving that wire through it
+    def flows(net, most, leaves):
+        """Flow through `net`'s closed crosspoints, at most `most` units each
+        way through one; leaves(wire) is what a wire sends out more than it
+        takes in. Returns (the variables, what flows into each wire)."""
+        flow, into = {}, {}                         # (crosspoint, wire) -> the flow leaving that wire through it
         for (i, n), shut in closed.items():
             if n == net:
                 wa, wb = crosspoints[i][3:]
-                flow[i, wa] = m.NewIntVar(0, need, "")
-                flow[i, wb] = m.NewIntVar(0, need, "")
-                m.Add(flow[i, wa] + flow[i, wb] <= need * shut)
+                flow[i, wa] = m.NewIntVar(0, most, "")
+                flow[i, wb] = m.NewIntVar(0, most, "")
+                m.Add(flow[i, wa] + flow[i, wb] <= most * shut)
         for w in wires:
             if may(w, net):
-                out = sum(flow[i, w] for i, _ in at[w] if (i, w) in flow)
-                into = sum(flow[i, o] for i, o in at[w] if (i, o) in flow)
-                m.Add(out - into == (need if w == root else -1 if w in group else 0))
+                into[w] = sum(flow[i, o] for i, o in at[w] if (i, o) in flow)
+                m.Add(sum(flow[i, w] for i, _ in at[w] if (i, w) in flow) - into[w] == leaves(w))
+        return flow, into
+
+    if rule == "copper":
+        # any copper: each group of wires its bridges tie together is one tree.
+        # One of them sends a unit of flow to each of the others.
+        for net, group in components(bridges):
+            flows(net, len(group) - 1, lambda w: len(group) - 1 if w == group[0] else -1 if w in group else 0)
+    else:
+        # firmware-shaped: every bridge is a path of its own, one unit from its
+        # first wire to its second, through at most MAX_HOPS crosspoints and
+        # into no wire on the way twice. Paths of one net may share copper.
+        for a, b, net in bridges:
+            flow, into = flows(net, 1, lambda w: 1 if w == a else -1 if w == b else 0)
+            m.Add(sum(flow.values()) <= MAX_HOPS)
+            for w, arriving in into.items():
+                if w not in (a, b):
+                    m.Add(arriving <= 1)
 
     m.Minimize(sum(closed.values()))
     solver = cp_model.CpSolver()

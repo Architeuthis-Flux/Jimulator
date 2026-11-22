@@ -148,5 +148,38 @@ class Copper(unittest.TestCase):
         self.assertEqual(json.loads(p.stdout)["verdict"], "routable")
 
 
+@unittest.skipUnless(ceiling.solver_installed(), NEEDS_SOLVER)
+class FirmwareShaped(unittest.TestCase):
+    def test_a_direct_path_is_two_crosspoints(self):
+        a = solve(TINY, [(1, 3, 6), (2, 4, 7)], "firmware")
+        self.assertEqual((a["verdict"], a["fewest_proved"], len(a["closed"])), ("routable", True, 4))
+
+    def test_six_crosspoints_is_copper_but_not_a_firmware_path(self):
+        self.assertEqual(solve(CHAIN, [(1, 4, 6)], "firmware")["verdict"], "not_routable")
+        self.assertEqual(solve(CHAIN, [(1, 4, 6)], "copper")["verdict"], "routable")
+
+    def test_paths_of_one_net_share_copper(self):
+        a = solve(TINY, [(1, 3, 6), (1, 4, 6)], "firmware")           # both leave row 1 by the same crosspoint
+        self.assertEqual(len(a["closed"]), 3)
+
+    def test_every_bridge_needs_its_own_path(self):
+        mid = types.SimpleNamespace(**{**vars(CHAIN), "Y_NET": {**CHAIN.Y_NET, "B": ["2"]}, "NODE_NET": {1: "1", 2: "2", 4: "4"}})
+        self.assertEqual(solve(mid, [(1, 2, 6), (1, 4, 6)], "firmware")["verdict"], "not_routable")   # 1-4 alone is six
+        self.assertEqual(solve(mid, [(1, 2, 6), (2, 4, 6)], "firmware")["verdict"], "routable")       # 2-4 is four
+        self.assertEqual(len(solve(mid, [(1, 2, 6), (1, 4, 6)], "copper")["closed"]), 6)              # the same tree
+
+    def test_one_lane_two_nets(self):
+        self.assertEqual(solve(ONE_LANE, [(1, 3, 6), (2, 4, 7)], "firmware")["verdict"], "not_routable")
+
+    def test_a_bridge_on_one_wire_does_not_make_a_netlist_unroutable(self):          # Review Focus 4
+        same = types.SimpleNamespace(**{**vars(TINY), "NODE_NET": {1: "1", 9: "1", 3: "3"}})
+        for rule in ("firmware", "copper"):
+            self.assertEqual(solve(same, [(1, 9, 6), (1, 3, 6)], rule)["verdict"], "routable", rule)
+
+    def test_stopping_at_the_first_routing(self):
+        a = ceiling.ask(PROBLEM, "firmware", fewest=False)
+        self.assertEqual((a["verdict"], a["fewest_proved"]), ("routable", False))
+
+
 if __name__ == "__main__":
     unittest.main()
