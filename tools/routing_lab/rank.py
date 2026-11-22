@@ -10,8 +10,10 @@ Two different questions, kept apart:
 - What does the firmware's router lose without the wire? `removal` routes
   the battery again with the wire taken away. The loss is signed: this router
   sometimes routes more without a wire.
-- Does the copper need the wire? That is asked of the exact solver, and is
-  said only on a proof.
+- Does the copper need the wire? `needed` asks the exact solver whether each
+  netlist can be routed without it at all. "Needed" is said only on a proof,
+  "not needed" only on a routing that does without it; anything else is
+  "unknown".
 
 How often a wire is used answers neither: it follows the router's search
 order.
@@ -20,6 +22,7 @@ import json
 import re
 
 import arrangement
+import ceiling
 import copper
 import lab
 import runner
@@ -134,6 +137,81 @@ def removal(v, cases, a, wires=None, progress=None):
             progress(done, len(names), name)
     return {"arrangement": a.name, "feed": a.feed, "engine": "router", "variant": {"name": v.name, "hash": v.hash},
             "cases": len(cases), "baseline": _totals(base), "wires": entries}
+
+
+def _on(pins):
+    """A test for crosspoints [chip, x, y, ...]: is it on one of these pins."""
+    pins = {tuple(p) for p in pins}
+    return lambda c: (c[0], "X", c[1]) in pins or (c[0], "Y", c[2]) in pins
+
+
+def need(given, kept, wire_pins, rule="firmware", seconds=5.0):
+    """Does a netlist need a wire: ("no", a routing without it), ("yes",
+    None) or ("unknown", None). `given` is the problem (ceiling.problem),
+    `kept` a routing known to satisfy it ([[chip, x, y, net]]), `wire_pins`
+    the wire's pins.
+
+    A kept routing with no crosspoint on the pins settles it, and nothing is
+    asked. Else the solver is asked the problem without the crosspoints on
+    those pins: a routing that passes the lab's own check is "no"; a proof
+    that there is none is "yes"; out of time, an error, or an answer the
+    check does not pass is "unknown", never either."""
+    on = _on(wire_pins)
+    if not any(on(c) for c in kept):
+        return "no", kept
+    less = dict(given, crosspoints=[c for c in given["crosspoints"] if not on(c)])
+    said = ceiling.ask(less, rule, seconds, fewest=False)
+    if said.get("error"):
+        return "unknown", None
+    if said["verdict"] == "routable" and not ceiling.faults(less, said["closed"], rule):
+        return "no", said["closed"]
+    return ("yes", None) if said["verdict"] == "not_routable" else ("unknown", None)
+
+
+def needed(v, cases, a, ranking, rule="firmware", seconds=5.0, progress=None):
+    """`ranking` (from `removal`) with the solver's word on every wire:
+    "needed_by" (the cases proved not routable without it), "not_needed" (how
+    many have a routing without it) and "unknown" (the cases with neither).
+    Adds "rule", "seconds" and "needed_cases" (the cases with a netlist), and
+    the engine becomes "router and solver".
+
+    For each case the routing to start from is the router's own primary paths
+    on `a` when they pass the lab's check (its duplicates are not what the
+    netlist asks for), else one the solver finds; a case with neither is
+    unknown for every wire. The solver is asked of a wire only when every
+    routing known for the case touches it, and what it finds is kept for the
+    wires after. progress(done, of, case) is called after each case."""
+    g = ceiling.graph(a)
+    entries = [dict(w, needed_by=[], not_needed=0, unknown=[]) for w in ranking["wires"]]
+    results = runner.run_battery(v, cases, arrangement=a)
+    counted = 0
+    for done, result in enumerate(results, 1):
+        paint = copper.paint(result)
+        given = ceiling.problem(paint, g)
+        if given is not None and not given["unplaced"]:
+            counted += 1
+            known = [[[c["chip"], c["x"], c["y"], c["net"]] for c in paint["crosspoints"] if not c["dup"]]]
+            if ceiling.faults(given, known[0], rule):               # the router left a bridge: has the netlist a routing at all?
+                said = ceiling.ask(given, rule, seconds, fewest=False)
+                good = said["verdict"] == "routable" and not said.get("error") and not ceiling.faults(given, said["closed"], rule)
+                known = [said["closed"]] if good else []
+            for w in entries:
+                on = _on(w["pins"])
+                if not known:
+                    verdict = "unknown"
+                elif any(not any(on(c) for c in routing) for routing in known):
+                    verdict = "no"
+                else:
+                    verdict, found = need(given, known[0], w["pins"], rule, seconds)
+                    if found is not None:
+                        known.insert(0, found)
+                if verdict == "no":
+                    w["not_needed"] += 1
+                else:
+                    w["needed_by" if verdict == "yes" else "unknown"].append(result["case"])
+        if progress:
+            progress(done, len(results), result["case"])
+    return dict(ranking, wires=entries, engine="router and solver", rule=rule, seconds=seconds, needed_cases=counted)
 
 
 def path(variant_hash, name):

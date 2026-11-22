@@ -569,28 +569,43 @@ def cmd_rank(args):
     if case_list is None:
         return 2
     a = arrangement.load(args.arrangement)
+    if args.needed and not ceiling.solver_installed():
+        print("whether a wire is needed is asked of the solver; install it once with: " + ceiling.SETUP)
+        return 1
     v = variants.resolve(args.variant)
     names = [w for w in (args.wires or "").split(",") if w] or None
-    said = lambda done, of, wire: print("%d/%d %s" % (done, of, wire), file=sys.stderr, flush=True)
+    said = lambda done, of, item: print("%d/%d %s" % (done, of, item), file=sys.stderr, flush=True)
     ranking = rank.removal(v, case_list, a, wires=names, progress=said)
+    rank.save(ranking)                              # the router's part is kept even if the solver's is stopped
+    by_loss = lambda w: (w["loss"]["primaries"], w["loss"]["fully_routed"])
+    order, more, columns = by_loss, lambda w: (), ()
+    if args.needed:
+        asked = [c for c in battery([c for c in args.needed_classes.split(",") if c]) if not args.case or c.name == args.case]
+        ranking = rank.needed(v, asked, a, ranking, seconds=args.seconds, progress=said)
+        order = lambda w: (len(w["needed_by"]), len(w["unknown"])) + by_loss(w)
+        more, columns = lambda w: (len(w["needed_by"]), w["not_needed"], len(w["unknown"])), ("needed by", "not needed", "unknown")
     where = rank.save(ranking)
     if args.json:
         with open(args.json, "w") as f:
             json.dump(ranking, f)
     base = ranking["baseline"]
-    print("arrangement: %s   engine: the firmware's router   variant: %s (%s)   %d cases" % (
-        what(a), v.name, v.hash[:12], ranking["cases"]))
+    print("arrangement: %s   engine: the firmware's router%s   variant: %s (%s)   %d cases" % (
+        what(a), " for the loss, the exact solver (firmware-shaped paths, %g s a question) for what is needed, over %d cases"
+        % (args.seconds, ranking["needed_cases"]) if args.needed else "", v.name, v.hash[:12], ranking["cases"]))
     print("with every wire: %d primaries routed, %d cases fully routed, %d crosspoints" % (
         base["primaries"], base["fully_routed"], base["crosspoints"]))
-    print("%-8s %-28s %8s %10s %7s %8s %6s %7s" % ("kind", "wire", "used in", "primaries", "cases", "xpoints", "worse", "better"))
-    for w in sorted(ranking["wires"], key=lambda w: (w["loss"]["primaries"], w["loss"]["fully_routed"])):
-        print("%-8s %-28s %8d %10s %7s %8s %6d %7d" % (
-            w["kind"], w["wire"], w["usage"]["cases"], signed(w["loss"]["primaries"]), signed(w["loss"]["fully_routed"]),
-            signed(w["loss"]["crosspoints"]), len(w["worse"]), len(w["better"])))
+    line = "%-8s %-28s %8s %10s %7s %8s %6s %7s" + " %10s" * len(columns)
+    print(line % (("kind", "wire", "used in", "primaries", "cases", "xpoints", "worse", "better") + columns))
+    for w in sorted(ranking["wires"], key=order):
+        print(line % ((w["kind"], w["wire"], w["usage"]["cases"], signed(w["loss"]["primaries"]), signed(w["loss"]["fully_routed"]),
+                       signed(w["loss"]["crosspoints"]), len(w["worse"]), len(w["better"])) + more(w)))
     print("lost without the wire: primaries routed, cases fully routed; xpoints: crosspoints more; worse, better: cases with"
           " fewer or more primaries routed")
     print("usage counts follow the router's search order and say nothing of need; a negative loss is the router doing better"
           " without the wire")
+    if args.needed:
+        print("needed: the exact solver proves the netlist cannot be routed without the wire (firmware-shaped paths). "
+              "not needed: a routing without it exists. The router's loss is beside these, not instead of them.")
     print("written to %s" % where)
     return 0
 
@@ -690,6 +705,11 @@ def main(argv):
     rnk.add_argument("--case", help="only this case")
     rnk.add_argument("--wires", help="comma list of wires to rank (every lane, bounce row and hub lane when not given)")
     rnk.add_argument("--json", help="write the ranking to this file as well")
+    rnk.add_argument("--needed", action="store_true",
+                     help="also ask the exact solver, case by case, whether the netlist can be routed without each wire at all")
+    rnk.add_argument("--needed-classes", default="dense,real,typical,stress",
+                     help="the classes whose netlists are asked (over an hour for these; a quarter of one for dense,real,stress)")
+    rnk.add_argument("--seconds", type=float, default=5.0, help="the solver's limit for one question of --needed (5)")
     rnk.set_defaults(fn=cmd_rank)
     args = ap.parse_args(argv)
     try:

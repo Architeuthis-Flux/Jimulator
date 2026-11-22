@@ -313,6 +313,39 @@ class Cli(unittest.TestCase):
             self.assertEqual(code, 2, out)
             self.assertIn("arrangement score v6_rails_on_chips", out)   # the router cannot route it; the solver's command is named
 
+    def test_rank_needed_puts_the_proof_beside_the_loss(self):
+        def needed(v, case_list, a, ranking, rule="firmware", seconds=5.0, progress=None):
+            progress(1, 1, case_list[0].name)
+            by = {"KL": ([], 21, []), "AK": (["k_rows_overflow_metric", "k_rows_all_eight"], 19, []), "IJ": ([], 20, ["nano_dense_metric"])}
+            return dict(ranking, engine="router and solver", rule=rule, seconds=seconds, needed_cases=len(case_list), wires=[
+                dict(w, needed_by=by[w["wire"]][0], not_needed=by[w["wire"]][1], unknown=by[w["wire"]][2]) for w in ranking["wires"]])
+
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(rank, "DIR", lab.Path(tmp) / "rank"), \
+                mock.patch.object(ceiling, "solver_installed", return_value=True), \
+                mock.patch.object(rank, "needed", side_effect=needed) as asked:
+            code, out = run(["rank", "--classes", "dense", "--wires", "AK,IJ,KL", "--needed", "--needed-classes", "dense,real",
+                             "--seconds", "7"])
+            self.assertEqual(code, 0, out)
+            self.assertEqual((len(asked.call_args.args[1]), asked.call_args.kwargs["seconds"]), (23, 7.0))     # dense and real
+            self.assertEqual(asked.call_args.args[2].name, "v6_feed_off")
+            header = [l for l in out.splitlines() if l.startswith("kind")][0]
+            for column in ("needed by", "not needed", "unknown"):
+                self.assertIn(column, header)
+            order = [l.split()[1 if l.startswith("hub") else 2] for l in out.splitlines() if l.startswith(("hub ", "sf lane "))]
+            self.assertEqual(order, ["KL", "IJ", "AK"])                 # nothing needs it first, then an unknown, then needed
+            self.assertIn("needed: the exact solver proves the netlist cannot be routed without the wire (firmware-shaped paths). "
+                          "not needed: a routing without it exists. The router's loss is beside these, not instead of them.", out)
+            self.assertIn("1/1 same_chip_pairs", out)
+            with open(next((lab.Path(tmp) / "rank").glob("*.json"))) as f:
+                doc = json.load(f)
+            self.assertEqual((doc["engine"], doc["needed_cases"], doc["wires"][0]["needed_by"]),
+                             ("router and solver", 23, ["k_rows_overflow_metric", "k_rows_all_eight"]))
+        with mock.patch.object(ceiling, "SOLVER_PYTHON", lab.Path("/nonexistent/python")), \
+                mock.patch.object(rank, "removal", side_effect=AssertionError("ranked before saying the solver is missing")):
+            code, out = run(["rank", "--classes", "dense", "--wires", "KL", "--needed"])
+        self.assertEqual(code, 1, out)
+        self.assertIn("python3 tools/routing_lab/lab.py solver-setup", out)
+
     def test_build_prints_the_binary(self):
         code, out = run(["build"])
         self.assertEqual(code, 0)

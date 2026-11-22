@@ -8,11 +8,15 @@ from unittest import mock
 
 import arrangement
 import cases
+import ceiling
 import copper
 import lab
 import rank
 import runner
 import variants
+from cases import fabric_v5
+from tests.test_ceiling import TINY, dense, tiny_paint
+from tests.test_solver import NEEDS_SOLVER, ONE_LANE
 
 V = None
 
@@ -103,6 +107,107 @@ class Removal(unittest.TestCase):
                          sum(1 for x in base if copper.paint(x)["wires"]["AK"]["nets"]))
         self.assertGreater(rank.usage(base)["AK"]["primary"], 0)
         self.assertEqual(set(r["wires"][0]["by_class"]), {"dense", "real"})
+
+
+class Need(unittest.TestCase):                                         # tiny fabrics from tests.test_ceiling
+    def setUp(self):
+        self.g = ceiling.graph(TINY)
+        self.given = ceiling.problem(tiny_paint([(1, 3, 6, "unrouted")]), self.g)
+        self.on_l0 = [["A", 0, 0, 6], ["B", 0, 0, 6]]
+        self.l1 = [("A", "X", 1), ("B", "X", 1)]
+        self.l0 = [("A", "X", 0), ("B", "X", 0)]
+
+    def test_a_routing_that_never_touches_the_wire_settles_it_unasked(self):
+        with mock.patch.object(ceiling, "ask", side_effect=AssertionError("asked")):
+            self.assertEqual(rank.need(self.given, self.on_l0, self.l1), ("no", self.on_l0))
+            self.assertEqual(rank.need(self.given, self.on_l0, [list(p) for p in self.l1]), ("no", self.on_l0))   # as a file has them
+
+    def test_unknown_is_neither_yes_nor_no(self):                       # Review Focus 6
+        for answer in ({"verdict": "unknown", "closed": []}, {"verdict": "unknown", "closed": [], "error": "the solver exited with 3"},
+                       {"verdict": "not_routable", "closed": [], "error": "the solver exited with 3"},
+                       {"verdict": "routable", "closed": []}):          # the last fails the lab's own check
+            with mock.patch.object(ceiling, "ask", return_value=answer):
+                self.assertEqual(rank.need(self.given, self.on_l0, self.l0), ("unknown", None))
+
+    def test_the_solver_is_asked_without_the_wires_crosspoints(self):
+        with mock.patch.object(ceiling, "ask", return_value={"verdict": "not_routable", "closed": []}) as asked:
+            self.assertEqual(rank.need(self.given, self.on_l0, self.l0), ("yes", None))
+        offered = asked.call_args.args[0]["crosspoints"]
+        self.assertEqual([c for c in offered if c[3] == "L0" or c[4] == "L0"], [])
+        self.assertTrue([c for c in offered if c[3] == "L1"])           # and nothing else is held back
+        self.assertIs(asked.call_args.kwargs["fewest"], False)        # "is there a routing" is all that is asked
+        on_l1 = [["A", 1, 0, 6], ["B", 1, 0, 6]]
+        with mock.patch.object(ceiling, "ask", return_value={"verdict": "routable", "closed": on_l1}):
+            self.assertEqual(rank.need(self.given, self.on_l0, self.l0), ("no", on_l1))
+
+    @unittest.skipUnless(ceiling.solver_installed(), NEEDS_SOLVER)
+    def test_with_the_real_solver(self):
+        self.assertEqual(rank.need(self.given, self.on_l0, self.l0)[0], "no")           # lane L1 does as well
+        one = ceiling.problem(tiny_paint([(1, 3, 6, "unrouted")], fabric=ONE_LANE), ceiling.graph(ONE_LANE))
+        self.assertEqual(rank.need(one, self.on_l0, self.l0), ("yes", None))            # there is no other lane
+
+
+class NeededByHand(unittest.TestCase):
+    """rank.needed with the solver replaced: what is asked, and what is not."""
+
+    def ranking(self, a, *names):
+        return {"arrangement": a.name, "engine": "router", "wires": [dict(w) for w in rank.wires(a) if w["wire"] in names]}
+
+    def test_a_routing_found_for_one_wire_settles_the_next_unasked(self):
+        off, two = arrangement.load("v6_feed_off"), cases.Case("two", "x", [(1, 8, -1), (2, 9, -1)])
+        paint = copper.paint(runner.run_battery(V, [two], arrangement=off)[0])
+        net = {(b["n1"], b["n2"]): b["net"] for b in paint["bridges"]}
+        lanes = lambda dup: {copper.wire(c["chip"], "X", c["x"]) for c in paint["crosspoints"] if bool(c["dup"]) == dup}
+        self.assertEqual(lanes(False), {"/AB0", "/AB1"})                # what the router does today; the test rests on it
+        self.assertIn("/AC0", lanes(True))                              # a duplicate path is not what the netlist needs
+        x = lambda chip, wire: fabric_v5.X_NET[chip].index(wire)
+        round_about = [["A", x("A", "/AC0"), 1, net[1, 8]], ["C", x("C", "/AC0"), 0, net[1, 8]], ["C", x("C", "/BC0"), 0, net[1, 8]],
+                       ["B", x("B", "/BC0"), 1, net[1, 8]],            # 1-8 by way of chip C's bounce row,
+                       ["A", x("A", "/AD0"), 2, net[2, 9]], ["D", x("D", "/AD0"), 0, net[2, 9]], ["D", x("D", "/BD0"), 0, net[2, 9]],
+                       ["B", x("B", "/BD0"), 2, net[2, 9]]]            # 2-9 by way of chip D's
+        seen = []
+        with mock.patch.object(ceiling, "ask", return_value={"verdict": "routable", "closed": round_about}) as asked:
+            r = rank.needed(V, [two], off, self.ranking(off, "/AB0", "/AB1", "KL", "/AC0"), seconds=3,
+                            progress=lambda done, of, case: seen.append((done, of, case)))
+        by = {w["wire"]: w for w in r["wires"]}
+        # asked of /AB0 only: KL is in no routing, /AB1 is not in the one found, /AC0 is in the router's duplicates alone
+        self.assertEqual(asked.call_count, 1)
+        self.assertEqual([(by[n]["needed_by"], by[n]["not_needed"], by[n]["unknown"]) for n in ("/AB0", "/AB1", "KL", "/AC0")],
+                         [([], 1, [])] * 4)
+        self.assertEqual((r["engine"], r["rule"], r["seconds"], r["needed_cases"]), ("router and solver", "firmware", 3, 1))
+        self.assertEqual(seen, [(1, 1, "two")])
+        with mock.patch.object(ceiling, "ask", return_value={"verdict": "not_routable", "closed": []}) as asked:
+            r = rank.needed(V, [two], off, self.ranking(off, "/AB0", "/AB1", "KL"))
+        self.assertEqual([(w["wire"], w["needed_by"], w["not_needed"]) for w in r["wires"]],
+                         [("/AB0", ["two"], 0), ("/AB1", ["two"], 0), ("KL", [], 1)])
+        self.assertEqual(asked.call_count, 2)
+
+    def test_a_case_with_no_routing_at_all_is_unknown_for_every_wire(self):      # Review Focus 6
+        over = dense("k_rows_overflow_metric")                          # with the feed on, the router leaves a bridge of it
+        with mock.patch.object(ceiling, "ask", return_value={"verdict": "unknown", "closed": []}) as asked:
+            r = rank.needed(V, [over], arrangement.V5, self.ranking(arrangement.V5, "AK", "KL", "IJ"))
+        self.assertEqual(asked.call_count, 1)                           # once, for a routing to start from; not once a wire
+        self.assertEqual([(w["needed_by"], w["not_needed"], w["unknown"]) for w in r["wires"]],
+                         [([], 0, ["k_rows_overflow_metric"])] * 3)
+        self.assertEqual(r["needed_cases"], 1)
+        off = arrangement.load("v6_feed_off")                           # a case with no bridge asks nothing of any wire
+        with mock.patch.object(ceiling, "ask", side_effect=AssertionError("asked")):
+            r = rank.needed(V, [cases.Case("none", "x", [])], off, self.ranking(off, "AK", "KL"))
+        self.assertEqual((r["needed_cases"], [(w["needed_by"], w["not_needed"], w["unknown"]) for w in r["wires"]]),
+                         (0, [([], 0, [])] * 2))
+
+
+@unittest.skipUnless(ceiling.solver_installed(), NEEDS_SOLVER)
+class Needed(unittest.TestCase):
+    def test_every_lane_into_k_is_needed_when_k_is_full(self):
+        off, full = arrangement.load("v6_feed_off"), [dense("k_rows_overflow_metric")]
+        lanes = ["%sK" % c for c in "ABCDEFGH"]
+        r = rank.needed(V, full, off, rank.removal(V, full, off, wires=lanes + ["IJ"]), seconds=20)
+        by = {w["wire"]: w for w in r["wires"]}
+        for lane in lanes:
+            self.assertEqual((by[lane]["needed_by"], by[lane]["unknown"]), (["k_rows_overflow_metric"], []), lane)
+        self.assertEqual((by["IJ"]["needed_by"], by["IJ"]["not_needed"], by["IJ"]["unknown"]), ([], 1, []))
+        self.assertEqual(r["engine"], "router and solver")
 
 
 if __name__ == "__main__":
