@@ -233,6 +233,26 @@ class Handler(http.server.BaseHTTPRequestHandler):
             raise Refused(404, "no such run or case; run the battery first")
         return {"result": result, "paint": ceiling.painted(result)}
 
+    def api_post_ceiling(self, query, body):
+        """The exact solver's verdict on one case of a run, with its routing as a paint the page can draw."""
+        variant = body.get("variant")
+        result = self.server.runs.get(variant if isinstance(variant, str) else None, {}).get(body.get("case"))
+        if result is None:
+            raise Refused(404, "no such run or case; run the battery first")
+        if body.get("rule") not in ("firmware", "copper"):
+            raise Refused(400, "the rule is firmware or copper")
+        try:
+            seconds = min(120.0, max(1.0, float(body.get("seconds", 20))))      # one request holds one thread this long
+        except (TypeError, ValueError):
+            raise Refused(400, "seconds is a number") from None
+        if not ceiling.solver_installed():
+            raise Refused(409, "the solver is not installed", hint=ceiling.SETUP)
+        try:
+            answer = ceiling.verdict(result, body["rule"], seconds)
+        except ceiling.SolverMissing as e:
+            raise Refused(409, str(e), hint=ceiling.SETUP) from None
+        return dict(answer, paint=solver_paint(answer["closed"]))
+
     def api_get_watch(self, query, body):
         return {"hash": self.resolve(query.get("spec", "worktree")).hash}
 
@@ -259,7 +279,19 @@ def info(trees=()):
              for n, wire in copper.NODE_NET.items()}
     return {"classes": lab.CLASSES, "variants": [{"spec": "worktree", "name": "worktree"}] + named,
             "verified": lab.verified_against_a_board(), "ohms": 60, "fabric": fabric_view.layout(),
-            "nodes": nodes, "sheet": (SHEET_DIR / "overlay.json").is_file()}
+            "nodes": nodes, "sheet": (SHEET_DIR / "overlay.json").is_file(), "solver": ceiling.solver_installed()}
+
+
+def solver_paint(closed):
+    """A solver's routing ([[chip, x, y, net]]) as the part of a paint the page
+    compares against: its crosspoints, and the nets on every wire they touch."""
+    wires = {}
+    for chip, x, y, net in closed:
+        for name in ceiling.graph().ends[chip, x, y]:
+            nets = wires.setdefault(name, {"nets": []})["nets"]
+            if net not in nets:
+                nets.append(net)
+    return {"crosspoints": [{"chip": chip, "x": x, "y": y, "net": net} for chip, x, y, net in closed], "wires": wires}
 
 
 def run_answer(v, results, base_v=None, base=None):

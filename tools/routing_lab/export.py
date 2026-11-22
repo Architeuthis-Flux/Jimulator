@@ -55,7 +55,7 @@ def write(path, variant_spec, baseline_spec=None, classes=("dense", "real", "str
     for which in (run["variant"], run["baseline"]):
         if which:
             which["name"] = _shown_name(which["name"])
-    info = dict(server.info(), sheet=False, variants=[])
+    info = dict(server.info(), sheet=False, variants=[], solver=False)
     html = page({"info": info, "run": run, "when": time.strftime("%Y-%m-%d"),
                  "cases": {r["case"]: {"result": r, "paint": ceiling.painted(r)} for r in results}})
     Path(path).write_text(html, encoding="utf-8")

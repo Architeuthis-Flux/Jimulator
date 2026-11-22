@@ -280,6 +280,49 @@ class Server(unittest.TestCase):
             self.assertNotRegex(text, r"https?://(?!www\.w3\.org/)")  # still nothing from the network
         self.assertIn(".ghost", self.c.get("/lab.css", token=None).body)
 
+    def test_info_says_whether_the_solver_is_there(self):
+        self.assertIs(self.c.get("/api/info").json["solver"], server.ceiling.solver_installed())
+        with mock.patch.object(server.ceiling, "SOLVER_PYTHON", server.Path("/nonexistent/python")):
+            self.assertIs(self.c.get("/api/info").json["solver"], False)
+
+    def test_ceiling_answers_the_verdict_with_the_solvers_routing_as_a_paint(self):
+        run = self.c.post("/api/run", {"variant": "worktree", "classes": ["dense"]}).json
+        fixed = {"verdict": "routable", "fewest_proved": True, "crosspoints": 2, "router_crosspoints": 16,
+                 "closed": [["A", 2, 1, 6], ["B", 0, 1, 6]], "seconds": 0.3, "error": None}
+        ask = {"variant": run["variant"]["hash"], "case": "same_chip_pairs", "rule": "firmware", "seconds": 100000}
+        with mock.patch.object(server.ceiling, "solver_installed", return_value=True), \
+                mock.patch.object(server.ceiling, "verdict", return_value=fixed) as asked:
+            r = self.c.post("/api/ceiling", ask)
+            self.assertEqual(r.status, 200, r.body)
+            self.assertEqual((r.json["verdict"], r.json["crosspoints"], r.json["router_crosspoints"]), ("routable", 2, 16))
+            self.assertEqual(r.json["paint"]["crosspoints"], [{"chip": "A", "x": 2, "y": 1, "net": 6},
+                                                              {"chip": "B", "x": 0, "y": 1, "net": 6}])
+            # every wire the closed crosspoints touch: the lane, row 1, row 8
+            self.assertEqual(r.json["paint"]["wires"], {"/AB0": {"nets": [6]}, "1": {"nets": [6]}, "8": {"nets": [6]}})
+            self.assertEqual(asked.call_args.args[0]["case"], "same_chip_pairs")
+            self.assertEqual(asked.call_args.args[1:], ("firmware", 120))             # the limit is clamped to 1..120
+            self.c.post("/api/ceiling", dict(ask, rule="copper", seconds=0))
+            self.assertEqual(asked.call_args.args[1:], ("copper", 1))
+            self.assertEqual(self.c.post("/api/ceiling", dict(ask, seconds="soon")).status, 400)
+            self.assertEqual(self.c.post("/api/ceiling", dict(ask, rule="magic")).status, 400)
+            self.assertEqual(self.c.post("/api/ceiling", dict(ask, case="nope")).status, 404)
+            self.assertEqual(self.c.post("/api/ceiling", dict(ask, variant="nohash")).status, 404)
+            self.assertEqual(self.c.post("/api/ceiling", dict(ask, variant={"a": 1})).status, 404)
+            asked.return_value = dict(fixed, verdict="not_routable", closed=[], crosspoints=None)
+            self.assertEqual(self.c.post("/api/ceiling", ask).json["paint"], {"crosspoints": [], "wires": {}})
+        with mock.patch.object(server.ceiling, "SOLVER_PYTHON", server.Path("/nonexistent/python")):
+            r = self.c.post("/api/ceiling", ask)                                      # asked for real: no solver
+            self.assertEqual(r.status, 409)
+            self.assertIn("lab.py solver-setup", r.json["hint"])
+
+    def test_the_page_asks_the_solver(self):
+        js = self.c.get("/lab.js", token=None).body
+        for used in ("/api/ceiling", "function askCeiling", "draw the solver's routing", "Cannot be routed, proved",
+                     "Not known after", "info.solver", "lab.py solver-setup"):
+            self.assertIn(used, js)
+        self.assertEqual(subprocess.run(["node", "--check", str(server.WEB_DIR / "lab.js")]).returncode, 0)
+        self.assertNotRegex(js, r"https?://(?!www\.w3\.org/)")
+
     def test_watch_reports_the_tree_hash(self):
         self.assertEqual(self.c.get("/api/watch?spec=worktree").json["hash"], variants.resolve("worktree").hash)
 

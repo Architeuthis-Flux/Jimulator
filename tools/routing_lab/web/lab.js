@@ -25,7 +25,14 @@ const state = {
   picking: 0,        // counts case selections, so a slow answer cannot overwrite a later click
   ghost: [],         // paths drawn dashed: [{net, hops: [{chip, x, y}]}]; the missed paths, or one bridge's spare copies
   spareOf: null,     // "n1-n2" of the bridge whose spare copies are the dashed paths, or null for the missed paths
+  ceiling: newCeiling(null),   // what the exact solver said of the selected case
+  ceilingSeconds: 20,          // the solver's time limit, as the box has it
 };
+
+// The solver's word on one case of one run: asked (busy), answered (answer, under rule, after `asked` seconds), drawn.
+function newCeiling(run) {
+  return { run: run, busy: false, rule: null, asked: 0, answer: null, draw: false };
+}
 
 const $ = (id) => document.getElementById(id);
 
@@ -381,6 +388,9 @@ async function selectCase(name) {
   // with compare on, the same case as the baseline routed it
   const base = state.compare && run.baseline ? await caseOf(run.baseline, name) : null;
   if (run !== state.run || mine !== state.picking) return;     // a newer run or a newer click came first
+  // the solver's answer stays while the same case of the same run is shown; its drawing gives way to a baseline's
+  if (name !== state.selected || state.ceiling.run !== run) state.ceiling = newCeiling(run);
+  else if (base) state.ceiling.draw = false;
   state.selected = name;
   state.current = current;
   state.base = base;
@@ -389,11 +399,19 @@ async function selectCase(name) {
   for (const tr of document.querySelectorAll("#battery tr.case")) {
     tr.classList.toggle("on", tr.dataset.case === name);
   }
-  $("view-title").textContent = name + "   " + state.run.variant.name
-    + (base ? "   against " + state.run.baseline.name : "");
   renderCase();
+  redraw();
+}
+
+// Both views of the selected case. The fabric is drawn against a second routing of the same case when there is
+// one: the solver's when that is asked for, else the baseline's.
+function redraw() {
+  const solved = state.ceiling.draw && state.ceiling.answer && state.ceiling.answer.paint;
+  const base = solved || (state.base && state.base.paint);
+  $("view-title").textContent = state.selected + "   " + state.run.variant.name
+    + (solved ? "   against the solver's routing" : base ? "   against " + state.run.baseline.name : "");
   drawSheet(state.current.paint);
-  drawFabric(state.current.paint, base && base.paint);
+  drawFabric(state.current.paint, base, solved ? "the solver" : "the baseline");
 }
 
 // ---------------------------------------------------------------- the case panel
@@ -502,6 +520,7 @@ function renderCase() {
     bridges.append(tr);
   }
   box.append(bridges);
+  if (!STATIC) box.append(ceilingSection());       // an exported page cannot ask the solver
 
   box.append(el("h2", { text: "nets" }));
   for (const [net, info] of Object.entries(paint.nets)) {
@@ -515,6 +534,91 @@ function renderCase() {
   }
   box.append(el("details", {}, el("summary", { text: "b report" }), el("pre", { text: result.b })));
   applyIsolation();
+}
+
+// ---------------------------------------------------------------- the ceiling: what the exact solver says of the case
+
+const RULE_WORDS = { firmware: "firmware-shaped paths", copper: "any copper" };
+
+async function askCeiling(rule) {
+  const c = state.ceiling;
+  if (c.busy || !c.run || !state.selected) return;
+  const seconds = state.ceilingSeconds;
+  Object.assign(c, { busy: true, rule: rule, asked: seconds, answer: null });
+  if (c.draw) {                                    // the routing drawn belonged to the answer just dropped
+    c.draw = false;
+    redraw();
+  }
+  renderCeiling();
+  let answer;
+  try {
+    answer = await api("/api/ceiling", { variant: c.run.variant.hash, case: state.selected, rule: rule, seconds: seconds });
+  } catch (err) {
+    answer = { verdict: "unknown", error: err.message + (err.data && err.data.hint ? ": " + err.data.hint : "") };
+  }
+  c.busy = false;
+  c.answer = answer;
+  if (c === state.ceiling) renderCeiling();        // else another case was picked while the solver worked
+}
+
+function ceilingWords(c) {
+  const a = c.answer;
+  const shape = RULE_WORDS[c.rule];
+  if (a.error) return [el("div", { class: "error", text: a.error })];
+  if (a.verdict === "nothing") return [el("div", { text: "No bridge the firmware allowed" })];
+  if (a.verdict === "unknown") return [el("div", { text: "Not known after " + c.asked + " s (" + shape + ")" })];
+  if (a.verdict === "not_routable") {
+    return [el("div", { text: "Cannot be routed, proved (" + shape + ")" }),
+      c.rule === "firmware" ? el("div", { class: "hint",
+        text: "try any copper to see whether the limit is the path shape or the fabric" }) : null];
+  }
+  const row = state.run.rows.find((r) => r.case === state.selected);
+  const draw = el("input", { type: "checkbox", checked: c.draw ? "" : null });
+  draw.addEventListener("change", () => {
+    c.draw = draw.checked;
+    if (c.draw && state.compare) {                 // one second routing at a time: the baseline's gives way
+      state.compare = false;
+      $("compare").checked = false;
+      state.base = null;
+      renderCase();
+    }
+    redraw();
+  });
+  return [
+    el("div", { text: "Can be routed, proved (" + shape + "). Fewest crosspoints: "
+      + (a.fewest_proved ? a.crosspoints + " (proved)" : "at most " + a.crosspoints + " (not proved in " + c.asked + " s)") }),
+    el("div", { class: "hint", text: "the router's primaries use " + a.router_crosspoints
+      + (row && row.fully_routed ? "" : ", for the bridges it routed") }),
+    el("label", { class: "inline", title: "copper only the router closes is outlined; copper only the solver closes is dashed grey" },
+      draw, " draw the solver's routing")];
+}
+
+function ceilingSection() {
+  const c = state.ceiling;
+  const box = el("div", { id: "ceiling" }, el("h2", { text: "ceiling" }));
+  if (!state.info.solver) {
+    box.append(el("div", { class: "hint", text: "Whether a netlist can be routed at all is asked of an exact solver. Install it once with:" }),
+      el("pre", { text: "python3 tools/routing_lab/lab.py solver-setup" }),
+      el("div", { class: "hint", text: "then reload this page." }));
+    return box;
+  }
+  const seconds = el("input", { type: "number", min: "1", max: "120", step: "1", value: String(state.ceilingSeconds),
+    title: "the solver's time limit, 1 to 120 s" });
+  seconds.addEventListener("input", () => { state.ceilingSeconds = Math.min(120, Math.max(1, Number(seconds.value) || 20)); });
+  const button = (rule, tip) => el("button", { type: "button", text: RULE_WORDS[rule], title: tip, disabled: c.busy ? "" : null,
+    onclick: () => askCeiling(rule) });
+  box.append(el("div", { class: "ask" }, el("span", { class: "hint", text: "can it be routed with" }),
+    button("firmware", "each bridge its own path of at most four crosspoints, as the firmware holds a path"),
+    button("copper", "any way through the copper, of any length"),
+    seconds, el("span", { class: "hint", text: "s" })));
+  if (c.busy) box.append(el("div", { class: "hint", text: "asking the solver..." }));
+  else if (c.answer) box.append(...ceilingWords(c).filter(Boolean));
+  return box;
+}
+
+function renderCeiling() {
+  const old = $("ceiling");
+  if (old) old.replaceWith(ceilingSection());
 }
 
 // ---------------------------------------------------------------- pan, zoom, hover
@@ -654,9 +758,10 @@ function drawFabricBase() {
   panZoom(view, [0, 0, f.size[0], f.size[1]]);
 }
 
-// With a baseline's paint of the same case: copper only this router closes is
-// outlined, copper only the baseline closes is drawn dashed grey.
-function drawCompare(paint, base) {
+// With a second routing of the same case (a baseline's paint, or the solver's):
+// copper only this router closes is outlined, copper only the other closes is
+// drawn dashed grey. `who` names the other in the hover text.
+function drawCompare(paint, base, who) {
   const key = (c) => c.chip + "." + c.x + "." + c.y;
   const mine = new Set(paint.crosspoints.map(key));
   const theirs = new Set(base.crosspoints.map(key));
@@ -667,7 +772,7 @@ function drawCompare(paint, base) {
     if (mine.has(key(c))) continue;
     const [x, y] = cellCentre(c.chip, c.x, c.y);
     const ghost = svg("circle", { class: "xp only-b", cx: x, cy: y, r: 3.6 });
-    hover(ghost, () => c.chip + "  x" + c.x + " y" + c.y + "\nclosed only by the baseline");
+    hover(ghost, () => c.chip + "  x" + c.x + " y" + c.y + "\nclosed only by " + who);
     fabric.dots.append(ghost);
   }
   for (const [name, path] of Object.entries(fabric.wires)) {
@@ -678,7 +783,7 @@ function drawCompare(paint, base) {
   }
 }
 
-function drawFabric(paint, base) {
+function drawFabric(paint, base, who) {
   for (const path of Object.values(fabric.wires)) {
     path.setAttribute("class", "wire");
     path.style.stroke = "";
@@ -748,7 +853,7 @@ function drawFabric(paint, base) {
         stroke: failed(b) ? netColour(b.net) : GREY }));
     }
   }
-  if (base) drawCompare(paint, base);
+  if (base) drawCompare(paint, base, who);
   drawGhost();
   applyIsolation();
 }

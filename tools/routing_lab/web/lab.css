@@ -140,6 +140,11 @@ table.bridges { border-collapse: collapse; width: 100%; }
 .bridges tr.unrouted .state { color: var(--problem); }
 .bridges td.spare { cursor: pointer; color: var(--dim); }
 .bridges td.spare:hover, .bridges td.spare.on { color: var(--ink); background: #2f3654; }
+#ceiling .ask { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin-bottom: 5px; }
+#ceiling .ask input { width: 54px; }
+#ceiling .error { color: var(--problem); }
+#ceiling label.inline { display: inline-flex; gap: 6px; align-items: center; color: var(--dim); margin-top: 3px; }
+#ceiling pre { margin: 4px 0; }
 ul.problems, ul.notes { margin: 0; padding-left: 16px; }
 ul.problems li { color: var(--problem); }
 ul.notes li { color: var(--dim); }

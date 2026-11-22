@@ -34,7 +34,8 @@ class Export(unittest.TestCase):
         self.assertTrue(chain["crosspoints"])
         self.assertEqual(chain["missed"], [])                          # the copper searches travel with the paint
         self.assertTrue(any(b["spare"] and b["spare_paths"] for b in chain["bridges"]))
-        self.assertIs(data["info"]["sheet"], False)                    # the sheet backdrop does not travel
+        self.assertIs(data["info"]["sheet"], False)                    # the sheet backdrop does not travel,
+        self.assertIs(data["info"]["solver"], False)                   # nor does the solver
         self.assertEqual(data["info"]["variants"], [])
         self.assertTrue(data["when"])
         self.assertNotIn("__LAB_TOKEN__", html)                        # no token,
