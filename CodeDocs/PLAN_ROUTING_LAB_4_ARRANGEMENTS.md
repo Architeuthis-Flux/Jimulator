@@ -692,6 +692,28 @@ class Needed(unittest.TestCase):
 
 ---
 
+### Task 10: A netlist made by clicking nodes
+
+Asked for by Kevin on 2026-11-22, while Task 5 was being built: "we should also be allowed to click nodes to make connections in the visualizer and route them on whatever we're looking at". Built after Task 8 and before Task 9, so the documents cover it.
+
+**Files:**
+- Modify: `tools/routing_lab/server.py`, `tools/routing_lab/web/lab.js`, `web/lab.css`, `web/index.html`, `tools/routing_lab/tests/test_server.py`
+
+**Interfaces:**
+- Consumes: `runner.run_battery(..., arrangement=)`, `arrangement.base`, `arrangement.blocks`, `/api/case`, `/api/ceiling` with `run` and `arrangement` (Task 5).
+- Produces:
+  - `POST /api/route {"variant", "arrangement": NAME, "bridges": [[n1, n2], ...]}`: a netlist made by hand, as the case `drawn` of class `drawn` (scored, not must-route; default stacking), routed on the arrangement named. When the firmware's router can run that arrangement it does. When it cannot, the harness makes the netlist on `arrangement.base(a.feed)` (V5's copper with that feed), for the bridges the firmware allows and their nets, and the page asks the solver for the routing. The answer is `/api/run`'s with the one row, `"drawn": true`, and `"arrangement"` the one the harness ran on. The result is kept as any run's is, so `/api/case` and `/api/ceiling` answer for it.
+  - Refused with 400 and the reason: no bridge at all; more than 200; a bridge that is not two different whole numbers; a node V5 does not have (the firmware makes the netlist, and it knows only V5's nodes). A node the arrangement dropped is not refused: the result is "unplaced" (router) or the solver's "unplaced" verdict, as for any case.
+  - On the page: a click on a node's pad (or its label) picks it up, a click on a second node makes a bridge between the two, and the netlist is routed at once with the Router named, on the arrangement picked. A click on the same node again, or Escape, lets go. The run shown becomes the drawn netlist's (as a board's output becomes the run shown). A box under the controls lists the bridges, each with a button to take it out, with "clear" and "start from the case shown" (the selected case's own bridges, to add to). With an arrangement picked that only the solver can route, the solver is asked at once (firmware-shaped paths) and its routing is the picture, as in Task 5. The pads are drawn above the wires' hit areas so that a click lands on them.
+
+- [ ] **Step 1: Write the failing tests** in `test_server.py`: `/api/route` with `[[1, 8], [3, 101]]` on `v5` answers one row (case `drawn`, class `drawn`, fully routed, `drawn` true, arrangement `v5`) and `/api/case?...&case=drawn` then has both bridges and the probe feed's; on `v6_feed_off` it has no feed bridge; on `v6_rails_on_chips` the answer's arrangement is V5's copper with the feed off and its engine "router", and `/api/ceiling` with that run and `"arrangement": "v6_rails_on_chips"` (verdict patched) is asked on the rails arrangement; `[[1, 999]]`, `[[1, 1]]`, `[]`, `[[1]]`, 201 bridges and a missing `bridges` are each 400 with a reason; a build error answers as `/api/run` does. `lab.js` holds the code (`/api/route`, `function routeDrawn`, "start from the case shown"), draws the pads after the hit areas, and passes `node --check`.
+- [ ] **Step 2: Run to see them fail.**
+- [ ] **Step 3: Implement.**
+- [ ] **Step 4: Check it in the browser:** on `v5`, click row 1 then row 8: a bridge is drawn and the panel shows it routed; add 3 to TOP_RAIL; take the first out; "start from the case shown" on a dense case, add a bridge, and it routes with the case's own. Pick `v6_feed_off`: the same netlist routes without the feed. Pick `v6_rails_on_chips` and click row 1 then TOP_RAIL: the solver's routing is drawn, using the rail's pin on chip A. Screenshot the last for Kevin.
+- [ ] **Step 5: Commit** `Routing lab page: click two nodes to connect them, routed on the arrangement picked`.
+
+---
+
 ## Not in this plan
 
 - **An editor on the page.** An arrangement is changed by editing its file; the page redraws when it is picked again. The one thing the page writes is the JSON for "V5 without these wires", to copy.
