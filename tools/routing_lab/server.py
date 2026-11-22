@@ -22,6 +22,7 @@ import subprocess
 import urllib.parse
 from pathlib import Path
 
+import ceiling
 import copper
 import fabric_view
 import lab
@@ -230,7 +231,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         result = self.server.runs.get(query.get("variant"), {}).get(query.get("case"))
         if result is None:
             raise Refused(404, "no such run or case; run the battery first")
-        return {"result": result, "paint": copper.paint(result)}
+        return {"result": result, "paint": ceiling.painted(result)}
 
     def api_get_watch(self, query, body):
         return {"hash": self.resolve(query.get("spec", "worktree")).hash}

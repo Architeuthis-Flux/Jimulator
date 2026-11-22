@@ -11,7 +11,7 @@ import os
 import time
 from pathlib import Path
 
-import copper
+import ceiling
 import lab
 import runner
 import server
@@ -57,6 +57,6 @@ def write(path, variant_spec, baseline_spec=None, classes=("dense", "real", "str
             which["name"] = _shown_name(which["name"])
     info = dict(server.info(), sheet=False, variants=[])
     html = page({"info": info, "run": run, "when": time.strftime("%Y-%m-%d"),
-                 "cases": {r["case"]: {"result": r, "paint": copper.paint(r)} for r in results}})
+                 "cases": {r["case"]: {"result": r, "paint": ceiling.painted(r)} for r in results}})
     Path(path).write_text(html, encoding="utf-8")
     return len(html.encode())

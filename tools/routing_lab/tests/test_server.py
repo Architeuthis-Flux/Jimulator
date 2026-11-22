@@ -156,6 +156,8 @@ class Server(unittest.TestCase):
         c = self.c.get("/api/case?variant=%s&case=chain_all_chips" % r["variant"]["hash"]).json
         self.assertIn("Bridge Array", c["result"]["b"])
         self.assertTrue(c["paint"]["crosspoints"])
+        self.assertEqual(c["paint"]["missed"], [])                      # the paint carries both copper searches
+        self.assertTrue(all({"spare", "r_spare", "spare_paths"} <= set(b) for b in c["paint"]["bridges"]))
         self.assertEqual(self.c.get("/api/case?variant=%s&case=nope" % r["variant"]["hash"]).status, 404)
         self.assertEqual(self.c.get("/api/case?variant=nohash&case=chain_all_chips").status, 404)
         self.assertEqual(self.c.post("/api/run", {"variant": "worktree", "classes": ["nope"]}).status, 400)

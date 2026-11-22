@@ -30,7 +30,10 @@ class Export(unittest.TestCase):
         data = json.loads(STATIC.search(html).group(1))
         self.assertEqual(len(data["run"]["rows"]), 21)
         self.assertIn("chain_all_chips", data["cases"])
-        self.assertTrue(data["cases"]["chain_all_chips"]["paint"]["crosspoints"])
+        chain = data["cases"]["chain_all_chips"]["paint"]
+        self.assertTrue(chain["crosspoints"])
+        self.assertEqual(chain["missed"], [])                          # the copper searches travel with the paint
+        self.assertTrue(any(b["spare"] and b["spare_paths"] for b in chain["bridges"]))
         self.assertIs(data["info"]["sheet"], False)                    # the sheet backdrop does not travel
         self.assertEqual(data["info"]["variants"], [])
         self.assertTrue(data["when"])

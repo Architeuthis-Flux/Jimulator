@@ -102,6 +102,65 @@ class Missed(unittest.TestCase):
         self.assertEqual(ceiling.missed(copper.paint({"status": "crash", "problems": [], "notes": [], "b": ""})), [])
 
 
+class Spare(unittest.TestCase):
+    def test_a_free_lane_is_one_more_copy_and_halves_the_resistance(self):
+        closed = [("A", 0, 0, 6), ("B", 0, 0, 6)]                     # 1-3 on lane L0; L1 is free
+        s = ceiling.spare(tiny_paint([(1, 3, 6, "routed")], closed), ceiling.graph(TINY))
+        self.assertEqual((s[0]["copies"], s[0]["r"]), (1, 1.0))
+        self.assertEqual({(h["chip"], h["x"]) for h in s[0]["paths"][0]}, {("A", 1), ("B", 1)})
+        self.assertEqual((s[0]["n1"], s[0]["n2"], s[0]["net"]), (1, 3, 6))
+
+    def test_no_free_copper_no_copies(self):
+        closed = [("A", 0, 0, 6), ("B", 0, 0, 6), ("A", 1, 1, 7), ("B", 1, 1, 7)]
+        s = ceiling.spare(tiny_paint([(1, 3, 6, "routed"), (2, 4, 7, "routed")], closed), ceiling.graph(TINY))
+        self.assertEqual([(x["copies"], x["r"]) for x in s], [(0, None), (0, None)])
+
+    def test_the_limit_and_the_four_crosspoint_rule(self):
+        wide = types.SimpleNamespace(**{**vars(TINY), "X_NET": {c: ["L%d" % i for i in range(5)] for c in "AB"}})
+        p = tiny_paint([(1, 3, 6, "routed")], [("A", 0, 0, 6), ("B", 0, 0, 6)], fabric=wide)    # on L0; four lanes free
+        s = ceiling.spare(p, ceiling.graph(wide))
+        self.assertEqual((s[0]["copies"], s[0]["r"]), (4, 0.4))        # five two-crosspoint paths side by side
+        self.assertEqual(ceiling.spare(p, ceiling.graph(wide), limit=2)[0]["copies"], 2)
+        # two chains side by side, each six crosspoints end to end: the free one is too long to be a copy
+        twin = types.SimpleNamespace(CHIPS="ABCD", NODE_NET={1: "1", 4: "4"},
+                                     X_NET={"A": ["AB", "ab"], "B": ["AB", "BC", "ab", "bc"],
+                                            "C": ["BC", "CD", "bc", "cd"], "D": ["CD", "cd"]},
+                                     Y_NET={"A": ["1"], "B": ["bB", "bb"], "C": ["bC", "bc2"], "D": ["4"]})
+        first = [("A", 0, 0, 6), ("B", 0, 0, 6), ("B", 1, 0, 6), ("C", 0, 0, 6), ("C", 1, 0, 6), ("D", 0, 0, 6)]
+        s = ceiling.spare(tiny_paint([(1, 4, 6, "routed")], first, fabric=twin), ceiling.graph(twin))
+        self.assertEqual(s[0]["copies"], 0)
+
+    def test_only_routed_bridges_and_never_the_probe_feed(self):
+        p = tiny_paint([(1, 3, 6, "unrouted"), (2, 4, 7, "refused"), (1, 2, None, "left_out")])
+        self.assertEqual(ceiling.spare(p, ceiling.graph(TINY)), [])
+        fed = tiny_paint([(1, 3, 6, "routed")], [("A", 0, 0, 6), ("B", 0, 0, 6)])
+        fed["bridges"][0]["infra"] = True
+        self.assertEqual(ceiling.spare(fed, ceiling.graph(TINY)), [])
+
+    def test_a_crashed_result_paints_with_nothing_extra(self):        # Review Focus 3
+        p = ceiling.painted({"case": "c", "cls": "x", "status": "crash", "problems": [], "notes": [], "b": ""})
+        self.assertEqual((p["missed"], p["bridges"]), ([], []))
+
+    def test_on_real_results(self):
+        p = ceiling.painted(runner.run_case(NEW, dense("chain_all_chips")))
+        for b in p["bridges"]:
+            self.assertEqual(b["spare"], len(b["spare_paths"]))
+            if b["spare"]:
+                self.assertLess(b["r_spare"], b["r"])
+                for path in b["spare_paths"]:
+                    self.assertLessEqual(len(path), 4)
+                    for h in path:                                   # every wire a copy uses is free in the paint
+                        for axis, pin in (("X", h["x"]), ("Y", h["y"])):
+                            w = copper.wire(h["chip"], axis, pin)
+                            self.assertTrue(w in (copper.NODE_NET[b["n1"]], copper.NODE_NET[b["n2"]])
+                                            or p["wires"][w]["nets"] == [], w)
+            else:
+                self.assertIsNone(b["r_spare"])
+        self.assertTrue(any(b["spare"] for b in p["bridges"]))
+        self.assertEqual(p["missed"], [])
+        self.assertEqual([b["spare"] for b in p["bridges"] if b["infra"]], [0])
+
+
 class OnTheRouter(unittest.TestCase):
     def test_the_router_before_the_hub_tier_missed_two_paths_of_four(self):
         found = ceiling.missed(copper.paint(runner.run_case(OLD, dense("nano_dense_metric"))))
