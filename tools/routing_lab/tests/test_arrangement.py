@@ -82,6 +82,21 @@ class Files(unittest.TestCase):
         self.assertIn('"feed": false', problems[0])
         self.assertEqual(arrangement.check({"base": "v5", "feed": False, "pins": {"K.X7": None}}), [])
         self.assertEqual(arrangement.check({"base": "v5", "pins": {"K.X6": None}}), [])     # DAC1 is no end of the feed
+        # nor is DAC0 the only other end: with DAC0 out of the probe's window the firmware feeds from the highest free GPIO
+        for gpio in range(1, 9):
+            pin = "L.X%d" % fabric_v5.X_NET["L"].index(fabric_v5.NODE_NET[130 + gpio])
+            problems = arrangement.check({"base": "v5", "pins": {pin: None}})
+            self.assertEqual(len(problems), 1, (pin, problems))
+            self.assertIn("GPIO_%d" % gpio, problems[0])
+            self.assertEqual(arrangement.check({"base": "v5", "feed": False, "pins": {pin: None}}), [])
+
+    def test_the_feed_is_not_forced_onto_copper_that_has_no_end_for_it(self):     # verification, F5: arrangement score's other side
+        no_dac0 = arrangement.parse("no_dac0", {"base": "v5", "feed": False, "pins": {"K.X7": None}})
+        with self.assertRaises(arrangement.Bad) as cm:
+            arrangement.with_feed(no_dac0, True)
+        self.assertIn("DAC0", cm.exception.problems[0])
+        self.assertIs(arrangement.with_feed(no_dac0, False), no_dac0)
+        self.assertTrue(arrangement.with_feed(arrangement.load("v6_feed_off"), True).feed)
 
     def test_a_remove_entry_that_is_no_name_is_listed_not_raised(self):        # final review, 3 (Review Focus 1)
         for odd in ([["KL"]], [{"wire": "KL"}], [7], [None]):
@@ -105,6 +120,55 @@ class Files(unittest.TestCase):
         meant = dict(typo, nodes={"150": {"wire": "TOP_RIAL", "name": "PORT"}})         # a node's own wire may be one pin
         self.assertEqual(arrangement.check(meant), [])
         self.assertEqual(arrangement.check(dict(typo, pins={"A.X7": "TOP_RAIL"})), [])
+
+    def test_a_bounce_row_of_a_new_name_is_no_misspelling(self):        # verification, F3/R: one-pin rows on a Y pin are a shape V5 has
+        renamed = {"base": "v5", "feed": False, "pins": {"A.Y0": "A_BOUNCE"}}
+        self.assertEqual(arrangement.check(renamed), [])
+        ninth = {"base": "v5", "feed": False, "remove": ["/AD1"], "pins": {"A.X7": "AM", "D.X1": "AM"},
+                 "chips": {"M": {"role": "bb", "x": ["AM"] + [None] * 15, "y": ["M_BOUNCE"] + ["M%d" % r for r in range(1, 8)]}},
+                 "nodes": {str(200 + r): {"wire": "M%d" % r} for r in range(1, 8)}}
+        self.assertEqual(arrangement.check(ninth), [])
+        # V6_CROSSBAR_MATRIX A2: a bounce hub N, eight no-connect rows, two lanes to every breadboard chip
+        second = ["/AB1", "/CD1", "/EF1", "/GH1", "/AC1", "/BD1", "/EG1", "/FH1"]
+        freed = {}
+        for lane in second:
+            for chip in lane[1:3]:
+                freed.setdefault(chip, []).append(fabric_v5.X_NET[chip].index(lane))
+        n_x = []
+        pins = {}
+        for chip in "ABCDEFGH":
+            for k, x in enumerate(freed[chip][:2]):
+                pins["%s.X%d" % (chip, x)] = "N_%s%d" % (chip, k)
+                n_x.append("N_%s%d" % (chip, k))
+        hub = {"base": "v5", "feed": False, "remove": second, "pins": pins,
+               "chips": {"N": {"role": "sf", "x": n_x, "y": ["N_ROW%d" % r for r in range(8)]}}}
+        self.assertEqual(arrangement.check(hub), [])
+
+    def test_a_key_given_twice_in_a_file_is_listed(self):               # verification, F3: JSON keeps the last silently
+        twice = self.write("twice.json", '{"base": "v5", "feed": false, "pins": {"A.X7": "TOP_RAIL"}, "pins": {"K.X2": null}}')
+        with self.assertRaises(arrangement.Bad) as cm:
+            arrangement.load(twice)
+        self.assertTrue(any('"pins"' in p and "twice" in p for p in cm.exception.problems), cm.exception.problems)
+        inner = self.write("inner.json", '{"base": "v5", "feed": false, "remove": ["/AD1"], '
+                                         '"pins": {"A.X7": "TOP_RAIL", "A.X7": "BOTTOM_RAIL"}}')
+        with self.assertRaises(arrangement.Bad) as cm:
+            arrangement.load(inner)
+        self.assertTrue(any('"A.X7"' in p for p in cm.exception.problems), cm.exception.problems)
+        deep = self.write("deep.json", '{"base": "v5", "about": ' + "[" * 20000 + "]" * 20000 + "}")
+        with self.assertRaises(arrangement.Bad):                        # far too deep for the JSON reader: still the file's problem
+            arrangement.load(deep)
+
+    def test_pins_and_nodes_are_written_one_way_only(self):            # verification, F3: look-alikes and odd values
+        for odd in ({"pins": {"A.X07": None}}, {"pins": {"A.X٧": None}}, {"pins": {"A.X" + "1" * 5000: None}},
+                    {"nodes": {"0150": {"wire": "1"}}}, {"nodes": {"1" * 5000: None}}):
+            problems = arrangement.check(dict({"base": "v5", "feed": False}, **odd))
+            self.assertEqual(len(problems), 1, (odd, problems))
+        for odd, word in (({"about": {"k": 1}}, '"about"'), ({"nodes": {"150": {"wire": "1", "nmae": "P"}}}, "nmae"),
+                          ({"nodes": {"150": {"wire": "1", "name": 7}}}, "name"),
+                          ({"chips": {"M": {"role": "sf", "x": [None] * 16, "y": [None] * 8, "rotate": 90}}}, "rotate")):
+            problems = arrangement.check(dict({"base": "v5", "feed": False}, **odd))
+            self.assertTrue(problems and any(word in p for p in problems), (odd, problems))
+        self.assertEqual(arrangement.check({"base": "v5", "feed": False, "nodes": {"150": {"wire": "1", "name": "P"}}}), [])
 
     def test_a_chip_and_a_node_added_and_a_node_removed(self):
         m = {"role": "sf", "x": ["TOP_RAIL", "BOTTOM_RAIL", "GND", "PORT_0"] + [None] * 12, "y": ["AM", "BM"] + [None] * 6}

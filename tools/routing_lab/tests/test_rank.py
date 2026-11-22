@@ -80,9 +80,51 @@ class Kept(unittest.TestCase):
             rank.save(old)
             written = rank.save(again)
             self.assertEqual((written["wires"][0]["needed_by"], written["needed_cases"], written["engine"]), (["c"], 3, "router and solver"))
+            self.assertNotIn("set_aside", written)
             edited = rank.save(dict(again, fabric="another"))          # the arrangement's file was changed: other copper
             self.assertEqual((edited["engine"], "needed_cases" in edited, "needed_by" in edited["wires"][0]), ("router", False, False))
-            self.assertEqual([p.name for p in Path(tmp).iterdir()], [rank.path("f" * 64, "x").name])     # and no scrap left beside it
+            # the solver's work is not thrown away: the file that held it is set aside, and the new ranking says where
+            aside = Path(edited["set_aside"])
+            self.assertEqual(sorted(p.name for p in Path(tmp).iterdir()), sorted([rank.path("f" * 64, "x").name, aside.name]))
+            self.assertEqual(json.loads(aside.read_text())["needed_cases"], 3)
+
+    def test_a_ranking_from_before_the_stamp_keeps_its_proof_on_the_same_copper(self):    # verification: F2, R, C
+        off = arrangement.load("v6_feed_off")
+        wires = [dict(w, pins=[list(p) for p in w["pins"]]) for w in rank.wires(off)]
+        proved = lambda ws: [dict(w, needed_by=[], not_needed=244, unknown=[]) for w in ws]
+        old = {"arrangement": off.name, "feed": False, "variant": {"name": "w", "hash": "e" * 64}, "engine": "router and solver",
+               "rule": "firmware", "seconds": 5.0, "needed_cases": 244, "cases": 256, "wires": proved(wires)}      # no "fabric"
+        again = {"arrangement": off.name, "feed": False, "variant": old["variant"], "engine": "router", "fabric": rank.fabric_of(off),
+                 "cases": 21, "wires": wires}
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(rank, "DIR", Path(tmp)):
+            rank.path("e" * 64, off.name).write_text(json.dumps(old))
+            written = rank.save(again)
+            self.assertEqual((written["needed_cases"], written["engine"], "set_aside" in written), (244, "router and solver", False))
+            self.assertEqual(json.loads(rank.path("e" * 64, off.name).read_text())["fabric"], rank.fabric_of(off))
+            rank.path("e" * 64, off.name).write_text(json.dumps(old))
+            other = rank.save(dict(again, wires=wires[1:], fabric="other"))     # not the same wires: other copper, set aside
+            self.assertEqual(("needed_cases" in other, json.loads(Path(other["set_aside"]).read_text())["needed_cases"]), (False, 244))
+
+    def test_new_proof_over_old_proof_sets_the_old_one_aside(self):    # verification: --needed over fewer classes
+        old = {"arrangement": "x", "variant": {"name": "w", "hash": "d" * 64}, "fabric": "one", "engine": "router and solver",
+               "rule": "firmware", "seconds": 5.0, "needed_cases": 244, "wires": [{"wire": "KL", "needed_by": [], "not_needed": 244,
+                                                                                    "unknown": []}]}
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(rank, "DIR", Path(tmp)):
+            rank.save(old)
+            written = rank.save(dict(old, needed_cases=44, wires=[dict(old["wires"][0], not_needed=44)]))
+            self.assertEqual(written["needed_cases"], 44)
+            self.assertEqual(json.loads(Path(written["set_aside"]).read_text())["needed_cases"], 244)
+
+    def test_a_failed_write_leaves_the_kept_file_whole(self):          # verification: the atomic write, tested
+        old = {"arrangement": "x", "variant": {"name": "w", "hash": "c" * 64}, "fabric": "one", "engine": "router", "wires": []}
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(rank, "DIR", Path(tmp)):
+            rank.save(old)
+            before = rank.path("c" * 64, "x").read_text()
+            with mock.patch.object(rank.os, "replace", side_effect=OSError("disk full")):
+                with self.assertRaises(OSError):
+                    rank.save(dict(old, cases=9))
+            self.assertEqual(rank.path("c" * 64, "x").read_text(), before)
+            self.assertEqual([p.name for p in Path(tmp).iterdir()], [rank.path("c" * 64, "x").name])      # no scrap beside it
 
     def test_a_ranking_says_what_copper_it_is_of(self):
         off = arrangement.load("v6_feed_off")
@@ -110,6 +152,14 @@ class Removal(unittest.TestCase):
         self.assertEqual((r["cases"], r["variant"], r["fabric"]), (2, {"name": V.name, "hash": V.hash}, rank.fabric_of(arrangement.V5)))
         self.assertEqual(seen, [(1, 2, "KL"), (2, 2, "AK")])
         json.dumps(r)                                                   # it is written to a file as it is
+
+    def test_a_case_refused_for_closing_a_wire_taken_away_counts_as_using_it(self):      # verification: used_after
+        refused = dict(runner._result(cases.Case("b", "x", [(1, 8, -1)]), "crash", problems=[
+            "the router closed a crosspoint on chip K x12, " + runner.TAKEN + ": ..."]), b="")
+        runs = {"v5": results({"a": 3, "b": 2}), "v5 without KL": results({"a": 3}) + [refused]}
+        with mock.patch.object(runner, "run_battery", side_effect=lambda v, cs, **kw: runs[kw["arrangement"].name]):
+            r = rank.removal(V, [cases.Case(n, "x", [(1, 8, -1)]) for n in "ab"], arrangement.V5, wires=["KL"])
+        self.assertEqual(r["wires"][0]["used_after"], 1)
 
     def test_only_a_wire_that_can_be_ranked(self):
         with mock.patch.object(runner, "run_battery", side_effect=AssertionError("ran")):

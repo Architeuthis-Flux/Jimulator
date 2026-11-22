@@ -67,10 +67,11 @@ class Score(unittest.TestCase):
     def test_the_same_random_lists_are_grown_on_both(self):
         grown = []
 
-        def grow(binary, rng, name, seconds=20.0, longest=80, rule="firmware", arrangement=None):
+        def grow(binary, rng, name, seconds=20.0, longest=80, rule="firmware", arrangement=None, reasons=None):
             grown.append((rng.random(), arrangement.name, arrangement.feed))
             if arrangement.name == "v5" and len(grown) > 2:
-                return None                                              # not one bridge proved
+                reasons["next_is"] = "unplaced"
+                return None                                              # not one bridge proved: its first cannot be placed
             return cases.Case(name, "edge", [(1, 8, -1)]), {"bridges": 67 if arrangement.name != "v5" else 61,
                                                                "closed": [], "next_is": "unknown"}
 
@@ -80,7 +81,7 @@ class Score(unittest.TestCase):
             grown.clear()
             out = score.lengths(V, arrangement.load("v6_rails_on_chips"), lists=2)
         self.assertEqual([(r["list"], r["a"]["bridges"], r["b"]["bridges"]) for r in out], [(0, 67, 61), (1, 67, 0)])
-        self.assertEqual((out[0]["a"]["next_is"], out[1]["b"]["next_is"]), ("unknown", None))
+        self.assertEqual((out[0]["a"]["next_is"], out[1]["b"]["next_is"]), ("unknown", "unplaced"))
         self.assertEqual(grown[0][0], grown[1][0])                       # one list, grown on both
         self.assertNotEqual(grown[0][0], grown[2][0])                    # and another list after it
         self.assertEqual({g[1:] for g in grown}, {("v6_rails_on_chips", False), ("v5", False)})    # both with the first's feed

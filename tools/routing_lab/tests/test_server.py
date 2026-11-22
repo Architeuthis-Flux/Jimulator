@@ -713,6 +713,36 @@ class Server(unittest.TestCase):
         self.assertIn(".pad.from", self.c.get("/lab.css", token=None).body)
         self.assertEqual(subprocess.run(["node", "--check", str(server.WEB_DIR / "lab.js")]).returncode, 0)
 
+    def test_a_bridge_added_to_a_case_is_routed_with_that_cases_settings(self):       # verification, F4
+        run = self.c.post("/api/run", {"variant": "worktree", "classes": ["dense"]}).json
+        own = self.c.get("/api/case?variant=%s&arrangement=v5&case=same_chip_pairs" % run["variant"]["hash"]).json
+        pairs = [list(p) for p in sorted({tuple(sorted((b["n1"], b["n2"]))) for b in own["paint"]["bridges"] if not b["infra"]})]
+        body = {"variant": "worktree", "arrangement": "v5", "bridges": pairs, "from": {"cls": "dense", "case": "same_chip_pairs"}}
+        same = self.c.post("/api/route", body)
+        self.assertEqual(same.status, 200, same.body)
+        row, mine = same.json["rows"][0], [r for r in run["rows"] if r["case"] == "same_chip_pairs"][0]
+        for k in ("crosspoints", "routed_duplicates", "primaries"):
+            self.assertEqual(row["metrics"][k], mine["metrics"][k], k)  # nothing added: the case as the run routed it
+        self.assertIn("same_chip_pairs", row["about"])
+        plain = self.c.post("/api/route", dict(body, **{"from": None})).json["rows"][0]
+        self.assertNotEqual(plain["metrics"]["crosspoints"], mine["metrics"]["crosspoints"])     # defaults are not the case's
+        more = self.c.post("/api/route", dict(body, bridges=pairs + [[20, 25]])).json["rows"][0]
+        self.assertEqual(more["metrics"]["primaries"], mine["metrics"]["primaries"] + 1)
+        for bad in ({"cls": "dense", "case": "nope"}, "same_chip_pairs", {"cls": "nope", "case": "x"}, {"case": "same_chip_pairs"}):
+            self.assertEqual(self.c.post("/api/route", dict(body, **{"from": bad})).status, 400, bad)
+
+    def test_a_ranking_of_copper_the_file_no_longer_has_is_marked(self):          # verification, F2/R
+        with tempfile.TemporaryDirectory() as tmp:
+            arr, rk = server.Path(tmp) / "arr", server.Path(tmp) / "rank"
+            arr.mkdir()
+            (arr / "foo.json").write_text(json.dumps({"base": "v5", "feed": False}))
+            with mock.patch.object(server.arrangement, "DIR", arr), mock.patch.object(server.rank, "DIR", rk):
+                hash_ = self.c.get("/api/watch?spec=worktree").json["hash"]
+                server.rank.save(self.ranking(hash_, "foo", fabric=server.rank.fabric_of(server.arrangement.load("foo"))))
+                self.assertIs(self.c.get("/api/rank?variant=worktree&arrangement=foo").json["stale"], False)
+                (arr / "foo.json").write_text(json.dumps({"base": "v5", "feed": False, "remove": ["KL"]}))
+                self.assertIs(self.c.get("/api/rank?variant=worktree&arrangement=foo").json["stale"], True)
+
     def test_the_page_after_the_final_review(self):
         js = self.c.get("/lab.js", token=None).body
         for used in ("function shownBridges",                    # a clicked bridge is added to the case on screen
@@ -720,9 +750,17 @@ class Server(unittest.TestCase):
                      "the router routes more without it",         # a gain has its own tint and its own words
                      "are not part of a ranking",                 # dropped files and the Ranking tab
                      "save its file first",                       # an arrangement that is no file cannot be named to lab.py
-                     "state.rankingFor === wanted"):              # a ranking that lands late is not shown for another arrangement
+                     "state.rankingFor === wanted",               # a ranking that lands late is not shown for another arrangement
+                     # after the verification workflow:
+                     "from: state.drawnFrom",                     # the case's settings go with its bridges
+                     "state.drawnFrom = null",                    # a new run on screen starts a click afresh
+                     "if (state.arrangement !== asked",           # an arrangement picked while a route is out: routed again
+                     'picked().engine === "solver"',              # the solver is named only where it is the one routing
+                     "r.stale", "r.set_aside",                    # the Ranking tab says when a ranking is of other copper
+                     "JSON.stringify(state.arrangement)"):        # a name with a space stays one argument
             self.assertIn(used, js)
         self.assertNotIn("click Run, or change the netlist again", js)
+        self.assertNotIn("!state.drawn.length && state.current", js)  # a click starts from the case on screen, not an old netlist
         self.assertEqual(subprocess.run(["node", "--check", str(server.WEB_DIR / "lab.js")]).returncode, 0)
 
     def test_watch_reports_the_tree_hash(self):

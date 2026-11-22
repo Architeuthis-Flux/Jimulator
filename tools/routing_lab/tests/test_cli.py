@@ -263,7 +263,8 @@ class Cli(unittest.TestCase):
         said = {"a": "v6_feed_off", "b": "v5", "feed": False, "rule": "firmware", "seconds": 3.0, "engine": "solver",
                 "rows": [dict(table, case="c", cls="x")], "summary": summary}
         grown = [{"list": 0, "a": {"bridges": 67, "next_is": "unknown"}, "b": {"bridges": 0, "next_is": None}},
-                 {"list": 1, "a": {"bridges": 18, "next_is": "unplaced"}, "b": {"bridges": 54, "next_is": "not_routable"}}]
+                 {"list": 1, "a": {"bridges": 18, "next_is": "unplaced"}, "b": {"bridges": 54, "next_is": "not_routable"}},
+                 {"list": 2, "a": {"bridges": 0, "next_is": "unplaced"}, "b": {"bridges": 0, "next_is": "not_routable"}}]
         with mock.patch.object(ceiling, "solver_installed", return_value=True), \
                 mock.patch.object(lab.score, "compare", return_value=said) as compared, \
                 mock.patch.object(lab.score, "lengths", return_value=grown) as lengths:
@@ -278,6 +279,8 @@ class Cli(unittest.TestCase):
         self.assertEqual(lengths.call_args.kwargs["rule"], "copper")    # the lists grow under the rule the heading names
         self.assertIn("random list 1: 18 bridges proved on v6_feed_off (one more: it uses a node the arrangement does not have), "
                       "54 bridges proved on v5 (one more: not routable, proved)", out)
+        self.assertIn("random list 2: not one on v6_feed_off (the first: it uses a node the arrangement does not have), "
+                      "not one on v5 (the first: not routable, proved)", out)
         with mock.patch.object(ceiling, "solver_installed", return_value=True), \
                 mock.patch.object(lab.score, "compare", return_value=dict(said, seconds=10.0)) as compared, \
                 mock.patch.object(lab.score, "lengths", return_value=grown) as lengths:
@@ -289,6 +292,16 @@ class Cli(unittest.TestCase):
             code, out = run(["arrangement", "score", "v6_feed_off"])
         self.assertEqual(code, 1, out)
         self.assertIn("python3 tools/routing_lab/lab.py solver-setup", out)
+        # the other side is asked with the first's feed: copper with no end for the feed is refused, not scored (verification)
+        with tempfile.TemporaryDirectory() as tmp:
+            no_dac0 = os.path.join(tmp, "no_dac0.json")
+            with open(no_dac0, "w") as f:
+                json.dump({"base": "v5", "feed": False, "pins": {"K.X7": None}}, f)
+            with mock.patch.object(ceiling, "solver_installed", return_value=True), \
+                    mock.patch.object(lab.runner, "run_battery", side_effect=AssertionError("ran")):
+                code, out = run(["arrangement", "score", "v5", "--against", no_dac0])
+        self.assertEqual(code, 1, out)
+        self.assertIn("DAC0", out)
 
     def test_rank_prints_what_the_router_loses_and_writes_it(self):
         with tempfile.TemporaryDirectory() as tmp, mock.patch.object(rank, "DIR", lab.Path(tmp) / "rank"):
@@ -328,9 +341,13 @@ class Cli(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp, mock.patch.object(rank, "DIR", lab.Path(tmp) / "rank"), \
                 mock.patch.object(rank, "removal", side_effect=removal):
+            v = variants.resolve("worktree")                            # solver columns of other copper already there
+            rank.save({"arrangement": "v6_feed_off", "variant": {"name": "w", "hash": v.hash}, "fabric": "other",
+                       "engine": "router and solver", "rule": "firmware", "seconds": 5.0, "needed_cases": 9, "wires": []})
             code, out = run(["rank"])                                   # every wire, the default classes: this one is kept
             self.assertEqual(code, 0, out)
-            files = list((lab.Path(tmp) / "rank").glob("*.json"))
+            self.assertIn("set aside", out)                             # and the old proof is not lost: it is set aside, and said so
+            files = [p for p in (lab.Path(tmp) / "rank").glob("*.json") if "set-aside" not in p.name]
             self.assertEqual(len(files), 1)
             self.assertRegex(files[0].name, r"^[0-9a-f]{64}_v6_feed_off\.json$")
             kept = files[0].read_text()

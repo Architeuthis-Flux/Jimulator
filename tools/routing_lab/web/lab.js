@@ -37,6 +37,7 @@ const state = {
   takeAway: [],      // wires picked on the Ranking tab to run without
   v5nodes: null,     // V5's nodes, for the name of one the arrangement picked has dropped
   drawn: [],         // the netlist made by clicking nodes: [[node, node]]
+  drawnFrom: null,   // {cls, case} whose settings it is routed with, when it started from a case of the battery
   from: null,        // the node picked up by a first click, waiting for the second
 };
 
@@ -337,7 +338,7 @@ function renderShowing() {
   }
   if (run.drawn) {
     box.title = RUN_CHECKS;
-    const elsewhere = ranOn().name !== state.arrangement;
+    const elsewhere = ranOn().name !== state.arrangement && picked().engine === "solver";
     box.replaceChildren(el("b", { text: "Shown: " }), "a netlist made by hand, router " + run.variant.name + "; "
       + arrangementWords(ranOn())
       + (elsewhere ? ". That run only made the netlist: on " + state.arrangement + " it is the exact solver that routes it." : "."));
@@ -551,6 +552,7 @@ async function runBattery(without) {
     $("build-error").hidden = true;
     state.run = data;
     state.cases = {};
+    forgetDrawn();
     if (data.arrangement && data.arrangement.name !== state.arrangement) {
       // routed without some wires: that arrangement is no file, so it joins the list as it is, and is the one drawn
       state.current = null;
@@ -577,6 +579,7 @@ async function runBattery(without) {
     $("busy").hidden = true;
     state.busy = false;
     renderArrangement();
+    renderDrawn();
   }
 }
 
@@ -608,6 +611,7 @@ async function showBoards(list) {
     $("build-error").hidden = true;
     state.run = data;
     state.cases = {};
+    forgetDrawn();
     state.compare = false;
     $("compare").checked = false;
     $("compare-box").hidden = true;
@@ -621,6 +625,7 @@ async function showBoards(list) {
     $("busy").hidden = true;
     state.busy = false;
     renderArrangement();
+    renderDrawn();
   }
 }
 
@@ -686,7 +691,7 @@ function redraw() {
     $("view-title").textContent = solved
       ? state.selected + "   the exact solver's routing on " + state.arrangement + ", one of many; not the firmware's router"
         + "   probe feed " + (on.feed ? "on" : "off") + " the fabric"
-      : state.run.drawn         // the netlist made by hand, on copper only the solver routes, and no routing of it yet
+      : state.run.drawn && picked().engine === "solver"     // made by hand, on copper only the solver routes, not routed yet
         ? state.arrangement + ": its copper. The firmware made the netlist; routing it here is the exact solver's work"
           + (state.info.solver ? " (ask under Ceiling)." : ", and the solver is not installed: python3 tools/routing_lab/lab.py solver-setup")
         : state.arrangement + ": its copper. The run shown is on " + on.name + ": pick that arrangement to see it drawn"
@@ -1431,18 +1436,38 @@ function clickNode(wire) {
     showProblem("A run is in flight: click the two nodes again when it is done.");
     return;
   }
-  // on to what is on screen: the first bridge made while a case of a run is shown starts from that case's own
-  if (!state.drawn.length && state.current && !(state.run && state.run.drawn)) state.drawn = shownBridges();
+  // on to what is on screen: while a case of a run (not a netlist made by hand) is shown, start from that case
+  if (state.current && !(state.run && state.run.drawn)) startFromShown();
   const same = ([a, b]) => (a === pair[0] && b === pair[1]) || (a === pair[1] && b === pair[0]);
   if (!state.drawn.some(same)) state.drawn.push(pair);      // the firmware would merge the same pair twice
   routeDrawn(pair);
+}
+
+// The netlist made by hand becomes the case shown: its bridges, and (for a case of the battery) its settings, which
+// the server takes from the case itself. A board's output has bridges only.
+function startFromShown() {
+  state.drawn = shownBridges();
+  state.drawnFrom = state.run.board ? null : { cls: state.current.result.cls, case: state.current.result.case };
+}
+
+// A run or a board's output put on screen: what was made by hand before is not what a click adds to any more.
+function forgetDrawn() {
+  state.drawn = [];
+  state.drawnFrom = null;
+  state.from = null;
+  markFrom();
 }
 
 // Route state.drawn on the arrangement picked and show it. `added`: the bridge just put in, taken out again if
 // the netlist is refused with it.
 async function routeDrawn(added) {
   renderDrawn();
+  if (state.busy) {
+    showProblem("A run is in flight: change the netlist made by hand again when it is done, and it is routed.");
+    return;
+  }
   if (!state.drawn.length) {                       // the last bridge was taken out: nothing made by hand is shown any more
+    state.drawnFrom = null;
     if (state.run && state.run.drawn) {
       Object.assign(state, { run: null, current: null, selected: null, base: null, cases: {} });
       renderRegressions();
@@ -1454,16 +1479,14 @@ async function routeDrawn(added) {
     }
     return;
   }
-  if (state.busy) {
-    showProblem("A run is in flight: change the netlist made by hand again when it is done, and it is routed.");
-    return;
-  }
   state.busy = true;
-  $("busy").textContent = "routing " + count(state.drawn.length, "bridge") + " made by hand on " + state.arrangement + "...";
+  const asked = state.arrangement;
+  $("busy").textContent = "routing " + count(state.drawn.length, "bridge") + " made by hand on " + asked + "...";
   $("busy").hidden = false;
   renderArrangement();
   try {
-    const data = await api("/api/route", { variant: variantSpec(), arrangement: state.arrangement, bridges: state.drawn });
+    const data = await api("/api/route", { variant: variantSpec(), arrangement: asked, bridges: state.drawn,
+      from: state.drawnFrom });
     if (data.build_error) {
       showBuildError(data);
       return;
@@ -1479,7 +1502,7 @@ async function routeDrawn(added) {
     renderBattery();
     await selectCase("drawn");
     // copper the firmware's router cannot route: the run only made the netlist. The solver routes it, and that is the picture.
-    if (ranOn().name !== state.arrangement && state.info.solver) await askCeiling("firmware");
+    if (state.arrangement === asked && picked().engine === "solver" && state.info.solver) await askCeiling("firmware");
   } catch (err) {
     if (added) state.drawn = state.drawn.filter((pair) => pair !== added);
     showProblem(err.message);
@@ -1489,6 +1512,8 @@ async function routeDrawn(added) {
     renderArrangement();
     renderDrawn();
   }
+  // another arrangement was picked while this one was routed: the netlist goes with the copper looked at
+  if (state.arrangement !== asked && state.run && state.run.drawn && state.drawn.length) await routeDrawn();
 }
 
 // The box under the controls: what the netlist holds, with a way to take each bridge out, to clear it, and to
@@ -1499,10 +1524,11 @@ function renderDrawn() {
   if (STATIC) return;
   box.replaceChildren();
   const shown = state.current && !(state.run && state.run.drawn);
-  const from = el("button", { type: "button", text: "start from the case shown", disabled: shown ? null : "",
-    title: "make the netlist the bridges of the case shown, to take some out or add to them. Its stacking and power "
-      + "settings are not bridges and are not kept: the netlist is routed with the defaults.",
-    onclick: () => { state.drawn = shownBridges(); routeDrawn(); } });
+  const idle = (act) => () => { if (!state.busy) act(); };       // nothing changes the netlist while a run is out
+  const from = el("button", { type: "button", text: "start from the case shown", disabled: shown && !state.busy ? null : "",
+    title: "make the netlist the case shown: its bridges, and its stacking, power and probe settings, to take bridges out "
+      + "of or add to. A board's output has its bridges only.",
+    onclick: idle(() => { startFromShown(); routeDrawn(); }) });
   if (!state.drawn.length) {
     box.append(el("div", { class: "hint", text: state.from == null
       ? "Click two nodes on the Fabric tab to connect them" + (shown ? ": the bridge is added to the case shown" : "")
@@ -1510,15 +1536,17 @@ function renderDrawn() {
       : "From " + nodeName(state.from) + ": click another node to connect it (Esc lets go)." }), from);
     return;
   }
-  box.append(el("div", { class: "hint", text: "Made by hand (" + count(state.drawn.length, "bridge") + "), routed on the arrangement picked"
+  box.append(el("div", { class: "hint", text: "Made by hand (" + count(state.drawn.length, "bridge")
+    + (state.drawnFrom ? ", from " + state.drawnFrom.case + " with its settings" : "") + "), routed on the arrangement picked"
     + (state.from == null ? ". Click two nodes to add one." : ". From " + nodeName(state.from) + ": click another node (Esc lets go).") }));
   const list = el("div", { class: "away" });
   for (const pair of state.drawn) {
     list.append(el("span", { text: nodeName(pair[0]) + " - " + nodeName(pair[1]) + " ×", title: "take this bridge out",
-      onclick: () => { state.drawn = state.drawn.filter((p) => p !== pair); routeDrawn(); } }));
+      onclick: idle(() => { state.drawn = state.drawn.filter((p) => p !== pair); routeDrawn(); }) }));
   }
   box.append(list, el("div", { class: "row" },
-    el("button", { type: "button", text: "clear", onclick: () => { state.drawn = []; routeDrawn(); } }), from));
+    el("button", { type: "button", text: "clear", disabled: state.busy ? "" : null,
+      onclick: idle(() => { state.drawn = []; state.drawnFrom = null; routeDrawn(); }) }), from));
 }
 
 // ---------------------------------------------------------------- the ranking tab
@@ -1669,6 +1697,14 @@ function renderRanking() {
       + (r.feed ? "on" : "off") + " the fabric: the firmware's router over " + r.cases + " cases"
       + (hasNeeded() ? "; the exact solver (firmware-shaped paths, " + r.seconds + " s a question) over " + r.needed_cases + " netlists" : "")
       + ". Made " + r.made + "." }));
+    if (r.stale) {
+      box.append(el("div", { class: "hint", text: "This ranking is of other copper than " + r.arrangement + "'s file now has "
+        + "(the file was edited since). Rank now makes the router's part again; the solver's part is lab.py rank --needed." }));
+    }
+    if (r.set_aside) {
+      box.append(el("div", { class: "hint", text: "The ranking that was here held the solver's columns for other copper or "
+        + "other netlists; it is kept beside this one as " + r.set_aside.split("/").pop() + "." }));
+    }
   } else {
     box.append(el("div", { text: "No ranking of router " + baseSpec() + " on " + state.arrangement + " yet." }));
   }
@@ -1691,7 +1727,7 @@ function renderRanking() {
       + "part of an hour and is not started from here" + (a.json ? ". This arrangement is no file: save its file first (left "
         + "column, under the picker) as arrangements/NAME.json, then:" : ":") }),
       el("pre", { text: "python3 tools/routing_lab/lab.py rank --needed"
-        + (state.arrangement === "v6_feed_off" ? "" : " --arrangement " + (a.json ? "NAME" : state.arrangement)) }));
+        + (state.arrangement === "v6_feed_off" ? "" : " --arrangement " + (a.json ? "NAME" : JSON.stringify(state.arrangement))) }));
   }
   if (!r) return;
 

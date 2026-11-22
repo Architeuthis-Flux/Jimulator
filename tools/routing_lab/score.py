@@ -59,7 +59,8 @@ def compare(v, cases, a, b=None, rule="firmware", seconds=10.0, fewest=True, pro
 def lengths(v, a, b=None, lists=2, seed=1, seconds=20.0, longest=80, progress=None, rule="firmware"):
     """How far the edge class's random lists grow on each arrangement:
     [{"list": i, "a": {"bridges": k, "next_is": why one more is not proved},
-    "b": {...}}], bridges 0 (and next_is None) when not one is proved. List i
+    "b": {...}}], bridges 0 when not one is proved (next_is then says why the
+    first is not). List i
     is drawn as `lab.py edge` draws it, so list 0 of seed 1 is edge_1_0's.
     Both grow with `a`'s feed setting. About a minute and a half a list an
     arrangement. Raises edge.SolverFailed."""
@@ -69,9 +70,11 @@ def lengths(v, a, b=None, lists=2, seed=1, seconds=20.0, longest=80, progress=No
     for i in range(lists):
         entry = {"list": i}
         for side, on in (("a", a), ("b", b)):
-            grown = edge.grow(binary, random.Random(seed * 100003 + i), "list_%d" % i, seconds, longest, rule=rule, arrangement=on)
+            reasons = {}
+            grown = edge.grow(binary, random.Random(seed * 100003 + i), "list_%d" % i, seconds, longest, rule=rule, arrangement=on,
+                              reasons=reasons)
             entry[side] = {"bridges": grown[1]["bridges"], "next_is": grown[1]["next_is"]} if grown else \
-                {"bridges": 0, "next_is": None}
+                {"bridges": 0, "next_is": reasons.get("next_is")}
             if progress:
                 progress(2 * i + (side == "b") + 1, 2 * lists, "list %d on %s" % (i, on.name))
         out.append(entry)

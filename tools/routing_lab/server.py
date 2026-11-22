@@ -13,6 +13,7 @@ own page:
 - a variant is "worktree", a git ref, or a directory named when the server
   was started; uploaded files must land under src/.
 """
+import dataclasses
 import hmac
 import http.server
 import json
@@ -315,6 +316,21 @@ class Handler(http.server.BaseHTTPRequestHandler):
         a = self.arrangement_of(body.get("arrangement"))
         on = a if arrangement.blocks(a) is not None else arrangement.base(a.feed)
         case = cases.Case(DRAWN, DRAWN, [(n1, n2, -1) for n1, n2 in bridges], notes="made by hand on the page")
+        src = body.get("from")
+        if src is not None:                         # added to a case: routed with that case's stacking, power and probe
+            if not (isinstance(src, dict) and isinstance(src.get("cls"), str) and isinstance(src.get("case"), str)):
+                raise Refused(400, '"from" is {"cls", "case"}: the case whose bridges these were added to')
+            try:
+                found = [c for c in lab.battery([src["cls"]]) if c.name == src["case"]]
+            except (ValueError, TypeError) as e:
+                raise Refused(400, str(e)) from None
+            if not found:
+                raise Refused(400, "there is no case %s in the class %s" % (src["case"], src["cls"]))
+            own = {frozenset(b[:2]): b[2] for b in found[0].bridges}      # a bridge of its own keeps its own stacking
+            case = dataclasses.replace(
+                found[0], name=DRAWN, cls=DRAWN, must_route=False, taps_required=False,
+                bridges=[(n1, n2, own.get(frozenset((n1, n2)), -1)) for n1, n2 in bridges],
+                notes="made by hand on the page from %s: its bridges and settings, with bridges added or taken out" % src["case"])
         try:
             v, results = self.battery_of(body["variant"], [case], on)
         except variants.BuildError as e:
@@ -375,12 +391,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
         return dict(answer, paint=solver_paint(answer["closed"], a), solved=ceiling.solved(result, answer, a))
 
     def api_get_rank(self, query, body):
-        """The ranking on file for a variant (its spec) and an arrangement, with when it was made."""
+        """The ranking on file for a variant (its spec) and an arrangement, with
+        when it was made, and "stale" when it is of other copper than the
+        arrangement's file now has (the file was edited since)."""
         v = self.resolve(query.get("variant", "worktree"))
-        where = rank.path(v.hash, self.arrangement_of(query.get("arrangement")).name)
+        a = self.arrangement_of(query.get("arrangement"))
+        where = rank.path(v.hash, a.name)
         if not where.is_file():
             raise Refused(404, "this router has not been ranked on this arrangement", hint=RANK_HINT)
-        return dict(json.loads(where.read_text()), made=time.strftime("%Y-%m-%d %H:%M", time.localtime(where.stat().st_mtime)))
+        doc = json.loads(where.read_text())
+        wires = {w["wire"]: [list(p) for p in w["pins"]] for w in rank.wires(a)}
+        return dict(doc, made=time.strftime("%Y-%m-%d %H:%M", time.localtime(where.stat().st_mtime)),
+                    stale=not rank.same_copper(doc, rank.fabric_of(a), a.feed, wires))
 
     def api_post_rank(self, query, body):
         """Make the router's part of a ranking now ({"variant", "arrangement",

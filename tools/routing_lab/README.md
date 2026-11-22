@@ -59,9 +59,12 @@ click a case.
   case is. The netlist is routed at once with the Router named, on the
   arrangement picked, and shown as a case called "drawn". The box under the
   controls lists its bridges; each can be taken out, and "clear" empties it.
-  "start from the case shown" copies a case's bridges without adding one.
-  What is carried from a case is its bridges, not its stacking or power
-  settings. Pick another arrangement and the same netlist is routed there.
+  "start from the case shown" copies a case without adding a bridge. A case
+  of the battery is carried with its settings (its stacking, power and
+  probe), so the case with nothing added routes as the run routed it; a
+  board's output has its bridges only, and they are routed with the
+  defaults. A new Run, or a board's output put on screen, starts afresh.
+  Pick another arrangement and the same netlist is routed there.
   On an arrangement only the solver can route, the firmware still makes the
   netlist and the solver's routing is what is drawn. Esc, or a second click
   on the same node, lets go. (A click on a node no longer lights its net
@@ -386,7 +389,7 @@ small JSON file under `arrangements/` that says what it changes from V5:
 |---|---|
 | `"about"` | one line of text |
 | `"base"` | `"v5"`, the only base there is |
-| `"feed"` | `false` when the probe feed is not routed through the fabric (V6 takes it off); `true` when not given, and then BUF_IN and DAC0 must keep a pin |
+| `"feed"` | `false` when the probe feed is not routed through the fabric (V6 takes it off); `true` when not given, and then every end the feed can have must keep a pin: BUF_IN, DAC0 and GPIO_1 to GPIO_8 |
 | `"remove"` | wire names: every pin on such a wire is taken away |
 | `"pins"` | `{"A.X7": "TOP_RAIL", "K.X2": null}`: a pin put on a wire (and so joined to every other pin of that name), or taken away |
 | `"chips"` | `{"M": {"role": "sf", "x": [16 names or null], "y": [8 names or null]}}`: a chip added; role `"bb"` or `"sf"` |
@@ -394,9 +397,16 @@ small JSON file under `arrangements/` that says what it changes from V5:
 
 A pin taken away is no copper at all: nothing routes over it and no search
 passes it. A node whose last pin is taken away drops out, and a netlist that
-uses it "cannot be placed" there, which is neither routable nor not. A new
-wire name on a single pin, with no node on it, is listed as a mistake (it is
-nearly always a misspelling).
+uses it "cannot be placed" there, which is neither routable nor not.
+
+Mistakes `check` lists besides the obvious ones: a key given twice in one
+object (JSON would keep only the last); a pin written another way than
+`A.X7` (no `A.X07`); a key a chip or a node does not have; and a new wire
+name put on a single X pin under `"pins"` with no node on it, which is
+nearly always a misspelt name (`TOP_RIAL`). A one-pin wire on a Y pin is a
+bounce row, a shape V5 has eight of, and a new chip's own lists name its
+wires on purpose, so neither is taken for a slip; nor is a misspelling
+repeated on two pins or more.
 
 Two ship. `v6_feed_off` is V5's copper with the probe feed off the fabric.
 `v6_rails_on_chips` is the worked example, P1 + P2 of
@@ -428,9 +438,11 @@ Any arrangement that moves a pin, adds a chip or adds a node is the solver's
 alone, because the router has V5's chips and pins as literals in its code.
 So is one that takes away one pin of a node that keeps another (GND has a
 pin on K and one on L): the firmware still has the node there and closes the
-pin, blocked or not. With the feed on the fabric, the file must keep both of
-the feed's ends, BUF_IN and DAC0. Should the router still close a crosspoint
-on a blocked pin, that case fails and says which.
+pin, blocked or not. With the feed on the fabric, the file must keep every
+end the feed can have: BUF_IN, and DAC0 or (when DAC0 is out of the probe's
+window, as in the dense cases) the highest free GPIO from 8 down to 1.
+Should the router still close a crosspoint on a blocked pin, that case fails
+and says which.
 
 **`arrangement score NAME [--against v5]`** asks the solver the same netlists
 on both. The netlists are the firmware's own: each case is run once by the
@@ -506,7 +518,11 @@ minutes on top of the router's three; with `--needed-classes
 dense,real,stress` (44 netlists), six. Run nothing else heavy beside it: an
 answer that runs out of its 5 s is "unknown". A ranking made again without
 `--needed` keeps what the solver proved before, as long as the arrangement's
-copper is what it was.
+copper is what it was. The solver's work is never thrown away: whenever a
+file holding it would be written over (the copper changed, or a new
+`--needed` over other classes), the old file is set aside beside it as
+`<name>.set-aside.json`, and the command and the Ranking tab say so. The tab
+also says when a ranking is of copper the arrangement's file no longer has.
 
 **The Ranking tab** shows the file for the Router named and the arrangement
 picked: the fabric tinted by the router's loss or by how many netlists need

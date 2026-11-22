@@ -34,6 +34,7 @@ from fabric_v5 import NODE_NAME  # noqa: E402
 RESULTS_DIR = variants.BUILD_DIR / "results"
 STDERR_TAIL = 4000
 BLOCK_NET = 59          # the phantom net a blocked pin is claimed for: kBlockNet (MAX_NETS - 1) in lab_harness.cpp
+TAKEN = "taken away here"       # in the problem of a case whose router closed a crosspoint on a blocked pin
 
 
 def parse_sections(stdout):
@@ -209,15 +210,16 @@ def judge(case, sections, stderr="", block=()):
     # it is: a worse score, and against a baseline a regression. Not a status.
     paint = copper.paint(result)
     # A pin taken away is no copper. The firmware still knows V5, though: where it has a node on such a pin (GND's
-    # second pin, the probe feed's DAC) it closes it, blocked or not. That is no result for this arrangement.
+    # second pin, an end of the probe feed) it closes it, blocked or not. That is no result for this arrangement.
+    # (arrangement.why_not_router and check() keep those arrangements from the router; this says so if one gets by.)
     gone = {tuple(p) for p in block}
     on_gone = sorted({(c["chip"], axis, c[axis.lower()]) for c in paint["crosspoints"] for axis in "XY"
                       if (axis, fabric_v5.CHIPS.index(c["chip"]), c[axis.lower()]) in gone})
     if on_gone:
         where = ", ".join("chip %s %s%d" % (chip, axis.lower(), pin) for chip, axis, pin in on_gone)
         return _result(case, "crash", notes=notes, rejected=rejected, b=b, xbar=xbar, stderr=stderr, problems=[
-            "the router closed a crosspoint on %s, taken away here: the firmware still has a node on it, so its router cannot "
-            "run this arrangement for this netlist (the exact solver can)" % where])
+            "the router closed a crosspoint on %s, %s: the firmware still has a node or the probe feed there, so its router "
+            "cannot run this netlist on this copper" % (where, TAKEN)])
     g = _copper_without(tuple(sorted(gone)))
     result["metrics"]["missed"] = sum(1 for m in ceiling.missed(paint, g) if m["path"] is not None)
     return result

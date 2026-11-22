@@ -119,7 +119,8 @@ def removal(v, cases, a, wires=None, progress=None):
     worst_r: positive is the router doing worse without the wire, negative
     doing better. "worse" and "better" are the cases with fewer and with more
     primaries routed. "used_after" counts the crosspoints closed on the wire's
-    pins in the run without it, and must be 0. progress(done, of, wire) is
+    pins in the run without it, and the cases refused for closing one (the
+    judge fails those), and must be 0. progress(done, of, wire) is
     called after each wire. Raises RouterCannot, BuildError, ValueError."""
     ranked = {w["wire"]: w for w in globals()["wires"](a)}
     names = list(ranked) if wires is None else list(wires)
@@ -141,7 +142,8 @@ def removal(v, cases, a, wires=None, progress=None):
             loss=_loss(_totals(base), _totals(after)),
             by_class={cls: _loss(_totals(of(base, cls)), _totals(of(after, cls))) for cls in classes},
             worse=[case for case, d in moved if d < 0], better=[case for case, d in moved if d > 0],
-            used_after=sum(1 for r in after for c in copper.paint(r)["crosspoints"]
+            used_after=sum(1 for r in after for p in r["problems"] if runner.TAKEN in p)        # refused for closing it
+                       + sum(1 for r in after for c in copper.paint(r)["crosspoints"]
                            if (c["chip"], "X", c["x"]) in pins or (c["chip"], "Y", c["y"]) in pins)))
         if progress:
             progress(done, len(names), name)
@@ -229,28 +231,51 @@ def path(variant_hash, name):
     return DIR / ("%s_%s.json" % (variant_hash, re.sub(r"[^A-Za-z0-9_.-]+", "_", name)))
 
 
+def same_copper(old, fabric, feed, wires):
+    """Is a kept ranking (`old`) of the copper whose digest is `fabric`? A
+    ranking from before the digest was kept says so by what it records: the
+    same feed, and the same wires on the same pins ({wire: pins})."""
+    if "fabric" in old:
+        return old["fabric"] == fabric
+    pins = lambda ws: {w["wire"]: [list(p) for p in w["pins"]] for w in ws}
+    return old.get("feed") == feed and pins(old.get("wires", [])) == wires
+
+
 def save(ranking):
     """Write a ranking to its place under DIR (`path`); returns it as written.
     It is for a whole ranking: one of some wires or of one case would take
     the place of the whole one (lab.py rank does not keep those).
 
-    The router's part made again does not throw away what the solver proved:
-    when the ranking has no "needed" columns and the file already there has
-    them, they are carried over, wire by wire. They are about the netlists
-    and the copper, so only when the file is of the same copper ("fabric"):
-    an arrangement's file may have been edited since."""
+    What the solver proved is never thrown away. The router's part made
+    again carries the file's "needed" columns over, wire by wire, when the
+    file is of the same copper (`same_copper`: an arrangement's file may have
+    been edited since). Any other time a file holding them would be written
+    over (other copper, or new "needed" columns over old ones), it is set
+    aside first, beside it, and the ranking written says where ("set_aside")."""
     where = path(ranking["variant"]["hash"], ranking["arrangement"])
-    if "needed_cases" not in ranking and where.exists():
-        try:
-            old = json.loads(where.read_text())
-        except (OSError, ValueError):
-            old = {}
-        if "needed_cases" in old and old.get("fabric") == ranking.get("fabric"):
+    try:
+        old = json.loads(where.read_text()) if where.exists() else {}
+    except (OSError, ValueError):
+        old = {}
+    aside = None
+    if "needed_cases" in old:
+        pins = {w["wire"]: [list(p) for p in w["pins"]] for w in ranking["wires"] if "pins" in w}
+        if "needed_cases" not in ranking and same_copper(old, ranking.get("fabric"), ranking.get("feed"), pins):
             proved = {w["wire"]: {k: w[k] for k in ("needed_by", "not_needed", "unknown")} for w in old["wires"] if "needed_by" in w}
             ranking = dict(ranking, engine=old["engine"], rule=old["rule"], seconds=old["seconds"], needed_cases=old["needed_cases"],
                            wires=[dict(w, **proved.get(w["wire"], {})) for w in ranking["wires"]])
+        else:
+            aside = where.with_name(where.stem + ".set-aside.json")
     where.parent.mkdir(parents=True, exist_ok=True)
+    if aside is not None:
+        ranking = dict(ranking, set_aside=str(aside))
     tmp = where.with_name(where.name + ".tmp%d" % os.getpid())      # whole or not at all: it may hold hours of the solver's work
-    tmp.write_text(json.dumps(ranking) + "\n")
-    os.replace(tmp, where)
+    try:
+        tmp.write_text(json.dumps(ranking) + "\n")
+        if aside is not None:
+            os.replace(where, aside)
+        os.replace(tmp, where)
+    finally:
+        if tmp.exists():
+            tmp.unlink()
     return json.loads(json.dumps(ranking))          # as a reader of the file gets it: pins as lists

@@ -70,6 +70,19 @@ class Edge(unittest.TestCase):
         self.assertEqual((len(case.bridges), info["next_is"]), (5, "unplaced"))
         self.assertIn("one more bridge: it uses a node the arrangement does not have", case.notes)
 
+    def test_when_nothing_is_proved_it_says_why(self):                # verification, F5/R: the list's very first bridge
+        for said in ("unplaced", "not_routable", "unknown"):
+            reasons = {}
+            run, ask = pretend(lambda n: said)
+            with run, ask:
+                self.assertIsNone(edge.grow(None, random.Random(1), "edge_t", longest=20, reasons=reasons))
+            self.assertEqual(reasons, {"next_is": said})
+        reasons = {}
+        run, ask = pretend(lambda n: "routable" if n <= 5 else "unknown")
+        with run, ask:
+            self.assertIsNotNone(edge.grow(None, random.Random(1), "edge_t", longest=20, reasons=reasons))
+        self.assertEqual(reasons, {})                                   # and it is quiet when something is proved
+
     def test_all_of_it_proved(self):
         case, info = self.grown(lambda n: "routable")
         self.assertEqual((len(case.bridges), info["next_is"]), (20, "end"))

@@ -460,6 +460,7 @@ def cmd_score(args, a):
         return 2
     try:
         b = arrangement.load(args.against)
+        arrangement.with_feed(b, a.feed)            # both are asked a's netlists, so b must have a's feed's ends
     except arrangement.Bad as e:
         print("\n".join(e.problems))
         return 1
@@ -495,8 +496,8 @@ def cmd_score(args, a):
     if args.grow:
         import edge
         why = lambda d: NEXT_WORDS[d["next_is"]] % probe_seconds if d["next_is"] == "unknown" else NEXT_WORDS[d["next_is"]]
-        how_far = lambda name, d: "not one on %s" % name if not d["bridges"] else "%d bridges proved on %s (one more: %s)" % (
-            d["bridges"], name, why(d))
+        how_far = lambda name, d: ("not one on %s" % name + (" (the first: %s)" % why(d) if d.get("next_is") else "")
+                                   if not d["bridges"] else "%d bridges proved on %s (one more: %s)" % (d["bridges"], name, why(d)))
         try:
             for entry in score.lengths(v, a, b, lists=args.grow, seconds=probe_seconds, rule=args.rule):
                 print("random list %d: %s, %s" % (entry["list"], how_far(a.name, entry["a"]), how_far(b.name, entry["b"])),
@@ -613,6 +614,9 @@ def cmd_rank(args):
               "not needed: a routing without it exists. The router's loss is beside these, not instead of them.")
     print("not kept: a ranking of some wires or of one case does not take the place of the whole one (--json FILE writes it)"
           if names or args.case else "written to %s" % rank.path(v.hash, a.name))
+    if ranking.get("set_aside"):
+        print("the ranking that was there held the solver's columns for other copper or other netlists; it is set aside as %s"
+              % ranking["set_aside"])
     return 0
 
 

@@ -42,7 +42,7 @@ def draw(rng, longest=80):
     return pairs
 
 
-def grow(binary, rng, name, seconds=20.0, longest=80, rule="firmware", arrangement=None):
+def grow(binary, rng, name, seconds=20.0, longest=80, rule="firmware", arrangement=None, reasons=None):
     """(case, {"bridges": k, "closed": the solver's routing of it, "next_is":
     why one more bridge is not proved}) for the longest prefix found proved
     routable, or None when not even one bridge is. next_is: "not_routable"
@@ -57,7 +57,9 @@ def grow(binary, rng, name, seconds=20.0, longest=80, rule="firmware", arrangeme
 
     A prefix of which the firmware rejected, left out or refused a bridge is
     never asked about, so an edge case holds only bridges the firmware took.
-    Raises SolverFailed when an answer comes back with an error."""
+    When nothing is proved, a `reasons` dict given is told why the first
+    bridge alone is not: reasons["next_is"]. Raises SolverFailed when an
+    answer comes back with an error."""
     pairs = draw(rng, longest)
     probe_line = {} if arrangement is None or arrangement.feed else {"probe": (0, 0)}
     case_of = lambda k, notes="": cases.Case(name, "edge", [(a, b, -1) for a, b in pairs[:k]], notes=notes, **probe_line)
@@ -85,6 +87,8 @@ def grow(binary, rng, name, seconds=20.0, longest=80, rule="firmware", arrangeme
         else:
             short, why = k, said
     if not proved:
+        if reasons is not None:
+            reasons["next_is"] = why
         return None
     words = {"not_routable": "not routable, proved", "unknown": "not known after %g s" % seconds,
              "unplaced": "it uses a node the arrangement does not have",
