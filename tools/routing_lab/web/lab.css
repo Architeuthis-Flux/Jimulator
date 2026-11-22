@@ -149,7 +149,12 @@ body.dropping #left { outline: 2px dashed var(--changed); outline-offset: -4px; 
 #ranking th:nth-child(2), #ranking td:nth-child(2) { text-align: left; max-width: 104px; overflow: hidden; text-overflow: ellipsis; }
 #ranking th.on { color: var(--ink); }
 #ranking tr.case.take td { color: var(--dim); text-decoration: line-through; }
-#ranking .away span { display: inline-block; border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px; margin: 0 4px 4px 0; cursor: pointer; }
+.away span { display: inline-block; border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px; margin: 0 4px 4px 0; cursor: pointer; }
+#drawn { margin: 8px 0 0; }
+#drawn .hint { margin-bottom: 4px; line-height: 1.35; }
+#drawn button { margin-right: 6px; }
+.pad { cursor: pointer; }
+.pad.from > circle:first-child { stroke: var(--ink); stroke-width: 2.5; }
 #arrangement-json pre { color: var(--ink); max-height: 160px; overflow: auto; margin: 4px 0; user-select: all; }
 #case h1 { word-break: break-all; }
 .status { display: inline-block; padding: 1px 7px; border-radius: 9px; border: 1px solid var(--line); }

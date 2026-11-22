@@ -641,6 +641,75 @@ class Server(unittest.TestCase):
             self.assertNotIn("#ff5252", rule)
         self.assertEqual(subprocess.run(["node", "--check", str(server.WEB_DIR / "lab.js")]).returncode, 0)
 
+    def test_a_netlist_made_by_hand_is_routed_on_the_arrangement_named(self):
+        def bridges_of(run):
+            case = self.c.get("/api/case?variant=%s&arrangement=%s&case=drawn" % (
+                run["variant"]["hash"], urllib.parse.quote(run["arrangement"]["name"])))
+            self.assertEqual(case.status, 200, case.body)
+            asked = [b for b in case.json["paint"]["bridges"] if not b["infra"]]
+            return {frozenset((b["n1"], b["n2"])) for b in asked}, len(case.json["paint"]["bridges"]) - len(asked)
+
+        body = {"variant": "worktree", "arrangement": "v5", "bridges": [[1, 8], [3, 101]]}
+        r = self.c.post("/api/route", body)
+        self.assertEqual(r.status, 200, r.body)
+        self.assertEqual((r.json["drawn"], r.json["arrangement"]["name"], r.json["baseline"], r.json["regressions"]), (True, "v5", None, []))
+        self.assertEqual([(x["case"], x["cls"], x["fully_routed"], x["must_route"], x["engine"]) for x in r.json["rows"]],
+                         [("drawn", "drawn", True, False, "router")])
+        self.assertEqual(bridges_of(r.json), ({frozenset((1, 8)), frozenset((3, 101))}, 1))     # and the probe feed's
+        off = self.c.post("/api/route", dict(body, arrangement="v6_feed_off")).json
+        self.assertEqual((off["arrangement"]["name"], bridges_of(off)[1]), ("v6_feed_off", 0))
+        again = self.c.post("/api/route", dict(body, arrangement="v6_feed_off", bridges=[[2, 9]])).json   # the netlist as it now is
+        self.assertEqual((len(again["rows"]), bridges_of(again)[0]), (1, {frozenset((2, 9))}))
+        self.assertEqual(self.c.post("/api/route", {"arrangement": "v5", "bridges": [[1, 8]]}).status, 400)          # no variant
+        self.assertEqual(self.c.post("/api/route", dict(body, arrangement="nope")).status, 404)
+        with mock.patch.object(variants, "build", side_effect=variants.BuildError("x.cpp:1: error: no")):
+            broken = self.c.post("/api/route", dict(body, bridges=[[4, 12]]))
+        self.assertEqual((broken.status, broken.json["which"]), (200, "variant"))
+        self.assertIn("x.cpp:1: error: no", broken.json["build_error"])
+
+    def test_a_netlist_made_by_hand_on_copper_the_router_cannot_route_goes_to_the_solver(self):
+        r = self.c.post("/api/route", {"variant": "worktree", "arrangement": "v6_rails_on_chips", "bridges": [[1, 101]]})
+        self.assertEqual(r.status, 200, r.body)
+        on = r.json["arrangement"]                                      # the harness made the netlist on V5's copper, feed off
+        self.assertEqual((on["name"], on["engine"], on["feed"], r.json["rows"][0]["feed"]), ("v5, feed off", "router", False, False))
+        fixed = {"verdict": "routable", "fewest_proved": True, "crosspoints": 1, "router_crosspoints": 2, "seconds": 0.1,
+                 "error": None, "closed": [["A", 7, 1, 2]], "arrangement": "v6_rails_on_chips", "engine": "solver", "unplaced": []}
+        with mock.patch.object(server.ceiling, "solver_installed", return_value=True), \
+                mock.patch.object(server.ceiling, "verdict", return_value=fixed) as asked:
+            said = self.c.post("/api/ceiling", {"variant": r.json["variant"]["hash"], "run": on["name"], "case": "drawn",
+                                                "arrangement": "v6_rails_on_chips", "rule": "firmware"})
+        self.assertEqual(said.status, 200, said.body)
+        self.assertEqual(asked.call_args.kwargs["arrangement"].name, "v6_rails_on_chips")
+        self.assertEqual(said.json["solved"]["wires"]["TOP_RAIL"]["nets"], [2])
+
+    def test_a_netlist_made_by_hand_that_cannot_be_one_is_refused_with_the_reason(self):
+        body = {"variant": "worktree", "arrangement": "v5"}
+        for bridges, word in (([[1, 999]], "999"), ([[1, 1]], "two different"), ([], "bridge"), ([[1]], "two different"),
+                              ([[1, "8"]], "two different"), ([[1, True]], "two different"), ("1-8", "bridge"),
+                              ([[i + 1, i + 2] for i in range(201)], "200")):
+            with mock.patch.object(variants, "build", side_effect=AssertionError("built for a netlist that is none")):
+                r = self.c.post("/api/route", dict(body, bridges=bridges))
+            self.assertEqual(r.status, 400, bridges)
+            self.assertIn(word, r.json["error"], bridges)
+        self.assertEqual(self.c.post("/api/route", body).status, 400)                      # no bridges at all
+        no_rail = server.arrangement.parse("no_rail", {"base": "v5", "feed": False, "pins": {"K.X4": None}})
+        with mock.patch.object(server.arrangement, "load", return_value=no_rail), \
+                mock.patch.object(server.arrangement, "names", return_value=["v5", "no_rail"]):
+            r = self.c.post("/api/route", dict(body, arrangement="no_rail", bridges=[[1, 101]]))
+        self.assertEqual((r.status, r.json["rows"][0]["status"]), (200, "unplaced"))       # a node it dropped: placed nowhere, not refused
+        self.assertIn("TOP_RAIL", r.json["rows"][0]["notes"][0])
+
+    def test_the_page_makes_a_netlist_by_clicks_on_nodes(self):
+        js = self.c.get("/lab.js", token=None).body
+        for used in ("/api/route", "function routeDrawn", "function clickNode", "start from the case shown", "state.drawn",
+                     'event.key === "Escape"'):
+            self.assertIn(used, js)
+        self.assertRegex(js, r"view\.append\([^)]*\bhits, pads\b")       # the pads lie over the wires' hit areas: a click lands on them
+        page = self.c.get("/", token=None).body
+        self.assertIn('id="drawn"', page)
+        self.assertIn(".pad.from", self.c.get("/lab.css", token=None).body)
+        self.assertEqual(subprocess.run(["node", "--check", str(server.WEB_DIR / "lab.js")]).returncode, 0)
+
     def test_watch_reports_the_tree_hash(self):
         self.assertEqual(self.c.get("/api/watch?spec=worktree").json["hash"], variants.resolve("worktree").hash)
 

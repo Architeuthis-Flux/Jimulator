@@ -26,6 +26,7 @@ from pathlib import Path
 
 import arrangement
 import board
+import cases
 import ceiling
 import fabric_view
 import lab
@@ -39,6 +40,8 @@ SHEET_DIR = variants.BUILD_DIR / "sheet"
 MAX_UPLOAD = 5_000_000
 MAX_RUNS = 6            # runs (a variant on an arrangement) whose results are held for /api/case; about 9 MB each
 BOARD = "board"         # what uploaded board output is held under, where a run has its variant's hash
+DRAWN = "drawn"         # the name and the class of the netlist made by clicking nodes on the page
+MAX_DRAWN = 200         # bridges in it, at most
 IDLE = {"what": None, "done": 0, "of": 0, "wire": None}        # /api/job when nothing long is running
 RANK_HINT = "python3 tools/routing_lab/lab.py rank --needed"
 TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
@@ -286,6 +289,37 @@ class Handler(http.server.BaseHTTPRequestHandler):
             except variants.BuildError as e:
                 return {"build_error": e.stderr, "which": "baseline", "variant": {"name": e.variant.name}}
         return run_answer(v, results, base_v, base, a)
+
+    def api_post_route(self, query, body):
+        """A netlist made by hand on the page ({"variant", "arrangement",
+        "bridges": [[node, node], ...]}), as the case DRAWN, routed on the
+        arrangement named. The firmware's router routes it when it can run
+        that arrangement. When it cannot, the harness makes the netlist on
+        V5's copper with the arrangement's feed (the bridges the firmware
+        allows, and their nets), and the page asks the solver for the routing
+        (/api/ceiling with this run and the arrangement). The answer is
+        /api/run's, with "drawn" and the arrangement the harness ran on."""
+        bridges = body.get("bridges")
+        if not isinstance(bridges, list) or not bridges:
+            raise Refused(400, "send the bridges to route: [[node, node], ...], one at least")
+        if len(bridges) > MAX_DRAWN:
+            raise Refused(400, "a netlist made by hand holds %d bridges at most" % MAX_DRAWN)
+        for b in bridges:
+            if not (isinstance(b, list) and len(b) == 2 and all(type(n) is int for n in b) and b[0] != b[1]):
+                raise Refused(400, "a bridge is two different nodes, by number: %s is not" % json.dumps(b)[:60])
+            for n in b:                             # the firmware makes the netlist, and it knows only V5's nodes
+                if n not in arrangement.V5.NODE_NET:
+                    raise Refused(400, "node %d is not a node of V5, and the firmware, which makes the netlist, knows no other" % n)
+        if "variant" not in body:
+            raise Refused(400, "no variant")
+        a = self.arrangement_of(body.get("arrangement"))
+        on = a if arrangement.blocks(a) is not None else arrangement.base(a.feed)
+        case = cases.Case(DRAWN, DRAWN, [(n1, n2, -1) for n1, n2 in bridges], notes="made by hand on the page")
+        try:
+            v, results = self.battery_of(body["variant"], [case], on)
+        except variants.BuildError as e:
+            return {"build_error": e.stderr, "which": "variant", "variant": {"name": e.variant.name}}
+        return dict(run_answer(v, results, a=on), drawn=True)
 
     def api_get_case(self, query, body):
         result, a = self.kept(query.get("variant"), query.get("arrangement", "v5"), query.get("case"))
