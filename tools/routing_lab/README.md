@@ -399,14 +399,15 @@ A pin taken away is no copper at all: nothing routes over it and no search
 passes it. A node whose last pin is taken away drops out, and a netlist that
 uses it "cannot be placed" there, which is neither routable nor not.
 
-Mistakes `check` lists besides the obvious ones: a key given twice in one
-object (JSON would keep only the last); a pin written another way than
-`A.X7` (no `A.X07`); a key a chip or a node does not have; and a new wire
-name put on a single X pin under `"pins"` with no node on it, which is
-nearly always a misspelt name (`TOP_RIAL`). A one-pin wire on a Y pin is a
-bounce row, a shape V5 has eight of, and a new chip's own lists name its
-wires on purpose, so neither is taken for a slip; nor is a misspelling
-repeated on two pins or more.
+Mistakes `check` lists besides the obvious ones, all at once: a key given
+twice in one object (JSON would keep only the last); a pin written another
+way than `A.X7` (no `A.X07`); a key a chip or a node does not have; a name
+with spaces at its ends; and a new wire name on a single X pin with no node
+on it, under `"pins"` or in a new chip's own list, which is nearly always a
+misspelt name (`TOP_RIAL`). A one-pin wire on a Y pin is a bounce row, a
+shape V5 has eight of, so it is taken for a slip only when it is a near copy
+of a name V5 has. A misspelling repeated on two pins or more is not caught,
+nor is one unlike any name (`3O` for `30`).
 
 Two ship. `v6_feed_off` is V5's copper with the probe feed off the fabric.
 `v6_rails_on_chips` is the worked example, P1 + P2 of
@@ -439,8 +440,11 @@ alone, because the router has V5's chips and pins as literals in its code.
 So is one that takes away one pin of a node that keeps another (GND has a
 pin on K and one on L): the firmware still has the node there and closes the
 pin, blocked or not. With the feed on the fabric, the file must keep every
-end the feed can have: BUF_IN, and DAC0 or (when DAC0 is out of the probe's
-window, as in the dense cases) the highest free GPIO from 8 down to 1.
+end the feed can have: BUF_IN, and DAC0, or, when DAC0 is not free for it (a
+bridge on DAC0, DAC0 out of the probe's window as in the dense cases, or the
+probe's power set to come from a GPIO first), the highest free GPIO from 8
+down to 1. (The harness keeps the top OLED on, so it never feeds from GPIO 7
+or 8; a board with the OLED off can, and the rule keeps them.)
 Should the router still close a crosspoint on a blocked pin, that case fails
 and says which.
 
@@ -520,9 +524,10 @@ answer that runs out of its 5 s is "unknown". A ranking made again without
 `--needed` keeps what the solver proved before, as long as the arrangement's
 copper is what it was. The solver's work is never thrown away: whenever a
 file holding it would be written over (the copper changed, or a new
-`--needed` over other classes), the old file is set aside beside it as
-`<name>.set-aside.json`, and the command and the Ranking tab say so. The tab
-also says when a ranking is of copper the arrangement's file no longer has.
+`--needed` over other classes), the old file is first copied aside beside it
+as `<name>.set-aside.json` (then `-2`, `-3`: one never replaces another), and
+the command and the Ranking tab say so. The tab also says when a ranking is
+of copper the arrangement's file no longer has.
 
 **The Ranking tab** shows the file for the Router named and the arrangement
 picked: the fabric tinted by the router's loss or by how many netlists need

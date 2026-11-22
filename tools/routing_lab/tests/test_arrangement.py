@@ -88,6 +88,7 @@ class Files(unittest.TestCase):
             problems = arrangement.check({"base": "v5", "pins": {pin: None}})
             self.assertEqual(len(problems), 1, (pin, problems))
             self.assertIn("GPIO_%d" % gpio, problems[0])
+            self.assertIn("DAC0 is not free", problems[0])              # a bridge on DAC0 moves the feed too (round 2, V1)
             self.assertEqual(arrangement.check({"base": "v5", "feed": False, "pins": {pin: None}}), [])
 
     def test_the_feed_is_not_forced_onto_copper_that_has_no_end_for_it(self):     # verification, F5: arrangement score's other side
@@ -95,6 +96,8 @@ class Files(unittest.TestCase):
         with self.assertRaises(arrangement.Bad) as cm:
             arrangement.with_feed(no_dac0, True)
         self.assertIn("DAC0", cm.exception.problems[0])
+        self.assertIn("no_dac0", cm.exception.problems[0])               # it names the copper, and does not tell its file
+        self.assertNotIn('say "feed": false', cm.exception.problems[0])  # to say what it already says (round 2, V1)
         self.assertIs(arrangement.with_feed(no_dac0, False), no_dac0)
         self.assertTrue(arrangement.with_feed(arrangement.load("v6_feed_off"), True).feed)
 
@@ -143,6 +146,46 @@ class Files(unittest.TestCase):
         hub = {"base": "v5", "feed": False, "remove": second, "pins": pins,
                "chips": {"N": {"role": "sf", "x": n_x, "y": ["N_ROW%d" % r for r in range(8)]}}}
         self.assertEqual(arrangement.check(hub), [])
+
+    def test_a_misspelling_in_a_new_chips_own_x_list_is_caught(self):  # verification round 2, V3
+        m = {"role": "sf", "x": ["TOP_RAIL", "BOTTOM_RIAL", "GND"] + [None] * 13, "y": [c + "M" for c in "ABCDEFGH"]}
+        lanes = ["/%s1" % p for p in ("AB", "CD", "EF", "GH")]
+        a1 = {"base": "v5", "feed": False, "chips": {"M": m}, "remove": lanes,
+              "pins": {"%s.X%d" % (c, fabric_v5.X_NET[c].index("/%s1" % p)): c + "M" for p in ("AB", "CD", "EF", "GH") for c in p}}
+        problems = arrangement.check(a1)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("BOTTOM_RIAL", problems[0])
+        a1["chips"]["M"]["x"][1] = "BOTTOM_RAIL"
+        self.assertEqual(arrangement.check(a1), [])
+
+    def test_a_slip_on_a_y_pin_is_caught_when_it_is_plainly_one(self):  # verification round 2, V3
+        for slip in ("29 ", " GND", "TOP_RIAL"):
+            problems = arrangement.check({"base": "v5", "feed": False, "pins": {"K.X0": None, "A.Y0": slip}})
+            self.assertTrue(any(slip.strip() in p for p in problems), (slip, problems))
+        self.assertEqual(arrangement.check({"base": "v5", "feed": False, "pins": {"A.Y0": "A_BOUNCE"}}), [])
+
+    def test_every_problem_is_listed_and_kept_short(self):             # verification round 2, V3 (disputed, cheap)
+        both = self.write("both.json", '{"base": "v5", "feed": false, "feed": false, "pins": {"A.X7": "TOP_RIAL", "Q.X1": null}}')
+        with self.assertRaises(arrangement.Bad) as cm:
+            arrangement.load(both)
+        text = " ".join(cm.exception.problems)
+        for part in ('"feed"', "TOP_RIAL", "Q.X1"):
+            self.assertIn(part, text)
+        thrice = self.write("thrice.json", '{"base": "v5", "base": "v5", "base": "v5"}')
+        with self.assertRaises(arrangement.Bad) as cm:
+            arrangement.load(thrice)
+        self.assertEqual(len(cm.exception.problems), 1)
+        deep = {"base": "v5", "about": [], "pins": {"A.X7": "TOP_RIAL"}}
+        inner = deep["about"]
+        for _ in range(600):
+            inner.append([])
+            inner = inner[0]
+        problems = arrangement.check(deep)
+        self.assertTrue(any('"about"' in p for p in problems) and any("TOP_RIAL" in p for p in problems), problems)
+        long_key = "k" * 5000
+        for odd in ({"chips": {"M": {"role": "sf", "x": [None] * 16, "y": [None] * 8, long_key: 1}}},
+                    {"nodes": {"150": {"wire": "1", long_key: 1}}}):
+            self.assertTrue(all(len(p) < 300 for p in arrangement.check(dict({"base": "v5", "feed": False}, **odd))))
 
     def test_a_key_given_twice_in_a_file_is_listed(self):               # verification, F3: JSON keeps the last silently
         twice = self.write("twice.json", '{"base": "v5", "feed": false, "pins": {"A.X7": "TOP_RAIL"}, "pins": {"K.X2": null}}')

@@ -26,6 +26,7 @@ only when that is V5 with pins taken away (the harness blocks them). `blocks`
 says so; the solver takes any arrangement.
 """
 import copy
+import difflib
 import json
 import re
 from pathlib import Path
@@ -38,9 +39,12 @@ DIR = Path(__file__).resolve().parent / "arrangements"
 KEYS = ("about", "base", "feed", "remove", "pins", "chips", "nodes")
 PINS = {"X": 16, "Y": 8}
 FEED_NODE = copper.FEED_NODE
-# The probe feed's other end: DAC0 while DAC0 is in the probe's window, else the highest free GPIO from 8 down to 1
-# (src/routing/InfraPaths.cpp; the dense cases feed from GPIO 6). With the feed on the fabric, every one needs a pin.
+# The probe feed's other end: DAC0 when DAC0 is free for it (no bridge on DAC0, DAC0 in the probe's window, the
+# probe's power not set to GPIO first), else the highest free GPIO from 8 down to 1 (src/routing/InfraPaths.cpp; the
+# dense cases feed from GPIO 6). The harness keeps the top OLED on, which holds GPIO 7 and 8, but a board with it off
+# does not. With the feed on the fabric, every one needs a pin.
 FEED_ENDS = (106,) + tuple(range(131, 139))         # DAC0, GPIO_1 to GPIO_8
+NEAR = 0.8                                          # how like a base wire's name a new one-pin name must be to be a slip
 PIN = re.compile(r"([A-Z])\.([XY])(0|[1-9][0-9]?)")  # A.X7, written one way only (no A.X07, no other digits)
 NODE = re.compile(r"0|[1-9][0-9]{0,5}")
 
@@ -107,12 +111,16 @@ def base(feed):
     return V5 if feed else _OFF
 
 
+def _feed_ends_missing(node_net):
+    """[(node, what it is to the feed)] for every end of the probe feed with no pin."""
+    return [(n, "the feed's own end" if n == FEED_NODE else "where the firmware feeds the probe from"
+             + ("" if n == 106 else " when DAC0 is not free for it")) for n in (FEED_NODE,) + FEED_ENDS if n not in node_net]
+
+
 def feed_problems(node_net):
     """What keeps the probe feed off copper with these nodes: its ends that have no pin."""
-    return ['"feed" is true, but %s (%d), %s, has no pin: say "feed": false'
-            % (fabric_v5.NODE_NAME.get(n, n), n, "the feed's own end" if n == FEED_NODE
-               else "where the firmware feeds the probe from" + ("" if n == 106 else " when DAC0 is out of the probe's window"))
-            for n in (FEED_NODE,) + FEED_ENDS if n not in node_net]
+    return ['"feed" is true, but %s (%d), %s, has no pin: say "feed": false' % (fabric_v5.NODE_NAME.get(n, n), n, what)
+            for n, what in _feed_ends_missing(node_net)]
 
 
 def with_feed(a, feed):
@@ -121,8 +129,10 @@ def with_feed(a, feed):
     Bad when the feed is put onto copper that has no pin for one of its ends."""
     if a.feed == feed:
         return a
-    if feed and feed_problems(a.NODE_NET):
-        raise Bad(a.name, feed_problems(a.NODE_NET))
+    if feed and _feed_ends_missing(a.NODE_NET):
+        raise Bad(a.name, ["%s has no pin for %s (%d), %s, so it cannot be asked netlists made with the probe feed on the "
+                           "fabric; ask it of an arrangement with the feed off" % (a.name, fabric_v5.NODE_NAME.get(n, n), n, what)
+                           for n, what in _feed_ends_missing(a.NODE_NET)])
     other = copy.copy(a)
     other.feed, other.data = feed, dict(a.data, feed=feed)
     return other
@@ -154,6 +164,7 @@ def _build(name, data):
 
     chips, x_net, y_net, node_net, node_name, role = _base_tables()
     name_or_null = lambda v: v is None or (isinstance(v, str) and v != "")
+    named_x = set()                                 # new names put on X pins: where a misspelt name lands
 
     for letter, spec in part["chips"].items():
         if not re.fullmatch("[A-Z]", letter):
@@ -164,7 +175,8 @@ def _build(name, data):
             continue
         spec = spec if isinstance(spec, dict) else {}
         good = True
-        problems += ['chip %s: unknown key "%s" (a chip has role, x and y)' % (letter, k) for k in spec if k not in ("role", "x", "y")]
+        problems += ['chip %s: unknown key "%s" (a chip has role, x and y)' % (letter, str(k)[:40])
+                     for k in spec if k not in ("role", "x", "y")]
         if spec.get("role") not in ("bb", "sf"):
             problems.append('chip %s: its role is "bb" or "sf", not %s' % (letter, _shown(spec.get("role"))))
             good = False
@@ -176,8 +188,10 @@ def _build(name, data):
         if good:
             chips += letter
             x_net[letter], y_net[letter], role[letter] = list(spec["x"]), list(spec["y"]), spec["role"]
+            named_x.update(w for w in spec["x"] if w)
 
     base_wires = {w for table in (fabric_v5.X_NET, fabric_v5.Y_NET) for row in table.values() for w in row}
+    base_wires_named = sorted(w for w in base_wires if not w.startswith("unconnected-"))     # what a slip is a copy of
     for wire in part["remove"]:
         if not isinstance(wire, str):
             problems.append('"remove": %s is not a wire name' % _shown(wire))
@@ -189,7 +203,6 @@ def _build(name, data):
             for row in table.values():
                 row[:] = [None if w == wire else w for w in row]
 
-    named_x = set()                                 # new names put on X pins under "pins": where a misspelt name lands
     for spec, wire in part["pins"].items():
         m = PIN.fullmatch(spec)
         if not m or m.group(1) not in chips or int(m.group(3)) >= PINS[m.group(2)]:
@@ -213,7 +226,8 @@ def _build(name, data):
         elif not isinstance(spec, dict) or not isinstance(spec.get("wire"), str) or not spec["wire"]:
             problems.append('node %d: give {"wire": name} (and a "name" to show), or null to remove it' % node)
         else:
-            problems += ['node %d: unknown key "%s" (a node has wire and name)' % (node, k) for k in spec if k not in ("wire", "name")]
+            problems += ['node %d: unknown key "%s" (a node has wire and name)' % (node, str(k)[:40])
+                         for k in spec if k not in ("wire", "name")]
             if not isinstance(spec.get("name", ""), str):
                 problems.append("node %d: its name is text, not %s" % (node, _shown(spec["name"])))
             placed[node] = node_net[node] = spec["wire"]
@@ -228,20 +242,28 @@ def _build(name, data):
         if len(pins) >= 2 and wire not in owned and len(live.get(wire, ())) == 1:
             problems.append('wire %s is left on one pin (%s): take the wire away with "remove", or give the pin another wire'
                             % (wire, _pin_name(*live[wire][0])))
-    # A name V5 has not, put on one X pin under "pins", with no node on it, is most likely a slip of a name (TOP_RIAL).
-    # A one-pin wire on a Y pin is a bounce row, a shape V5 has eight of; a new chip's own lists name its wires on purpose.
+    # A name V5 has not, on one pin, with no node on it, is most likely a slip of a name (TOP_RIAL) when it is on an X
+    # pin, where V5 has no such wire. On a Y pin it is a bounce row, a shape V5 has eight of, unless it is plainly a
+    # slip: spaces at its ends, or a near copy of a name V5 has.
     for wire, pins in sorted(live.items()):
-        if wire in named_x and wire not in base_wires and len(pins) == 1 and wire not in node_net.values():
-            problems.append("wire %s is on one pin only (%s) and is no node's: a misspelt name? Join it to another pin, "
-                            "put a node on it, or take the pin away with null" % (wire, _pin_name(*pins[0])))
+        if wire in base_wires or len(pins) != 1 or wire in node_net.values():
+            continue
+        near = difflib.get_close_matches(wire.strip(), base_wires_named, n=1, cutoff=NEAR)
+        if wire in named_x or wire != wire.strip() or near:
+            problems.append("wire %s is on one pin only (%s) and is no node's: a misspelt name%s? Join it to another pin, "
+                            "put a node on it, or take the pin away with null" % (
+                                json.dumps(wire), _pin_name(*pins[0]), " of %s" % near[0] if near else ""))
+    for wire in sorted(w for w in live if w != w.strip() and len(live[w]) > 1):
+        problems.append("wire %s has spaces at its ends: a name is the same everywhere, spaces and all" % json.dumps(wire))
     dropped = [n for n, wire in node_net.items() if n not in placed and wire not in live]
     for node in dropped:                            # a base node whose last pin was taken away drops out
         del node_net[node]
         node_name.pop(node, None)
     if feed:
         problems += feed_problems(node_net)
-    about = data.get("about") if isinstance(data.get("about"), str) else ""
-    return Arrangement(name, about, feed, chips, x_net, y_net, node_net, node_name, role, dropped, data), problems
+    if problems:                                    # nothing is made of a file with a mistake (and odd data is never copied)
+        return None, problems
+    return Arrangement(name, data.get("about", ""), feed, chips, x_net, y_net, node_net, node_name, role, dropped, data), problems
 
 
 def _shown(value):
@@ -295,14 +317,14 @@ def load(name):
         data = json.loads(path.read_text(), object_pairs_hook=pairs)
     except (OSError, ValueError, RecursionError) as e:
         raise Bad(path.stem, ["%s cannot be read as JSON: %s" % (path.name, str(e)[:200])]) from None
-    if twice:
-        raise Bad(path.stem, twice)
     try:
-        return parse(path.stem, data)
-    except Bad:
-        raise
+        a, problems = _build(path.stem, data)
     except Exception as e:                          # a mistake no rule foresaw is still the file's, and must stop nothing else
-        raise Bad(path.stem, ["%s cannot be read as an arrangement (%s: %s)" % (path.name, type(e).__name__, e)]) from None
+        a, problems = None, ["%s cannot be read as an arrangement (%s: %s)" % (path.name, type(e).__name__, str(e)[:200])]
+    problems = list(dict.fromkeys(twice)) + problems    # every problem, a key given twice among them, each said once
+    if problems:
+        raise Bad(path.stem, problems)
+    return a
 
 
 def why_not_router(a):

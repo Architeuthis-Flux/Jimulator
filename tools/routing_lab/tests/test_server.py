@@ -543,7 +543,7 @@ class Server(unittest.TestCase):
             "loss": {"primaries": loss, "fully_routed": 0, "crosspoints": 2, "worst_r": 0.0}, "by_class": {}, "worse": [],
             "better": [], "used_after": 0}
         return dict({"arrangement": name, "feed": False, "engine": "router", "variant": {"name": "worktree", "hash": hash_},
-                     "cases": 21, "baseline": {"primaries": 210, "fully_routed": 21, "crosspoints": 670, "worst_r": 4.0},
+                     "nodes_as_v5": True, "cases": 21, "baseline": {"primaries": 210, "fully_routed": 21, "crosspoints": 670, "worst_r": 4.0},
                      "wires": [wire("KL", "hub", [["K", "X", 12], ["L", "X", 14]], -1),
                                wire("AK", "sf lane", [["A", "X", 9], ["K", "Y", 0]], 4)]}, **more)
 
@@ -731,6 +731,20 @@ class Server(unittest.TestCase):
         for bad in ({"cls": "dense", "case": "nope"}, "same_chip_pairs", {"cls": "nope", "case": "x"}, {"case": "same_chip_pairs"}):
             self.assertEqual(self.c.post("/api/route", dict(body, **{"from": bad})).status, 400, bad)
 
+    def test_a_case_with_nothing_added_routes_as_the_run_did_whatever_order_the_page_sends(self):   # round 2, V4
+        run = self.c.post("/api/run", {"variant": "worktree", "classes": ["beyond"]}).json
+        for row in run["rows"]:
+            paint = self.c.get("/api/case?variant=%s&arrangement=v5&case=%s" % (run["variant"]["hash"], row["case"])).json["paint"]
+            seen, pairs = set(), []
+            for b in paint["bridges"]:                                  # as the page's shownBridges() sends them
+                if not b["infra"] and frozenset((b["n1"], b["n2"])) not in seen:
+                    seen.add(frozenset((b["n1"], b["n2"])))
+                    pairs.append([b["n1"], b["n2"]])
+            got = self.c.post("/api/route", {"variant": "worktree", "arrangement": "v5", "bridges": pairs,
+                                             "from": {"cls": "beyond", "case": row["case"]}}).json["rows"][0]["metrics"]
+            for k in ("primaries", "routed_primaries", "crosspoints", "routed_duplicates"):
+                self.assertEqual(got[k], row["metrics"][k], (row["case"], k))
+
     def test_a_ranking_of_copper_the_file_no_longer_has_is_marked(self):          # verification, F2/R
         with tempfile.TemporaryDirectory() as tmp:
             arr, rk = server.Path(tmp) / "arr", server.Path(tmp) / "rank"
@@ -761,6 +775,13 @@ class Server(unittest.TestCase):
             self.assertIn(used, js)
         self.assertNotIn("click Run, or change the netlist again", js)
         self.assertNotIn("!state.drawn.length && state.current", js)  # a click starts from the case on screen, not an old netlist
+        # round 2 (V4): the box is drawn busy as soon as the page is; a press then says why; a build error keeps no clicked
+        # bridge; the picker leaves a route in flight to route again by itself
+        self.assertRegex(js, r"state\.busy = true;\n(\s*const asked = state\.arrangement;\n)?\s*renderDrawn\(\);")
+        self.assertEqual(len(re.findall(r"state\.busy = true;\n(?:\s*const asked = state\.arrangement;\n)?\s*renderDrawn\(\);", js)), 3)
+        self.assertIn('showProblem("A run is in flight: wait for it, then change the netlist made by hand.")', js)
+        self.assertEqual(js.count("if (added) state.drawn = state.drawn.filter((pair) => pair !== added);"), 2)
+        self.assertIn("if (state.run && state.run.drawn && !state.busy) await routeDrawn();", js)
         self.assertEqual(subprocess.run(["node", "--check", str(server.WEB_DIR / "lab.js")]).returncode, 0)
 
     def test_watch_reports_the_tree_hash(self):

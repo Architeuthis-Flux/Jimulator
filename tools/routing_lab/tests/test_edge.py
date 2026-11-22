@@ -62,13 +62,17 @@ class Edge(unittest.TestCase):
         case, info = self.grown(lambda n: "routable" if n <= 5 else "unknown")
         self.assertEqual((len(case.bridges), info["next_is"]), (5, "unknown"))
         self.assertIn("not known after 20 s", case.notes)
-        case, info = self.grown(lambda n: "routable" if n <= 5 else "nothing")
+        case, info = self.grown(lambda n: "routable" if n <= 5 else "not a verdict at all")     # anything else is not proof
         self.assertEqual((len(case.bridges), info["next_is"]), (5, "unknown"))
 
     def test_a_node_the_arrangement_lacks_is_said_so_and_not_called_unknown(self):       # final review, 5 (Review Focus 2)
         case, info = self.grown(lambda n: "routable" if n <= 5 else "unplaced")
         self.assertEqual((len(case.bridges), info["next_is"]), (5, "unplaced"))
         self.assertIn("one more bridge: it uses a node the arrangement does not have", case.notes)
+
+    def test_a_prefix_that_needs_no_crosspoint_is_proved(self):       # verification round 2, V5: not "not known"
+        case, info = self.grown(lambda n: "nothing" if n <= 3 else "not_routable")
+        self.assertEqual((len(case.bridges), info["next_is"], info["closed"]), (3, "not_routable", []))
 
     def test_when_nothing_is_proved_it_says_why(self):                # verification, F5/R: the list's very first bridge
         for said in ("unplaced", "not_routable", "unknown"):

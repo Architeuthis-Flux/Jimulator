@@ -327,6 +327,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if not found:
                 raise Refused(400, "there is no case %s in the class %s" % (src["case"], src["cls"]))
             own = {frozenset(b[:2]): b[2] for b in found[0].bridges}      # a bridge of its own keeps its own stacking
+            place = {}                                                    # and its place: the firmware routes in order
+            for i, b in enumerate(found[0].bridges):
+                place.setdefault(frozenset(b[:2]), i)
+            bridges = sorted(bridges, key=lambda p: place.get(frozenset(p), len(place)))     # the added ones after, as sent
             case = dataclasses.replace(
                 found[0], name=DRAWN, cls=DRAWN, must_route=False, taps_required=False,
                 bridges=[(n1, n2, own.get(frozenset((n1, n2)), -1)) for n1, n2 in bridges],
@@ -402,7 +406,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         doc = json.loads(where.read_text())
         wires = {w["wire"]: [list(p) for p in w["pins"]] for w in rank.wires(a)}
         return dict(doc, made=time.strftime("%Y-%m-%d %H:%M", time.localtime(where.stat().st_mtime)),
-                    stale=not rank.same_copper(doc, rank.fabric_of(a), a.feed, wires))
+                    stale=not rank.same_copper(doc, rank.fabric_of(a), a.feed, wires, rank.nodes_as_v5(a)))
 
     def api_post_rank(self, query, body):
         """Make the router's part of a ranking now ({"variant", "arrangement",

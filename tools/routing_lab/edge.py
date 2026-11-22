@@ -72,8 +72,8 @@ def grow(binary, rng, name, seconds=20.0, longest=80, rule="firmware", arrangeme
         said = ceiling.verdict(result, rule, seconds, fewest=False, arrangement=arrangement)
         if said.get("error"):
             raise SolverFailed("asked about %d bridges: %s" % (k, said["error"]))
-        if said["verdict"] == "routable":
-            routings[k] = said["closed"]
+        if said["verdict"] in ("routable", "nothing"):     # "nothing": the prefix needs no crosspoint, so it fits
+            routings[k] = said["closed"] if said["verdict"] == "routable" else []
             return "routable"
         # a node the arrangement lacks was never asked about: that is not "not known in the time"
         return said["verdict"] if said["verdict"] in ("not_routable", "unplaced") else "unknown"

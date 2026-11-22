@@ -3,6 +3,7 @@
 results made by hand; one test runs the real router with three wires gone."""
 import collections
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -95,7 +96,7 @@ class Kept(unittest.TestCase):
         old = {"arrangement": off.name, "feed": False, "variant": {"name": "w", "hash": "e" * 64}, "engine": "router and solver",
                "rule": "firmware", "seconds": 5.0, "needed_cases": 244, "cases": 256, "wires": proved(wires)}      # no "fabric"
         again = {"arrangement": off.name, "feed": False, "variant": old["variant"], "engine": "router", "fabric": rank.fabric_of(off),
-                 "cases": 21, "wires": wires}
+                 "nodes_as_v5": True, "cases": 21, "wires": wires}
         with tempfile.TemporaryDirectory() as tmp, mock.patch.object(rank, "DIR", Path(tmp)):
             rank.path("e" * 64, off.name).write_text(json.dumps(old))
             written = rank.save(again)
@@ -104,6 +105,48 @@ class Kept(unittest.TestCase):
             rank.path("e" * 64, off.name).write_text(json.dumps(old))
             other = rank.save(dict(again, wires=wires[1:], fabric="other"))     # not the same wires: other copper, set aside
             self.assertEqual(("needed_cases" in other, json.loads(Path(other["set_aside"]).read_text())["needed_cases"]), (False, 244))
+
+    def test_set_asides_never_write_over_each_other(self):             # verification round 2, V2/R2
+        proof = lambda n: {"arrangement": "x", "variant": {"name": "w", "hash": "b" * 64}, "fabric": "one", "engine": "router and solver",
+                           "rule": "firmware", "seconds": 5.0, "needed_cases": n, "wires": []}
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(rank, "DIR", Path(tmp)):
+            rank.save(proof(244))
+            first = rank.save(proof(44))["set_aside"]
+            second = rank.save(proof(10))["set_aside"]
+            self.assertNotEqual(first, second)
+            held = sorted(json.loads(p.read_text())["needed_cases"] for p in Path(tmp).iterdir())
+            self.assertEqual(held, [10, 44, 244])                       # every proof is still somewhere
+
+    def test_the_kept_file_is_whole_at_every_moment_of_a_save(self):  # verification round 2, V2 (disputed, cheap)
+        old = {"arrangement": "x", "variant": {"name": "w", "hash": "a" * 64}, "fabric": "one", "engine": "router and solver",
+               "rule": "firmware", "seconds": 5.0, "needed_cases": 244, "wires": []}
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(rank, "DIR", Path(tmp)):
+            rank.save(old)
+            before = rank.path("a" * 64, "x").read_text()
+            real = os.replace
+
+            def last_fails(src, dst):
+                if Path(dst) == rank.path("a" * 64, "x"):
+                    raise OSError("disk full")
+                return real(src, dst)
+
+            with mock.patch.object(rank.os, "replace", side_effect=last_fails):
+                with self.assertRaises(OSError):
+                    rank.save(dict(old, fabric="two"))
+            self.assertEqual(rank.path("a" * 64, "x").read_text(), before)     # still the whole old ranking
+            self.assertFalse([p for p in Path(tmp).iterdir() if ".tmp" in p.name])
+
+    def test_a_ranking_from_before_the_stamp_is_not_carried_onto_other_nodes(self):     # verification round 2, V2/R2
+        off = arrangement.load("v6_feed_off")
+        wires = [dict(w, pins=[list(p) for p in w["pins"]]) for w in rank.wires(off)]
+        old = {"arrangement": "x", "feed": False, "variant": {"name": "w", "hash": "9" * 64}, "engine": "router and solver",
+               "rule": "firmware", "seconds": 5.0, "needed_cases": 244, "wires": [dict(w, needed_by=[]) for w in wires]}
+        no_row1 = arrangement.parse("x", {"base": "v5", "feed": False, "pins": {"A.Y1": None}})     # row 1 gone, wires the same
+        self.assertFalse(rank.same_copper(old, rank.fabric_of(no_row1), False, {w["wire"]: w["pins"] for w in wires},
+                                          rank.nodes_as_v5(no_row1)))
+        self.assertTrue(rank.same_copper(old, rank.fabric_of(off), False, {w["wire"]: w["pins"] for w in wires},
+                                         rank.nodes_as_v5(off)))
+        self.assertFalse(rank.same_copper(dict(old, wires=[{"wire": "KL"}]), rank.fabric_of(off), False, {}, True))   # no pins: no
 
     def test_new_proof_over_old_proof_sets_the_old_one_aside(self):    # verification: --needed over fewer classes
         old = {"arrangement": "x", "variant": {"name": "w", "hash": "d" * 64}, "fabric": "one", "engine": "router and solver",
@@ -150,6 +193,7 @@ class Removal(unittest.TestCase):
         self.assertEqual((by["AK"]["kind"], by["KL"]["kind"], by["KL"]["pins"]), ("sf lane", "hub", [("K", "X", 12), ("L", "X", 14)]))
         self.assertEqual((r["engine"], r["arrangement"], r["feed"]), ("router", "v5", True))
         self.assertEqual((r["cases"], r["variant"], r["fabric"]), (2, {"name": V.name, "hash": V.hash}, rank.fabric_of(arrangement.V5)))
+        self.assertIs(r["nodes_as_v5"], True)
         self.assertEqual(seen, [(1, 2, "KL"), (2, 2, "AK")])
         json.dumps(r)                                                   # it is written to a file as it is
 

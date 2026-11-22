@@ -540,6 +540,7 @@ async function runBattery(without) {
     + (body.without.length ? " without " + body.without.join(", ") : "") + "...";
   $("busy").hidden = false;
   state.busy = true;
+  renderDrawn();                                   // the netlist's buttons go quiet while a run is out
   renderArrangement();
   try {
     // the arrangement's file may have been edited since it was picked: draw what is about to be routed
@@ -601,6 +602,7 @@ async function showBoards(list) {
     return;
   }
   state.busy = true;
+  renderDrawn();                                   // the netlist's buttons go quiet while a run is out
   $("busy").textContent = "reading the board's output...";
   $("busy").hidden = false;
   renderArrangement();
@@ -1481,6 +1483,7 @@ async function routeDrawn(added) {
   }
   state.busy = true;
   const asked = state.arrangement;
+  renderDrawn();                                   // the netlist's buttons go quiet while it is routed
   $("busy").textContent = "routing " + count(state.drawn.length, "bridge") + " made by hand on " + asked + "...";
   $("busy").hidden = false;
   renderArrangement();
@@ -1488,6 +1491,7 @@ async function routeDrawn(added) {
     const data = await api("/api/route", { variant: variantSpec(), arrangement: asked, bridges: state.drawn,
       from: state.drawnFrom });
     if (data.build_error) {
+      if (added) state.drawn = state.drawn.filter((pair) => pair !== added);     // not routed, so not kept: as a refusal
       showBuildError(data);
       return;
     }
@@ -1524,7 +1528,10 @@ function renderDrawn() {
   if (STATIC) return;
   box.replaceChildren();
   const shown = state.current && !(state.run && state.run.drawn);
-  const idle = (act) => () => { if (!state.busy) act(); };       // nothing changes the netlist while a run is out
+  const idle = (act) => () => {                    // nothing changes the netlist while a run is out, and a press says so
+    if (state.busy) showProblem("A run is in flight: wait for it, then change the netlist made by hand.");
+    else act();
+  };
   const from = el("button", { type: "button", text: "start from the case shown", disabled: shown && !state.busy ? null : "",
     title: "make the netlist the case shown: its bridges, and its stacking, power and probe settings, to take bridges out "
       + "of or add to. A board's output has its bridges only.",
@@ -1818,7 +1825,8 @@ async function start() {
     try {
       await pickArrangement(wanted);
       $("build-error").hidden = true;
-      if (state.run && state.run.drawn) await routeDrawn();      // the netlist made by hand goes with the copper looked at
+      // the netlist made by hand goes with the copper looked at (a route in flight routes it again by itself when done)
+      if (state.run && state.run.drawn && !state.busy) await routeDrawn();
     } catch (err) {                                // a file that has gained a mistake since the list was made
       $("arrangement").value = state.arrangement;
       showProblem(err.message + (err.data && err.data.problems ? ":\n" + err.data.problems.join("\n") : ""));

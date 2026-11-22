@@ -148,7 +148,7 @@ def removal(v, cases, a, wires=None, progress=None):
         if progress:
             progress(done, len(names), name)
     return {"arrangement": a.name, "feed": a.feed, "engine": "router", "variant": {"name": v.name, "hash": v.hash},
-            "fabric": fabric_of(a), "cases": len(cases), "baseline": _totals(base), "wires": entries}
+            "fabric": fabric_of(a), "nodes_as_v5": nodes_as_v5(a), "cases": len(cases), "baseline": _totals(base), "wires": entries}
 
 
 def _on(pins):
@@ -231,14 +231,33 @@ def path(variant_hash, name):
     return DIR / ("%s_%s.json" % (variant_hash, re.sub(r"[^A-Za-z0-9_.-]+", "_", name)))
 
 
-def same_copper(old, fabric, feed, wires):
+def nodes_as_v5(a):
+    """Are an arrangement's nodes V5's own, each on V5's wire? (Rankings from
+    before the digest were only ever made on such copper.)"""
+    return a.NODE_NET == arrangement.V5.NODE_NET
+
+
+def same_copper(old, fabric, feed, wires, plain_nodes):
     """Is a kept ranking (`old`) of the copper whose digest is `fabric`? A
-    ranking from before the digest was kept says so by what it records: the
-    same feed, and the same wires on the same pins ({wire: pins})."""
+    ranking from before the digest was kept says so by what it records, which
+    is nothing of nodes: so only onto copper whose nodes are V5's own
+    (`plain_nodes`), with the same feed and the same wires on the same pins
+    ({wire: pins}); a wire it records without pins is of no known copper."""
     if "fabric" in old:
         return old["fabric"] == fabric
-    pins = lambda ws: {w["wire"]: [list(p) for p in w["pins"]] for w in ws}
-    return old.get("feed") == feed and pins(old.get("wires", [])) == wires
+    if not plain_nodes or any("pins" not in w for w in old.get("wires", [])):
+        return False
+    pins = {w["wire"]: [list(p) for p in w["pins"]] for w in old.get("wires", [])}
+    return old.get("feed") == feed and pins == wires
+
+
+def _free(name):
+    """The first name beside `name` (a path) that is not taken: x.set-aside.json, then x.set-aside-2.json, ..."""
+    n, out = 1, name
+    while out.exists():
+        n += 1
+        out = name.with_name(name.name.replace(".set-aside.json", ".set-aside-%d.json" % n))
+    return out
 
 
 def save(ranking):
@@ -250,32 +269,39 @@ def save(ranking):
     again carries the file's "needed" columns over, wire by wire, when the
     file is of the same copper (`same_copper`: an arrangement's file may have
     been edited since). Any other time a file holding them would be written
-    over (other copper, or new "needed" columns over old ones), it is set
-    aside first, beside it, and the ranking written says where ("set_aside")."""
+    over (other copper, or new "needed" columns over old ones), it is first
+    copied aside, beside it, under a name no other set-aside has, and the
+    ranking written says where ("set_aside"). The kept file is whole at every
+    moment: the new one takes its place in one step."""
     where = path(ranking["variant"]["hash"], ranking["arrangement"])
     try:
-        old = json.loads(where.read_text()) if where.exists() else {}
+        old_text = where.read_text() if where.exists() else ""
+        old = json.loads(old_text) if old_text else {}
     except (OSError, ValueError):
-        old = {}
+        old_text, old = "", {}
     aside = None
     if "needed_cases" in old:
         pins = {w["wire"]: [list(p) for p in w["pins"]] for w in ranking["wires"] if "pins" in w}
-        if "needed_cases" not in ranking and same_copper(old, ranking.get("fabric"), ranking.get("feed"), pins):
+        if "needed_cases" not in ranking and same_copper(old, ranking.get("fabric"), ranking.get("feed"), pins,
+                                                         ranking.get("nodes_as_v5", False)):
             proved = {w["wire"]: {k: w[k] for k in ("needed_by", "not_needed", "unknown")} for w in old["wires"] if "needed_by" in w}
             ranking = dict(ranking, engine=old["engine"], rule=old["rule"], seconds=old["seconds"], needed_cases=old["needed_cases"],
                            wires=[dict(w, **proved.get(w["wire"], {})) for w in ranking["wires"]])
         else:
-            aside = where.with_name(where.stem + ".set-aside.json")
+            aside = _free(where.with_name(where.stem + ".set-aside.json"))
     where.parent.mkdir(parents=True, exist_ok=True)
     if aside is not None:
         ranking = dict(ranking, set_aside=str(aside))
     tmp = where.with_name(where.name + ".tmp%d" % os.getpid())      # whole or not at all: it may hold hours of the solver's work
+    aside_tmp = where.with_name(where.name + ".aside%d" % os.getpid())
     try:
+        if aside is not None:                       # a copy, not a move: the kept file stays where it is until replaced
+            aside_tmp.write_text(old_text)
+            os.replace(aside_tmp, aside)
         tmp.write_text(json.dumps(ranking) + "\n")
-        if aside is not None:
-            os.replace(where, aside)
         os.replace(tmp, where)
     finally:
-        if tmp.exists():
-            tmp.unlink()
+        for scrap in (tmp, aside_tmp):
+            if scrap.exists():
+                scrap.unlink()
     return json.loads(json.dumps(ranking))          # as a reader of the file gets it: pins as lists
