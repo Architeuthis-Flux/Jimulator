@@ -41,6 +41,7 @@ const state = {
   pickedWire: null,  // a wire clicked on the Fabric tab that carries no single net: lit by itself
   pointed: null,     // what a clicked problem or note names: {nets, wires, pins, nodes}
   side: "case",      // the right panel's face: "case", or "ranking" (and then the fabric wears the ranking's tint)
+  tests: false,      // the test battery is listed too; without it, only the examples (when the run has any)
   only: null,        // a kind picked in the legend ("dup", "unrouted", ...): the rest of the routing steps back
   v5nodes: null,     // V5's nodes, for the name of one the arrangement picked has dropped
   drawn: [],         // the netlist made by clicking nodes: [[node, node]]
@@ -374,11 +375,44 @@ function renderShowing() {
     el("div", {}, el("b", { text: "cases" }), String(run.rows.length), classes.map(toClass)));
 }
 
+// The examples: what a visitor sees first. Each is a small case that shows one kind of routing, with its title,
+// a line about it, and how much of it routed. The test battery stays behind the "tests" box.
+function renderExamples(rows) {
+  return el("div", { class: "examples" }, rows.map((row, i) => {
+    const [title, ...about] = (row.about || row.case).split("\n");
+    const m = row.metrics || {};
+    const bad = unclean(row);
+    const item = el("div", { class: "example case" + (row.case === state.selected ? " on" : "") + (bad ? " short" : ""),
+      "data-case": row.case, role: "button", tabindex: "0", style: "--c: var(--r" + (1 + (i * 5) % 12) + ")" },
+      el("span", { class: "how", title: "jumpers routed, of those asked for",
+        text: (bad ? "\u25B2 " : "") + (m.routed_primaries == null ? row.status : m.routed_primaries + "/" + m.primaries) }),
+      el("b", { text: title }), el("p", { text: about.join(" ") }));
+    item.addEventListener("click", () => { state.keys = "battery"; selectCase(row.case); });
+    item.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); selectCase(row.case); }
+    });
+    return item;
+  }));
+}
+
 function renderBattery() {
   const box = $("battery");
   box.replaceChildren();
   renderShowing();
   if (!state.run) return;
+  // a run that has examples lists them alone until the tests are asked for
+  const examples = state.run.rows.filter((r) => r.cls === "example");
+  const alone = examples.length > 0 && !state.tests;
+  $("show-tests-label").hidden = !examples.length || examples.length === state.run.rows.length;
+  $("show-tests").checked = state.tests;
+  for (const label of document.querySelectorAll("#filters .of-tests")) label.hidden = alone;
+  $("tests-plate").textContent = alone || examples.length === state.run.rows.length ? "Examples" : "Tests";
+  if (alone) {
+    box.append(renderExamples(examples));
+    $("tests-note").textContent = count(examples.length, "example");
+    keepUi();
+    return;
+  }
   const onlyUnclean = $("filter-unclean").checked;
   const onlyChanged = $("filter-changed").checked;
   const table = el("table", { class: "battery" },
@@ -711,7 +745,7 @@ async function selectCase(name) {
   state.pickedWire = null;
   say("");
   showMissed();
-  for (const tr of document.querySelectorAll("#battery tr.case")) {
+  for (const tr of document.querySelectorAll("#battery .case")) {
     tr.classList.toggle("on", tr.dataset.case === name);
   }
   renderCase();
@@ -856,7 +890,7 @@ function keptUi() {
 
 function keepUi() {
   try {
-    localStorage.setItem(UI_KEY, JSON.stringify({ tab: state.tab, side: state.side, selected: state.selected, sort: state.sort, closed: state.closed,
+    localStorage.setItem(UI_KEY, JSON.stringify({ tab: state.tab, side: state.side, tests: state.tests, selected: state.selected, sort: state.sort, closed: state.closed,
       unclean: $("filter-unclean").checked }));
   } catch (e) { /* a private window */ }
 }
@@ -983,7 +1017,9 @@ function renderCase() {
   const solved = solvedShown();                    // the solver's routing on the arrangement picked, when that is the picture
   const paint = solved || state.current.paint;
   const m = result.metrics;
-  box.replaceChildren(el("h1", { text: result.case }));
+  // a case that says what it is in a title and a line (an example) is headed by the title
+  const [title, ...told] = (result.about || "").split("\n");
+  box.replaceChildren(el("h1", { text: told.length ? title : result.case }));
   if (solved) {
     box.append(
       el("div", { class: "about", text: "the exact solver's routing on " + state.arrangement
@@ -1003,7 +1039,7 @@ function renderCase() {
       // what kind of case this is: a board's own routing, one the bench suite requires to route, or one that is scored
       el("span", { class: "hint", text: "  " + result.cls + " · "
         + (result.cls === "board" ? "as a board routed it" : result.must_route ? "must route" : "scored") })));
-    if (result.about) box.append(el("div", { class: "about", text: result.about }));
+    if (result.about) box.append(el("div", { class: "about", text: told.length ? told.join(" ") : result.about }));
     if (["crash", "timeout"].includes(result.status)) {
       box.append(el("h2", { text: "what the harness said", class: "trouble" }),
         el("ul", { class: "problems" }, result.problems.map((p) => el("li", { text: p }))),
@@ -2705,7 +2741,7 @@ function keyList() {
         row.scrollIntoView({ block: "nearest" });
       } };
   }
-  return { rows: [...document.querySelectorAll("#battery tr.case")], at: (tr) => tr.classList.contains("on"),
+  return { rows: [...document.querySelectorAll("#battery .case")], at: (tr) => tr.classList.contains("on"),
     go: (tr) => { selectCase(tr.dataset.case); tr.scrollIntoView({ block: "nearest" }); } };
 }
 
@@ -2755,7 +2791,7 @@ async function start() {
   for (const name of state.info.classes) {
     const about = (state.info.about || {})[name] || {};     // what the class is, on hover, and how many cases it runs
     $("classes").append(el("label", { title: about.what ? name + ": " + about.what : null },
-      el("input", { type: "checkbox", value: name, checked: ["dense", "real", "stress", "edge"].includes(name) ? "" : null }),
+      el("input", { type: "checkbox", value: name, checked: ["example", "dense", "real", "stress", "edge"].includes(name) ? "" : null }),
       name, about.cases == null ? null : el("span", { class: "count", text: String(about.cases) })));
   }
   drawFabricBase();
@@ -2788,6 +2824,7 @@ async function start() {
     renderBattery();
     if (state.current) renderCase();
   });
+  $("show-tests").addEventListener("change", () => { state.tests = $("show-tests").checked; renderBattery(); });
   $("filter-unclean").addEventListener("change", renderBattery);
   $("filter-changed").addEventListener("change", renderBattery);
   for (const button of document.querySelectorAll("#tabs button[data-tab]")) {
@@ -2833,9 +2870,12 @@ async function start() {
     if (kept.sort && COLUMNS[kept.sort.col]) state.sort = { col: kept.sort.col, down: Boolean(kept.sort.down) };
     if (kept.closed && typeof kept.closed === "object") Object.assign(state.closed, kept.closed);
     $("filter-unclean").checked = Boolean(kept.unclean);
+    state.tests = Boolean(kept.tests);
     renderRegressions();
     renderBattery();
-    const first = state.run.rows.find((r) => r.case === kept.selected) || state.run.rows.find(unclean) || state.run.rows[0];
+    // where it was left; else the first example; else, on a page of tests alone, the first that is not clean
+    const first = state.run.rows.find((r) => r.case === kept.selected) || state.run.rows.find((r) => r.cls === "example")
+      || state.run.rows.find(unclean) || state.run.rows[0];
     if (first) await selectCase(first.case);
     showTab(kept.tab in VIEWS ? kept.tab : state.tab);       // and the tabs of the views that have panels of their own go
     if (kept.side === "ranking" && STATIC.rank) showSide("ranking");

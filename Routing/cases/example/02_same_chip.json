@@ -1,0 +1,31 @@
+{
+ "name": "same_chip",
+ "cls": "example",
+ "bridges": [
+  [
+   2,
+   5,
+   0
+  ]
+ ],
+ "stack": [
+  2,
+  3,
+  0,
+  0,
+  0
+ ],
+ "power": [
+  0.0,
+  0.0,
+  3.33,
+  0.0
+ ],
+ "probe": [
+  0,
+  0
+ ],
+ "must_route": false,
+ "taps_required": false,
+ "notes": "Two rows on one chip\nRows 2 and 5 are both on chip A. A crossbar joins an X line to a Y line, never two Y lines, so both rows are closed onto one spare X line: still two crosspoints."
+}

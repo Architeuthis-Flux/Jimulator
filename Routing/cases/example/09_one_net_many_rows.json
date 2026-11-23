@@ -1,0 +1,66 @@
+{
+ "name": "one_net_many_rows",
+ "cls": "example",
+ "bridges": [
+  [
+   100,
+   3,
+   0
+  ],
+  [
+   100,
+   12,
+   0
+  ],
+  [
+   100,
+   19,
+   0
+  ],
+  [
+   100,
+   26,
+   0
+  ],
+  [
+   100,
+   33,
+   0
+  ],
+  [
+   100,
+   41,
+   0
+  ],
+  [
+   100,
+   48,
+   0
+  ],
+  [
+   100,
+   55,
+   0
+  ]
+ ],
+ "stack": [
+  2,
+  3,
+  0,
+  0,
+  0
+ ],
+ "power": [
+  0.0,
+  0.0,
+  3.33,
+  0.0
+ ],
+ "probe": [
+  0,
+  0
+ ],
+ "must_route": false,
+ "taps_required": false,
+ "notes": "One net on many rows\nGround on eight rows, one on each breadboard chip. All of it is one net, drawn in one colour: click it to light it alone."
+}

@@ -12,7 +12,7 @@
   <!-- Three panels. The page puts them in rows and stacks and keeps where they were left (lab.js, buildLayout). -->
   <section class="panel" id="panel-tests" data-panel="tests">
     <header class="bar">
-      <span class="plate" title="drag onto a side of another panel to move this one there; double-click to put the panels back"><b>01</b> Tests</span>
+      <span class="plate" title="drag onto a side of another panel to move this one there; double-click to put the panels back"><b>01</b> <span id="tests-plate">Examples</span></span>
       <span class="bar-note" id="tests-note"></span>
       <button type="button" class="fold" title="fold this panel away, or open it" aria-expanded="true"></button>
     </header>
@@ -44,8 +44,9 @@
     <div id="regressions" hidden></div>
     <div id="showing" hidden></div>
     <div id="filters">
-      <label><input id="filter-unclean" type="checkbox"> not clean</label>
-      <label><input id="filter-changed" type="checkbox"> changed from baseline</label>
+      <label id="show-tests-label" title="the test battery behind the examples: the cases the router is judged on, class by class, with their numbers"><input id="show-tests" type="checkbox"> tests</label>
+      <label class="of-tests"><input id="filter-unclean" type="checkbox"> not clean</label>
+      <label class="of-tests"><input id="filter-changed" type="checkbox"> changed from baseline</label>
       <span id="busy" hidden>running...</span>
     </div>
     <div id="battery"></div>

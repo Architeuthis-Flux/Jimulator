@@ -1,0 +1,46 @@
+{
+ "name": "four_between_two_chips",
+ "cls": "example",
+ "bridges": [
+  [
+   1,
+   8,
+   0
+  ],
+  [
+   2,
+   9,
+   0
+  ],
+  [
+   3,
+   10,
+   0
+  ],
+  [
+   4,
+   11,
+   0
+  ]
+ ],
+ "stack": [
+  2,
+  3,
+  0,
+  0,
+  0
+ ],
+ "power": [
+  0.0,
+  0.0,
+  3.33,
+  0.0
+ ],
+ "probe": [
+  0,
+  0
+ ],
+ "must_route": false,
+ "taps_required": false,
+ "notes": "When the direct lanes run out\nFour jumpers between chips A and B, which share only two lanes. Two go direct; the other two go round through a third chip, four crosspoints each."
+}

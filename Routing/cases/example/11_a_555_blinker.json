@@ -1,0 +1,66 @@
+{
+ "name": "a_555_blinker",
+ "cls": "example",
+ "bridges": [
+  [
+   10,
+   100,
+   -1
+  ],
+  [
+   40,
+   101,
+   -1
+  ],
+  [
+   13,
+   101,
+   -1
+  ],
+  [
+   11,
+   42,
+   -1
+  ],
+  [
+   46,
+   101,
+   -1
+  ],
+  [
+   49,
+   100,
+   -1
+  ],
+  [
+   18,
+   100,
+   -1
+  ],
+  [
+   110,
+   12,
+   -1
+  ]
+ ],
+ "stack": [
+  2,
+  3,
+  0,
+  0,
+  0
+ ],
+ "power": [
+  0.0,
+  0.0,
+  3.33,
+  0.0
+ ],
+ "probe": [
+  0,
+  0
+ ],
+ "must_route": false,
+ "taps_required": false,
+ "notes": "A 555 blinker\nThe jumpers of a 555 astable as it would sit across the middle of the board: power and ground to the chip, trigger tied to threshold, and an ADC watching the output."
+}

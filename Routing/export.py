@@ -45,7 +45,7 @@ def _shown_name(name):
     return path.resolve().name if os.sep in name and path.is_dir() else name
 
 
-def write(path, variant_spec, baseline_spec=None, classes=("dense", "real", "stress", "beyond", "edge"),
+def write(path, variant_spec, baseline_spec=None, classes=("example", "dense", "real", "stress", "beyond", "edge"),
           arrangement_name="v5", backdrop=None):
     """Runs the battery on an arrangement the firmware's router can route and
     writes the file; returns its size in bytes. The page is drawn on that

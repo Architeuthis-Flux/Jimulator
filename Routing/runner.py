@@ -119,9 +119,10 @@ def _named(result, case, arrangement):
     """The result saying who routed it and on what: the arrangement's name
     ("v5" when none was given), whether the probe feed was on the fabric, and
     the engine. Given afresh to a result read from the cache, which is kept
-    by what was run (the feed, the blocked pins) and not by a name."""
+    by what was run (the feed, the blocked pins) and not by a name. For the
+    same reason what the case says of itself (its notes) is given afresh."""
     result.update(arrangement=arrangement.name if arrangement is not None else "v5", feed=bool(case.probe[0]),
-                  engine="router")
+                  engine="router", about=case.notes)
     return result
 
 

@@ -40,11 +40,14 @@ CASES_DIR = LAB / "cases"
 FIDELITY_DIR = LAB / "fidelity"
 GENERATED = {"dense": cases.dense_cases, "typical": generators.typical, "fuzz": generators.fuzz,
              "stress": generators.stress, "beyond": generators.beyond}
-CLASSES = ["dense", "real", "typical", "fuzz", "stress", "beyond", "edge"]      # edge: from files only (lab.py edge)
+# example: the small cases a visitor sees first, each showing one kind of routing (files under cases/example/);
+# edge: from files only (lab.py edge)
+CLASSES = ["example", "dense", "real", "typical", "fuzz", "stress", "beyond", "edge"]
 OHMS = 42.0             # one closed crosspoint, as measured on a board; the page and --ohms can say otherwise
 ON_WHAT = "the crossbar arrangement: v5, a name from `lab.py arrangement list`, or the path of a .json."
 # What each class is, for the page to say what a run covers. The counts are worked out, not written here.
 CLASS_WHAT = {
+    "example": "small cases that each show one kind of routing, with a title and a line about it: what a visitor sees first",
     "dense": "the cases of the bench HIL suite; the ones that suite requires must route here too, the rest are scored",
     "real": "saved board states, imported from slot files with import-state; scored",
     "typical": "seeded circuits shaped like everyday use: an IC or two across the gap, power, ground, a few signals; scored",
@@ -671,7 +674,7 @@ def main(argv):
     exp.add_argument("out", help="the .html to write")
     exp.add_argument("--variant", default="worktree")
     exp.add_argument("--baseline")
-    exp.add_argument("--classes", default="dense,real,stress,beyond,edge", help="comma list of: " + ", ".join(CLASSES))
+    exp.add_argument("--classes", default="example,dense,real,stress,beyond,edge", help="comma list of: " + ", ".join(CLASSES))
     exp.add_argument("--arrangement", default="v5", help="the copper to route on, one the firmware's router can route "
                      "(see `arrangement list`); the ranking kept for it travels too")
     exp.add_argument("--backdrop", metavar="NAME", help="carry the KiCad sheet too: its backdrop (10 MB) is written beside "

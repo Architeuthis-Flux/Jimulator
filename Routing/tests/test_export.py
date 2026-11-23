@@ -150,6 +150,26 @@ class Export(unittest.TestCase):
         # the crossbars' lines and blocks are drawn over the board's letters, in boxes one letter wide: they join in any font
         self.assertRegex(css, r"\.xchip \.xl, \.xchip \.xblock \{[^}]*width: 1ch")
 
+    def test_examples_come_first_and_the_tests_are_behind_a_checkbox(self):
+        js = (server.WEB_DIR / "lab.js").read_text()
+        css = (server.WEB_DIR / "lab.css").read_text()
+        html = (server.WEB_DIR / "index.html").read_text()
+        self.assertIn('id="show-tests"', html)                             # unticked: the examples and nothing else
+        self.assertIn('<span id="tests-plate">Examples</span>', html)
+        self.assertIn("function renderExamples(", js)
+        self.assertIn(".example", css)
+        self.assertEqual(lab.CLASSES[0], "example")
+        self.assertIn("example", lab.CLASS_WHAT)
+        # an export starts with them unless told otherwise, and each row carries its title and what it shows
+        import inspect
+        self.assertEqual(inspect.signature(export.write).parameters["classes"].default[0], "example")
+        out = self.tmp / "examples.html"
+        with mock.patch.object(rank, "DIR", self.tmp / "rank"):
+            export.write(out, "worktree", classes=("example", "real"))
+        rows = carried(out)["run"]["rows"]
+        self.assertEqual((rows[0]["cls"], rows[0]["about"].split("\n")[0]), ("example", "One jumper"))
+        self.assertEqual([r["cls"] for r in rows].count("example"), len(lab.battery(["example"])))
+
     def test_the_sheet_follows_a_wire_past_its_op_amp(self):
         js = (server.WEB_DIR / "lab.js").read_text()
         css = (server.WEB_DIR / "lab.css").read_text()

@@ -109,6 +109,25 @@ class Cases(unittest.TestCase):
         for n in names:
             self.assertEqual(cases.load_json(os.path.join(LAB, "cases", "real", n)).cls, "real")
 
+    def test_the_examples_are_small_cases_that_each_say_what_they_show(self):
+        import lab
+        import runner
+        self.assertEqual(lab.CLASSES[0], "example")                    # what a visitor sees first
+        shown = lab.battery(["example"])
+        self.assertGreaterEqual(len(shown), 10)
+        self.assertEqual(len({c.name for c in shown}), len(shown))
+        files = sorted(os.listdir(os.path.join(LAB, "cases", "example")))
+        self.assertEqual([f.split("_", 1)[1][:-5] for f in files], [c.name for c in shown])   # NN_<name>.json: the order shown
+        for c in shown:
+            self.assertEqual(c.cls, "example")
+            title, _, text = c.notes.partition("\n")                   # a title, then a sentence or two a person can read
+            self.assertTrue(0 < len(title) <= 40 and len(text) > 40, c.name)
+        # each routes whole on V5 with the firmware's router, but the one that is there to show what does not fit
+        results = {r["case"]: r for r in runner.run_battery(variants.resolve("worktree"), shown)}
+        short = sorted(name for name, r in results.items() if not lab.fully_routed(r))
+        self.assertEqual(short, ["more_than_fits"])
+        self.assertEqual([name for name, r in results.items() if r["status"] not in ("ok", "problems")], [])
+
     def test_the_bench_suite_is_there_and_the_dense_cases_are_the_labs_own(self):
         py_compile.compile(HIL + "/test_routing_dense.py", doraise=True)       # the firmware checkout's bench test
         # the cases began there; the lab carries them beside itself (the firmware's copy is its own)

@@ -126,7 +126,7 @@ def _git_ref_tree(spec):
                 tmp.rename(dest)
             finally:
                 shutil.rmtree(tmp, ignore_errors=True)      # gone already after a good rename
-    return "%s@%s" % (spec, sha[:7]), dest / "src"
+    return "%s@%s" % (REPO.name if spec == "HEAD" else spec, sha[:7]), dest / "src"
 
 
 def resolve(spec, overrides=None, *, allow_directory=True):

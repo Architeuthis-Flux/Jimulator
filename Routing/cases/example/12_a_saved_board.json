@@ -1,0 +1,91 @@
+{
+ "name": "a_saved_board",
+ "cls": "example",
+ "bridges": [
+  [
+   2,
+   110,
+   -1
+  ],
+  [
+   5,
+   113,
+   -1
+  ],
+  [
+   6,
+   131,
+   -1
+  ],
+  [
+   7,
+   132,
+   -1
+  ],
+  [
+   133,
+   8,
+   -1
+  ],
+  [
+   113,
+   70,
+   -1
+  ],
+  [
+   18,
+   23,
+   -1
+  ],
+  [
+   41,
+   45,
+   -1
+  ],
+  [
+   48,
+   51,
+   -1
+  ],
+  [
+   56,
+   58,
+   -1
+  ],
+  [
+   56,
+   100,
+   -1
+  ],
+  [
+   18,
+   101,
+   -1
+  ],
+  [
+   24,
+   28,
+   -1
+  ]
+ ],
+ "stack": [
+  2,
+  3,
+  0,
+  0,
+  0
+ ],
+ "power": [
+  4.4,
+  7.4,
+  2.5,
+  0.6
+ ],
+ "probe": [
+  1,
+  0
+ ],
+ "must_route": false,
+ "taps_required": false,
+ "notes": "A saved board\nA real session, saved from a board on 2026-09-07: 13 jumpers among rows, GPIO, ADCs, a Nano pin and the rails, plus the probe's own connection, which the firmware adds."
+}

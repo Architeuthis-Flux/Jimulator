@@ -1,0 +1,46 @@
+{
+ "name": "rails_and_ground",
+ "cls": "example",
+ "bridges": [
+  [
+   10,
+   101,
+   -1
+  ],
+  [
+   12,
+   100,
+   -1
+  ],
+  [
+   40,
+   102,
+   -1
+  ],
+  [
+   44,
+   100,
+   -1
+  ]
+ ],
+ "stack": [
+  2,
+  3,
+  0,
+  0,
+  0
+ ],
+ "power": [
+  0.0,
+  0.0,
+  3.33,
+  0.0
+ ],
+ "probe": [
+  0,
+  0
+ ],
+ "must_route": false,
+ "taps_required": false,
+ "notes": "Power rails and ground\nThe top rail, the bottom rail and ground brought to four rows. By default the firmware gives a rail or ground up to three paths in parallel."
+}

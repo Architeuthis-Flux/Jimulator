@@ -100,7 +100,7 @@ class Cli(unittest.TestCase):
         real_build = variants.build
 
         def build(v, sanitize=True):
-            if v.name.startswith("HEAD"):
+            if v.name.startswith(variants.REPO.name + "@"):       # the firmware checkout's own commit
                 raise variants.BuildError("old.cpp:1: error: no")
             return real_build(v, sanitize)
 

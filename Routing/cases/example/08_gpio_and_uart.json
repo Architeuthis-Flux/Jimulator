@@ -1,0 +1,46 @@
+{
+ "name": "gpio_and_uart",
+ "cls": "example",
+ "bridges": [
+  [
+   131,
+   8,
+   0
+  ],
+  [
+   132,
+   9,
+   0
+  ],
+  [
+   116,
+   70,
+   0
+  ],
+  [
+   117,
+   71,
+   0
+  ]
+ ],
+ "stack": [
+  2,
+  3,
+  0,
+  0,
+  0
+ ],
+ "power": [
+  0.0,
+  0.0,
+  3.33,
+  0.0
+ ],
+ "probe": [
+  0,
+  0
+ ],
+ "must_route": false,
+ "taps_required": false,
+ "notes": "GPIO and serial\nTwo GPIO pins to rows 8 and 9, and the UART crossed onto the Nano's D0 and D1. GPIO is on chip L, which has one lane to each breadboard chip, so the second pin to chip B goes round through another chip."
+}

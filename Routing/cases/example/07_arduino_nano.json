@@ -1,0 +1,51 @@
+{
+ "name": "arduino_nano",
+ "cls": "example",
+ "bridges": [
+  [
+   72,
+   5,
+   0
+  ],
+  [
+   73,
+   6,
+   0
+  ],
+  [
+   86,
+   33,
+   0
+  ],
+  [
+   87,
+   34,
+   0
+  ],
+  [
+   83,
+   50,
+   0
+  ]
+ ],
+ "stack": [
+  2,
+  3,
+  0,
+  0,
+  0
+ ],
+ "power": [
+  0.0,
+  0.0,
+  3.33,
+  0.0
+ ],
+ "probe": [
+  0,
+  0
+ ],
+ "must_route": false,
+ "taps_required": false,
+ "notes": "Arduino Nano header\nFive header pins (D2, D3, A0, A1, D13) to rows. The header's pins sit on chips I and J, each of which has one lane to every breadboard chip."
+}

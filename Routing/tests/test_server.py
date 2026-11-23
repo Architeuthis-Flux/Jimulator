@@ -122,7 +122,7 @@ class Server(unittest.TestCase):
 
     def test_info(self):
         info = self.c.get("/api/info").json
-        self.assertEqual(info["classes"], ["dense", "real", "typical", "fuzz", "stress", "beyond", "edge"])
+        self.assertEqual(info["classes"], ["example", "dense", "real", "typical", "fuzz", "stress", "beyond", "edge"])
         self.assertEqual(info["variants"][0], {"spec": "worktree", "name": "worktree"})
         self.assertEqual(info["ohms"], 42)                               # measured on a board, per crosspoint
         # what each class is and how many cases it runs, for the page to say what a run covers
@@ -179,7 +179,7 @@ class Server(unittest.TestCase):
         self.assertEqual(r["regressions"], [])
         self.assertIn("base", r["rows"][0])
         self.assertIn("metrics", r["rows"][0]["base"])
-        self.assertTrue(r["baseline"]["name"].startswith("HEAD@"))
+        self.assertTrue(r["baseline"]["name"].startswith(variants.REPO.name + "@"))    # named by the checkout
 
     def test_uploaded_file_makes_a_variant_and_a_broken_one_reports_the_compiler(self):
         bad = {"base": "worktree", "files": {"src/routing/NetsToChipConnections.cpp": "this is not C++\n"}}

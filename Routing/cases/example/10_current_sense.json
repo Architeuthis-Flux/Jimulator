@@ -1,0 +1,36 @@
+{
+ "name": "current_sense",
+ "cls": "example",
+ "bridges": [
+  [
+   108,
+   20,
+   0
+  ],
+  [
+   109,
+   25,
+   0
+  ]
+ ],
+ "stack": [
+  2,
+  3,
+  0,
+  0,
+  0
+ ],
+ "power": [
+  0.0,
+  0.0,
+  3.33,
+  0.0
+ ],
+ "probe": [
+  0,
+  0
+ ],
+ "must_route": false,
+ "taps_required": false,
+ "notes": "Current sense\nThe two ends of the current sense resistor brought to two rows, so that what flows between the rows can be measured."
+}
