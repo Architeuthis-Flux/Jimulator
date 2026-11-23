@@ -348,7 +348,7 @@ class Server(unittest.TestCase):
             r = self.c.post("/api/board", dict({"name": "x", "text": text("sf_to_sf")}, **bad))
             self.assertEqual(r.status, 400, bad)
 
-    def test_the_page_connects_a_board_on_port_7_and_sends_only_the_five(self):
+    def test_the_page_connects_a_board_on_port_7_and_sends_only_the_seven(self):
         js = self.c.get("/lab.js", token=None).body
         for used in ('"/api/replay"', "function connectBoard", "async function showReading", "function drawMoved",
                      "requestPort({ filters: [BOARD_PORT.FILTER] })", '"live_board"', '"too_old"', ".forget("):
@@ -364,9 +364,9 @@ class Server(unittest.TestCase):
         # save trace is a button: a keyboard reaches it, and its click makes the file whatever the browser does with an href
         self.assertIn('<button id="link-trace" type="button" class="quiet"', page)
         self.assertIn("URL.revokeObjectURL", js)
-        for anchor in ('id="connect"', 'id="link-sends"', "Nothing is sent to any other port"):
+        for anchor in ('id="connect"', 'id="link-sends"', "Nothing is sent to any other port", ":watch:routing:on"):
             self.assertIn(anchor, page)
-        for never in ("b (its routing report)", "Couldn't find a path"):
+        for never in ("b (its routing report)", "Couldn't find a path", "All five are questions"):
             self.assertNotIn(never, page)
         css = self.c.get("/lab.css", token=None).body
         rules = [body for head, body in re.findall(r"([^{}]*)\{([^{}]*)\}", css) if re.search(r"link-(closed|opened)", head)]

@@ -3,7 +3,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const P = require("../web/board_port.js");
-const [CAPTURES, TRACE] = process.argv.slice(2);
+const [CAPTURES, TRACE, WATCH] = process.argv.slice(2);
 const cap = (name, ext) => fs.readFileSync(path.join(CAPTURES, name + ext), "utf8");
 const tests = [];
 const test = (name, fn) => tests.push([name, fn]);
@@ -50,7 +50,7 @@ test("a net list proves port 7, and the main port's menu does not", () => {     
   assert.equal(P.netListIn("oled_b64{128x32:AAAA}\r\n" + NETS), true);
   assert.equal(P.versionOf(":ver\r\nJumperless firmware version: 5.7.11.5\r\n"), "5.7.11.5");
   assert.equal(P.versionOf(":ver\r\nJumperless firmware ver"), null);
-  assert.deepEqual(P.BOARD_PORT.SENDS, ["N", ":ver\n", ":gen\n", ":paths\n", ":crossbar\n"]);
+  assert.deepEqual(P.BOARD_PORT.SENDS, ["N", ":ver\n", ":gen\n", ":paths\n", ":crossbar\n", ":watch:routing:on\n", ":watch:routing:off\n"]);
 });
 
 test("why this browser cannot connect, in words", () => {
@@ -84,7 +84,7 @@ test("the fake port answers from the trace, in order, and then repeats", async (
   assert.deepEqual([port.most, port.opened.baudRate], [1, 115200]);
 });
 
-const FAST = { POLL_MS: 4, PROBE_MS: 80, STALL_MS: 60, WAIT_SAY_MS: 30 };
+const FAST = { POLL_MS: 4, PROBE_MS: 80, STALL_MS: 60, WAIT_SAY_MS: 30, GAP_MS: 2 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 function linked(port, opts) {
   const seen = { readings: [], states: [] };
@@ -101,6 +101,7 @@ const gen = (n, idle, times) => ({ sent: ":gen\n", got: ":gen\r\ngen{" + n + ","
 const paths = (name) => ({ sent: ":paths\n", got: pathsReply(name) });
 const dump = (name) => ({ sent: ":crossbar\n", got: cap(name, ".xbar.txt") });
 const xbarOfCase = (name) => P.xbarOf(cap(name, ".xbar.txt"));
+const NOWATCH = { sent: ":watch:routing:on\n", got: ':watch:routing:on\r\n{"error":"unknown_verb","verb":"watch:routing:on"}\r\n' };
 
 test("a port that is not port 7 gets one byte and is closed", async () => {     // Review Focus 1
   const port = made([{ sent: "N", got: "\r\n\tMenu\r\n\tm = show this menu\r\n" }]);
@@ -116,12 +117,12 @@ test("firmware without :gen or :paths is too old, and nothing is sent in their p
   const old = made([N, VER, { sent: ":gen\n", got: refused("gen") }]);
   await assert.rejects(linked(old)[0].connect(), (e) => e.kind === "too_old" && e.fw === "0.0.0.0");
   assert.deepEqual([old.written, old.closed], [["N", ":ver\n", ":gen\n"], true]);
-  const half = made([N, VER, gen(3, 1, 2), { sent: ":paths\n", got: refused("paths") }]);
+  const half = made([N, VER, gen(3, 1), NOWATCH, gen(3, 1), { sent: ":paths\n", got: refused("paths") }]);
   const [link, seen] = linked(half);
   await link.connect();
   await link.run();                                                             // it ends by itself
   assert.equal(seen.states.at(-1)[0], "too_old");
-  assert.deepEqual([half.written, seen.readings, half.closed], [["N", ":ver\n", ":gen\n", ":gen\n", ":paths\n"], [], true]);
+  assert.deepEqual([half.written, seen.readings, half.closed], [["N", ":ver\n", ":gen\n", ":watch:routing:on\n", ":gen\n", ":paths\n"], [], true]);
 });
 
 test("a still board is asked its generation and nothing else", async () => {    // Review Focus 7, 10
@@ -138,12 +139,13 @@ test("a still board is asked its generation and nothing else", async () => {    
     ["same_chip_pairs", "sf_to_sf", "k_rows_overflow_metric", "same_chip_pairs"].map(xbarOfCase));
   assert.ok(seen.readings.every((r) => P.reportOf(r.b)));
   assert.equal(port.written.filter((w) => w === ":paths\n").length, 4);         // one report a routing, not one a tick
-  assert.deepEqual([...new Set(port.written)].sort(), P.BOARD_PORT.SENDS.slice().sort());      // the five, and no other byte
+  assert.ok(port.written.every((w) => P.BOARD_PORT.SENDS.includes(w)));      // the seven, and no other byte
+  assert.ok(!port.written.includes(":watch:routing:off\n"));                  // the watch was refused
   assert.equal(port.most, 1);                                                   // never two queries out
 });
 
 test("a routing that moved between the report and the dump is read again", async () => {   // Review Focus 3
-  const port = made([N, VER, gen(3, 1, 2), paths("same_chip_pairs"), dump("sf_to_sf"), gen(5, 1),
+  const port = made([N, VER, gen(3, 1), NOWATCH, gen(3, 1), paths("same_chip_pairs"), dump("sf_to_sf"), gen(5, 1),
     paths("sf_to_sf"), dump("sf_to_sf"), gen(5, 1, 3)]);
   const [link, seen] = linked(port);
   await link.connect();
@@ -177,11 +179,12 @@ test("a reply cut short is asked once more", async () => {                      
   const port = built();
   const [link, seen] = linked(port);
   await link.connect();
-  port.cut(8);                                                                  // the loop's first :gen stops at ":gen\r\nge"
+  const take = port.take.bind(port);
+  port.take = (text) => { if (port.written.length === 4) port.cut(8); take(text); };   // the loop's first :gen stops at ":gen\r\nge"
   link.run();
   while (seen.readings.length < 1) await sleep(5);
   await link.close();
-  assert.deepEqual(port.written.slice(3, 6), [":gen\n", ":gen\n", ":paths\n"]);
+  assert.deepEqual(port.written.slice(3, 7), [":watch:routing:on\n", ":gen\n", ":gen\n", ":paths\n"]);
   assert.deepEqual([seen.readings[0].gen, seen.readings[0].xbar], [3, xbarOfCase("same_chip_pairs")]);
 });
 
@@ -199,8 +202,8 @@ test("bytes nobody asked for, read again, a pulled cable", async () => {        
   while (seen.states.at(-1)[0] !== "lost") await sleep(5);
   const trace = link.trace().trim().split("\n").map((line) => JSON.parse(line));
   assert.equal(trace[0].source, "replay");                                     // a fake port: not a board
-  assert.deepEqual(trace.slice(1, 5).map((e) => e.sent), ["N", ":ver\n", ":gen\n", ":gen\n"]);
-  assert.ok(trace[4].got.includes("oled_b64{128x32:AAAA}") && P.genOf(trace[4].got).n === 3);   // kept, with the reply after them
+  assert.deepEqual(trace.slice(1, 6).map((e) => e.sent), ["N", ":ver\n", ":gen\n", ":watch:routing:on\n", ":gen\n"]);
+  assert.ok(trace[4].got.includes("oled_b64{128x32:AAAA}") && P.watchOf(trace[4].got).error === "unknown_verb");   // kept, with the reply after them
   assert.ok(trace.length < 40 && trace.some((e) => e.times > 2));              // the polls of a still board are one line
 });
 
@@ -263,7 +266,7 @@ test("a stray line while a query is out is no reply, and the query is not sent a
 });
 
 test("bytes between polls do not hurry the next poll", async () => {
-  const port = made([N, VER, gen(3, 1, 2), paths("same_chip_pairs"), dump("same_chip_pairs"), gen(3, 1)]);
+  const port = made([N, VER, gen(3, 1), NOWATCH, gen(3, 1), paths("same_chip_pairs"), dump("same_chip_pairs"), gen(3, 1)]);
   const [link, seen] = linked(port, { POLL_MS: 50 });
   await link.connect();
   link.run();
@@ -285,6 +288,85 @@ test("only the timings can be changed: not the speed, not what is sent", async (
   await assert.rejects(link.send("b"));
   await link.close();
   assert.ok(!port.written.includes("b"));
+});
+
+const FASTW = Object.assign({}, FAST, { WATCH_POLL_MS: 400, GAP_MS: 2, OFF_MS: 40 });
+const ACK = { sent: ":watch:routing:on\n", got: ':watch:routing:on\r\n{"watch":"routing","state":"on","gen":3}\r\n' };
+const OFF = { sent: ":watch:routing:off\n", got: ':watch:routing:off\r\n{"watch":"routing","state":"off","gen":9}\r\n' };
+const told = (n) => ({ sent: null, got: "changed{routing," + n + "}\r\n" });
+
+test("the watch's lines and its answers are read by their whole shape", () => {
+  assert.equal(P.changedOf("changed{routing,12}"), 12);
+  for (const no of ["changed{routing,<n>}", "xchanged{routing,5}", "changed{routing,5} ", "gen{5,1}", ":gen", ""])
+    assert.equal(P.changedOf(no), null, no);
+  assert.equal(P.genOf("changed{routing,7}\r\n"), null);                       // not a reply to :gen
+  assert.deepEqual(P.watchOf(ACK.got), { topic: "routing", on: true, gen: 3 });
+  assert.deepEqual(P.watchOf(NOWATCH.got), { error: "unknown_verb" });
+  assert.equal(P.watchOf(":watch:routing:on\r\n"), null);                      // the echo alone
+  assert.equal(P.watchOf('{"watches":{"routing":"on"}}\r\n'), null);
+});
+
+test("a watching board is read when it says so, and asked little else", async () => {   // Review Focus 7
+  const port = new P.FakePort(fs.readFileSync(WATCH, "utf8"));
+  const [link, seen] = linked(port, FASTW);
+  await link.connect();
+  link.run();
+  while (seen.readings.length < 4) await sleep(5);
+  await link.close();
+  assert.deepEqual(seen.readings.map((r) => r.gen), [3, 5, 7, 9]);
+  assert.equal(port.written.filter((w) => w === ":paths\n").length, 4);
+  assert.ok(port.written.filter((w) => w === ":gen\n").length <= 8);          // connect, the first round, one confirm a reading
+  assert.equal(port.written.at(-1), ":watch:routing:off\n");
+  assert.ok(port.written.every((w) => P.BOARD_PORT.SENDS.includes(w)));
+  assert.equal(port.most, 1);
+});
+
+test("a line in the chunk of a reply, split in two, and during a query", async () => {  // Review Focus 7
+  const port = made([N, VER, gen(3, 1), ACK, gen(3, 1), paths("same_chip_pairs"), dump("same_chip_pairs"),
+    { sent: ":gen\n", got: ":gen\r\ngen{3,1}\r\nchanged{routing,5}\r\n" },    // the line rides behind a reply
+    paths("sf_to_sf"), dump("sf_to_sf"), gen(5, 1), paths("sf_to_sf"), dump("sf_to_sf"), gen(7, 1, 9), OFF]);
+  const [link, seen] = linked(port, FASTW);
+  await link.connect();
+  link.run();
+  while (seen.readings.length < 2) await sleep(5);
+  assert.deepEqual(seen.readings.map((r) => r.gen), [3, 5]);                   // not lost with the reply's text
+  port.add("changed{rou"); await sleep(20); port.add("ting,7}\r\n");           // one line, two chunks
+  while (seen.readings.length < 3) await sleep(5);
+  assert.equal(seen.readings[2].gen, 7);
+  await link.close();
+  const trace = link.trace().trim().split("\n").map((l) => JSON.parse(l));
+  assert.ok(trace.some((e) => e.sent === null && /changed\{routing,7\}/.test(e.got)));
+});
+
+test("a line that never comes is caught by the slow poll, and a board that cannot watch is polled", async () => {
+  const quiet = made([N, VER, gen(3, 1), ACK, gen(3, 1), paths("same_chip_pairs"), dump("same_chip_pairs"), gen(3, 1),
+    gen(5, 1), paths("sf_to_sf"), dump("sf_to_sf"), gen(5, 1, 9), OFF]);
+  const [link, seen] = linked(quiet, Object.assign({}, FASTW, { WATCH_POLL_MS: 30 }));
+  await link.connect();
+  link.run();
+  while (seen.readings.length < 2) await sleep(5);
+  await link.close();
+  assert.deepEqual(seen.readings.map((r) => r.gen), [3, 5]);
+  const old = built();                                                         // its watch is refused
+  const [link2, seen2] = linked(old, FASTW);
+  await link2.connect();
+  link2.run();
+  while (seen2.readings.length < 4) await sleep(5);                            // far sooner than WATCH_POLL_MS allows
+  await link2.close();
+  assert.ok(!old.written.includes(":watch:routing:off\n"));
+});
+
+test("disconnect says off once, within its limit, and not over a query that is out", async () => {
+  const port = new P.FakePort(fs.readFileSync(WATCH, "utf8"));
+  const [link, seen] = linked(port, FASTW);
+  await link.connect();
+  link.run();
+  while (seen.readings.length < 1) await sleep(5);
+  port.hush();                                                                 // the board goes silent
+  const t = Date.now();
+  await link.close();
+  assert.ok(Date.now() - t < 400 && port.most === 1);
+  assert.ok(port.written.filter((w) => w === ":watch:routing:off\n").length <= 1);
 });
 
 (async () => {

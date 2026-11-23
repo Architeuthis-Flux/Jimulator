@@ -835,7 +835,7 @@ async function connectBoard() {
     } else linkSaid("lost", err.message);
     return;
   }
-  linkSaid("live", "firmware " + L.fw + ". Reading the board.");
+  linkSaid("live", "firmware " + L.fw + ". Asking the board to say when its routing changes.");
   link.run();                                      // never throws; it says how it ends
 }
 

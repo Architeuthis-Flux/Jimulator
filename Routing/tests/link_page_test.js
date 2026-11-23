@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // The page's connectBoard (web/lab.js) under node, with board_port.js for the link and stubs for the page around it:
 // after a connect that fails, the page is back to "not linked", says why in the page's own words, and a port that
-// failed is not used again without the picker. Usage: node link_page_test.js WEB_DIR
+// failed is not used again without the picker; a board that watches is told so, and told off at Disconnect. Usage: node link_page_test.js WEB_DIR
 "use strict";
 const fs = require("fs");
 const path = require("path");
@@ -21,7 +21,7 @@ const portThatThrows = (name) => ({ open: async () => { const e = new Error(name
 // A fake port answering these exchanges (JSON Lines, as a trace has them).
 const NETS = '{\r\n  "nets": []\r\n}\r\n';
 const fake = (steps) => new port7.FakePort(steps.map((s) => JSON.stringify(s)).join("\n") + "\n");
-const FAST = { POLL_MS: 4, PROBE_MS: 80, STALL_MS: 60, WAIT_SAY_MS: 30 };
+const FAST = { POLL_MS: 4, PROBE_MS: 80, STALL_MS: 60, WAIT_SAY_MS: 30, GAP_MS: 2, OFF_MS: 40 };
 
 async function connectWith(port) {
   const said = [];
@@ -74,5 +74,16 @@ async function failed(port, state, words) {
   assert.deepStrictEqual([ctx.state.link.name, ctx.state.link.fw], ["too_old", "5.7.11.5"]);
   assert.ok(ctx.state.link.words.startsWith("This board's firmware (5.7.11.5) is too old for a live view"), ctx.state.link.words);
   assert.deepStrictEqual([old.written, old.closed, ctx.state.link.granted.length], [["N", ":ver\n", ":gen\n"], true, 1]);
+
+  // a board that watches: the page says so, and Disconnect turns the watch off before the port is closed
+  const gen = { sent: ":gen\n", got: ":gen\r\ngen{3,0}\r\n" };
+  const watching = fake([{ sent: "N", got: NETS }, { sent: ":ver\n", got: ":ver\r\nJumperless firmware version: 5.7.12\r\n" }, gen,
+    { sent: ":watch:routing:on\n", got: ':watch:routing:on\r\n{"watch":"routing","state":"on","gen":3}\r\n' }, gen,
+    { sent: ":watch:routing:off\n", got: ':watch:routing:off\r\n{"watch":"routing","state":"off","gen":3}\r\n' }]);
+  const live = await connectWith(watching);
+  for (let i = 0; i < 200 && !live.state.link.words.includes("the board says when its routing changes"); i++) await new Promise((r) => setTimeout(r, 5));
+  assert.ok(live.state.link.words.includes("the board says when its routing changes"), live.state.link.words);
+  await live.connectBoard();                                          // Disconnect
+  assert.deepStrictEqual([watching.written.at(-1), watching.closed, live.linkOpen()], [":watch:routing:off\n", true, false]);
   console.log("ok");
 })().catch((e) => { console.error(e); process.exit(1); });

@@ -1,15 +1,18 @@
 // SPDX-License-Identifier: MIT
 // A board's port 7, read in the page's own code: what the board answers to the
-// five things the lab ever sends, and a fake port that replays a trace
-// of those exchanges. No DOM, no import; under node the last line exports it.
+// seven things the lab ever sends, the lines it writes by itself when watched, and a fake
+// port that replays a trace of those exchanges. No DOM, no import; under node the last line exports it.
 "use strict";
 
 const BOARD_PORT = {
   FILTER: { usbVendorId: 0x1D50, usbProductId: 0xACAB },   // usb_descriptors.cpp:71-72
   BAUD: 115200,                                            // ArduinoStuff.cpp:212
   BUFFER: 65536,                                           // lineChannel.ts:21
-  SENDS: ["N", ":ver\n", ":gen\n", ":paths\n", ":crossbar\n"],   // the only bytes ever sent to a board
-  POLL_MS: 500,
+  SENDS: ["N", ":ver\n", ":gen\n", ":paths\n", ":crossbar\n", ":watch:routing:on\n", ":watch:routing:off\n"],   // the only bytes ever sent to a board
+  POLL_MS: 500,                                            // the :gen poll of a board that cannot watch
+  WATCH_POLL_MS: 3000,                                     // the :gen poll of a watching board, for a changed{} line that was lost
+  GAP_MS: 100,                                             // the least time between two rounds
+  OFF_MS: 300,                                             // how long Disconnect waits for :watch:routing:off's answer
   PROBE_MS: 1500,                                          // Jumperlessim's probe (engine.ts:31)
   STALL_MS: 3000,                                          // first guess
   WAIT_SAY_MS: 1500,                                       // first guess
@@ -70,6 +73,27 @@ function refusedVerb(text) {
   return m ? m[1] : null;
 }
 
+// The answer to :watch:<topic>:on|off, from the last whole line that gives one: {topic, on, gen}, or {error} for a
+// refusal (unknown_verb from firmware without :watch, busy in probe mode), or null before either.
+function watchOf(text) {
+  const lines = text.split("\n").slice(0, -1);
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i].replace(/\r$/, "");
+    const m = /^\{"watch":"([^"]*)","state":"(on|off)","gen":(\d+)\}$/.exec(line);
+    if (m) return { topic: m[1], on: m[2] === "on", gen: Number(m[3]) };
+    let o = null;
+    try { o = JSON.parse(line); } catch (e) { continue; }
+    if (o && typeof o === "object" && !Array.isArray(o) && "error" in o) return { error: o.error };
+  }
+  return null;
+}
+
+// The generation of a line the watched board wrote by itself, changed{routing,<n>}, or null. Not a reply to anything.
+function changedOf(line) {
+  const m = /^changed\{routing,(\d+)\}(\r?\n)?$/.exec(line);
+  return m ? Number(m[1]) : null;
+}
+
 // The last whole crossbar dump, as it stands, or null.
 function xbarOf(text) {
   const m = lastMatch(/xbar\{12x8:[0-9a-f]{384}\}/g, text);
@@ -91,11 +115,11 @@ function reportOf(text) {
 class FakePort {
   constructor(traceText, { gapMs = 1 } = {}) {
     this.gapMs = gapMs;
-    this.exchanges = [];                                   // one per write answered, a "times" line spread out
+    this.exchanges = [];                                   // one per write answered or line unasked, a "times" line spread out
     for (const line of traceText.split("\n")) {
       if (!line.trim()) continue;
       const e = JSON.parse(line);
-      if (e.h || e.sent == null) continue;
+      if (e.h) continue;
       for (let i = 0; i < (e.times || 1); i++) this.exchanges.push({ sent: e.sent, got: e.got });
     }
     this.place = 0;
@@ -118,6 +142,16 @@ class FakePort {
     this.closed = false;
     this.readable = new ReadableStream({ start: (c) => { this.controller = c; } });
     this.writable = new WritableStream({ write: (chunk) => this.take(new TextDecoder().decode(chunk)) });
+    this.unasked();
+  }
+
+  // The lines at the place that nobody asked for (sent null): each sent by itself, gapMs after the one before,
+  // and the place moved past them.
+  unasked() {
+    for (let k = 1; this.place < this.exchanges.length && this.exchanges[this.place].sent === null; k++) {
+      const got = this.exchanges[this.place++].got;
+      if (got != null) setTimeout(() => this.add(got), this.gapMs * k);
+    }
   }
 
   async close() {
@@ -142,7 +176,7 @@ class FakePort {
   answer(text) {
     this.unanswered--;
     let i = this.exchanges.findIndex((e, k) => k >= this.place && e.sent === text);
-    if (i >= 0) { if (this.cutAt === null) this.place = i + 1; }
+    if (i >= 0) { if (this.cutAt === null) { this.place = i + 1; this.unasked(); } }
     else {
       for (i = Math.min(this.place, this.exchanges.length) - 1; i >= 0 && this.exchanges[i].sent !== text; i--);
     }
@@ -193,12 +227,17 @@ class BoardLink {
   constructor(port, on, opts) {
     this.port = port;
     this.on = on;
-    this.t = Object.assign({}, BOARD_PORT);               // the timings may be changed; the speed and the five may not
+    this.t = Object.assign({}, BOARD_PORT);               // the timings may be changed; the speed and the seven may not
     for (const k of Object.keys(opts || {})) if (k.endsWith("_MS")) this.t[k] = opts[k];
     this.reader = null;
     this.writer = null;
     this.pumping = null;
     this.text = "";                                        // every byte since the last whole reply
+    this.lines = "";                                       // the bytes since the last line end, looked at for changed{}
+    this.told = null;                                      // {n} of the last changed{} line not yet acted on
+    this.watching = false;                                 // the board said it will write changed{} lines
+    this.how = "";                                         // in words: watched, or asked every half second
+    this.stopping = false;                                 // close() has begun
     this.heard = 0;                                        // when the last byte came
     this.ended = false;
     this.closing = false;
@@ -263,9 +302,22 @@ class BoardLink {
         continue;
       }
       if (res.done) break;
-      this.text += decoder.decode(res.value, { stream: true });
+      const chunk = decoder.decode(res.value, { stream: true });
+      this.text += chunk;
       this.heard = Date.now();
       this.wake(true);
+      const lines = (this.lines + chunk).split(/[\r\n]/);   // the reports end lines with \n\r: either one ends a line
+      this.lines = lines.pop();                            // a line cut by the chunk's end waits for its rest
+      for (const line of lines) {
+        const n = changedOf(line);
+        if (n === null) continue;
+        this.told = { n };
+        if (!this.out) {                                   // no query out: the bytes are a trace line of their own
+          this.exchanges.push({ t: Math.round(Date.now() - this.t0) / 1000, sent: null, got: this.text });
+          this.text = "";
+        }
+        this.wake();
+      }
     }
     try { if (this.reader) this.reader.releaseLock(); } catch (e) { /* already let go */ }
     this.reader = null;
@@ -371,12 +423,23 @@ class BoardLink {
     return { fw: this.fw };
   }
 
-  // The loop: one reading at each generation the board stands idle at. Never throws.
+  // Waits until the time, or sooner on a close, the end, or done(). Nothing else cuts it.
+  async rest(until, done) {
+    while (!this.stopping && !this.ended && !done() && Date.now() < until) await this.nap(until - Date.now());
+  }
+
+  // The loop: one reading at each generation the board stands idle at. A watching board says when its routing
+  // changed and is asked :gen every WATCH_POLL_MS besides; one that cannot watch is asked every POLL_MS. Never throws.
   async run() {
     let shown = null, busySince = null;
     try {
-      while (!this.closing) {
-        let g = await this.askGen();
+      const w = await this.ask(":watch:routing:on\n", watchOf);
+      this.watching = Boolean(w.on);
+      this.how = this.watching ? "the board says when its routing changes" : "asking every half second: this firmware has no :watch";
+      this.say("live", this.how + "." + this.lastRead());
+      while (!this.closing && !this.stopping) {
+        let g = this.told ? { n: this.told.n, idle: true } : await this.askGen();      // a changed{} line stands in for :gen
+        this.told = null;
         if (g.refused) return await this.tooOld();
         while (g.idle && (g.n !== shown || this.rereading)) {
           const b = await this.ask(":paths\n", (t) => (refusedVerb(t) === "paths" ? { refused: true } : reportOf(t)));
@@ -389,7 +452,7 @@ class BoardLink {
             this.rereading = false;
             this.lastAt = Date.now();
             this.on.reading({ n: ++this.count, gen: g.n, b, xbar, fw: this.fw, at: this.lastAt });
-            this.say("live", "generation " + g.n + "." + this.lastRead());
+            this.say("live", "generation " + g.n + ": " + this.how + "." + this.lastRead());
             break;
           }
           g = h;
@@ -400,12 +463,15 @@ class BoardLink {
             this.say("waiting", "the board's routing changed and it has not finished sending it." + this.lastRead());
         } else {
           busySince = null;
-          if (this.said === "waiting") this.say("live", "reading the board." + this.lastRead());
+          if (this.said === "waiting") this.say("live", "reading the board: " + this.how + "." + this.lastRead());
         }
-        await this.nap(this.t.POLL_MS);
+        const end = Date.now();
+        await this.rest(end + this.t.GAP_MS, () => false);
+        const poll = this.watching && g.idle && g.n === shown ? this.t.WATCH_POLL_MS : this.t.POLL_MS;
+        await this.rest(end + poll, () => this.told || this.rereading);
       }
     } catch (e) {
-      if (this.closing) return;
+      if (this.closing || this.stopping) return;
       await this.close();
       this.say("lost", GONE);
     }
@@ -420,8 +486,14 @@ class BoardLink {
   again() { this.rereading = true; this.wake(); }
 
   // Stops the loop, lets go of the reader and the writer, closes the port.
+  // A watch the board said it keeps is turned off first, unless a query is out; its answer is waited for OFF_MS at most.
   async close() {
-    if (this.closing) return;
+    if (this.stopping) return;
+    this.stopping = true;
+    this.wake();
+    if (this.watching && this.proven && !this.ended && !this.out) {
+      try { await this.ask(":watch:routing:off\n", watchOf, this.t.OFF_MS); } catch (e) { /* gone: closed all the same */ }
+    }
     this.closing = true;
     this.wake();
     try { if (this.reader) await this.reader.cancel(); } catch (e) { /* already ended */ }
@@ -445,4 +517,7 @@ class BoardLink {
   }
 }
 
-if (typeof module !== "undefined") module.exports = { BOARD_PORT, serialWhyNot, netListIn, versionOf, genOf, refusedVerb, xbarOf, reportOf, FakePort, LinkError, BoardLink };
+if (typeof module !== "undefined") {
+  module.exports = { BOARD_PORT, serialWhyNot, netListIn, versionOf, genOf, refusedVerb, watchOf, changedOf, xbarOf, reportOf, FakePort,
+    LinkError, BoardLink };
+}
