@@ -5,6 +5,7 @@ spaces), with or without the port-7 crossbar dump."""
 import re
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import board
 import copper
@@ -16,6 +17,18 @@ CAPTURES = lab.FIDELITY_DIR / "board_0621e4f44e23"          # the dense suite as
 def capture(name, crossbar=True):
     text = (CAPTURES / (name + ".b.txt")).read_text(errors="replace")
     return text + ((CAPTURES / (name + ".xbar.txt")).read_text() if crossbar else "")
+
+
+def xbar(name):
+    return (CAPTURES / (name + ".xbar.txt")).read_text()
+
+
+def cleared(text):
+    """A capture made to read as a board with nothing connected: no bridge, no path row, every pin free."""
+    text = re.sub(r"\d+ *\[[^\]]*\],?", "", text)
+    text = re.sub(r"(?m)^\d+\t.*\n", "", text)
+    text = re.sub(r"numberOfPaths: \d+", "numberOfPaths: 0", text)
+    return re.sub(r"(?m)^([A-L])\t.*$", lambda m: m.group(1) + "\t" + ". " * 16 + "\t" + ". " * 8, text)
 
 
 def coloured(text):
@@ -153,3 +166,44 @@ class Board(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Changed(unittest.TestCase):
+    def test_what_two_readings_of_a_board_differ_by(self):
+        a, b = board.result("live_board", capture("same_chip_pairs")), board.result("live_board", capture("sf_to_sf"))
+        c = board.changed(a, b)
+        self.assertEqual((len(c["closed"]), len(c["opened"]), len(c["bridges"])), (32, 16, 14))    # measured 2026-11-23
+        self.assertIn({"n1": 1, "n2": 2, "was": "routed", "now": None}, c["bridges"])
+        self.assertNotIn(139, [n for x in c["bridges"] for n in (x["n1"], x["n2"])])    # the feed: in both, routed in both
+        self.assertEqual(board.changed(a, a), {"closed": [], "opened": [], "bridges": []})
+        self.assertIsNone(board.changed(None, a))
+
+    def test_a_bridge_that_stopped_routing_is_a_change(self):
+        a, b = board.result("x", capture("same_chip_pairs")), board.result("x", capture("k_rows_overflow_metric"))
+        self.assertIn({"n1": 139, "n2": 136, "was": "routed", "now": "unrouted"}, board.changed(a, b)["bridges"])
+
+    def test_a_net_that_only_got_another_number_is_no_change(self):
+        one = {"crosspoints": [{"chip": "A", "x": 3, "y": 1, "net": 6}], "bridges": [{"n1": 1, "n2": 2, "state": "routed"}]}
+        two = {"crosspoints": [{"chip": "A", "x": 3, "y": 1, "net": 7}], "bridges": [{"n1": 2, "n2": 1, "state": "routed"}]}
+        with mock.patch.object(copper, "paint", side_effect=[one, two]):
+            self.assertEqual(board.changed({}, {}), {"closed": [], "opened": [], "bridges": []})
+
+    def test_what_port_7_prints_is_read_and_its_dump_checked(self):
+        text = capture("same_chip_pairs", crossbar=False)
+        reply = ":paths\r\n\n\r" + text[text.index("Bridge Array"):]              # :paths: no settings lines, an echo first
+        r = board.result("live_board", reply + xbar("same_chip_pairs"), about="a V5 on port 7")
+        self.assertEqual((r["about"], r["status"], r["problems"]), ("a V5 on port 7", "ok", []))
+        self.assertFalse([n for n in r["notes"] if "sent equals planned" in n])
+        other = board.result("live_board", reply + xbar("sf_to_sf"))             # another routing's dump: a fault, said
+        self.assertTrue(any("PLANNED but not SENT" in p for p in other["problems"]))
+
+    def test_a_linked_board_with_nothing_on_it_is_an_empty_case(self):     # Review Focus 11
+        bare = cleared(capture("same_chip_pairs", crossbar=False))
+        with self.assertRaisesRegex(ValueError, "lists no bridge"):
+            board.result("pasted", bare)                                  # a pasted report: as before
+        r = board.result("live_board", bare, live=True)
+        self.assertEqual((r["status"], r["problems"], copper.paint(r)["crosspoints"]), ("empty", [], []))
+        c = board.changed(board.result("live_board", capture("same_chip_pairs")), r)
+        self.assertEqual((len(c["closed"]), len(c["opened"]), len(c["bridges"])), (0, 16, 7))
+        with self.assertRaises(ValueError):
+            board.result("live_board", bare.split("Chip Status")[0], live=True)     # half a report is still refused

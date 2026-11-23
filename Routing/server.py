@@ -356,14 +356,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
         name, text = body.get("name", ""), body.get("text")
         if not isinstance(name, str) or not isinstance(text, str):
             raise Refused(400, "send {name, text}, the text being what a board prints for its b report")
+        about, live = body.get("about", ""), body.get("live", False)
+        if not isinstance(about, str) or not isinstance(live, bool):
+            raise Refused(400, "about is text and live is true or false")
         try:
-            result = board.result(name, text)
+            result = board.result(name, text, about, live)
         except ValueError as e:
             raise Refused(400, str(e)) from None
+        earlier = self.server.runs.get((BOARD, "v5"), {}).get(result["case"])
         kept = self.keep((BOARD, "v5"), [result])
         return {"variant": {"name": "board output", "hash": BOARD}, "baseline": None, "regressions": [],
                 "arrangement": arrangement_row(arrangement.V5),
-                "rows": [row(r) for r in kept.values()], "board": True, "shown": result["case"]}
+                "rows": [row(r) for r in kept.values()], "board": True, "shown": result["case"],
+                "changed": board.changed(earlier, result)}
 
     def api_post_ceiling(self, query, body):
         """The exact solver's verdict on one case of a run (of "variant", on

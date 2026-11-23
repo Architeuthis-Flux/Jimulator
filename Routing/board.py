@@ -15,6 +15,7 @@ the path table lists, and the result says so.
 import re
 
 import cases
+import copper
 import runner
 
 rc = runner.rc
@@ -105,17 +106,19 @@ def _name(given):
     return re.sub(r"[^A-Za-z0-9_+-]", "_", stem)[:60] or "board"
 
 
-def result(name, text):
-    """A judged result (class "board") from what a board printed. ValueError,
-    with what is wrong, when the text is not a `b` report of this fabric or
-    its path table did not come through whole."""
+def result(name, text, about="", live=False):
+    """A judged result (class "board") from what a board printed; `about` is
+    the case's notes. ValueError, with what is wrong, when the text is not a
+    `b` report of this fabric or its path table did not come through whole.
+    A whole report read from a live board that lists no bridge is a board with
+    nothing connected (status "empty"); a pasted one is refused."""
     text = ANSI.sub("", text or "")
     b = normalize(text)
     try:
         bridges, rows, status = rc.parse_bridge_array(b), rc.parse_paths(b), rc.parse_chip_status(b)
     except (ValueError, KeyError, IndexError) as e:
         raise ValueError(NOT_READ + str(e.args[0] if e.args else e)) from None
-    if not bridges:
+    if not bridges and not live:
         raise ValueError(NOT_READ + "its Bridge Array lists no bridge")
     array = b.split("Bridge Array", 1)[1].split("Paths", 1)[0]
     if array.count("[") != len(re.findall(r"\[[^,\]]+,[^,\]]+,Net (?:\d+|\?)\]", array)):
@@ -139,5 +142,28 @@ def result(name, text):
     judged = runner.judge(case, {"b": b, "xbar": dumps[-1] if dumps else xbar_of(rows)})
     if judged["status"] == "crash":
         raise ValueError(NOT_READ + (judged["problems"] or ["the checker could not read it"])[0])
+    if not bridges:
+        notes.append("nothing is connected on the board")
     judged["notes"] = notes + judged["notes"]
+    judged["about"] = about
     return judged
+
+
+def changed(before, after):
+    """What two readings of one case differ by: the crosspoints closed and
+    opened (told by place, so a net that only got another number is no
+    change) and the bridges whose state differs (told by their two nodes).
+    None when there is no earlier reading."""
+    if before is None:
+        return None
+    old, new = copper.paint(before), copper.paint(after)
+    places = lambda p: {(c["chip"], c["x"], c["y"]): c["net"] for c in p["crosspoints"]}
+    states = lambda p: {frozenset((b["n1"], b["n2"])): b for b in p["bridges"]}
+    (was, now), (was_b, now_b) = (places(old), places(new)), (states(old), states(new))
+    state = lambda d, k: d[k]["state"] if k in d else None
+    return {"closed": sorted([*k, now[k]] for k in now.keys() - was.keys()),
+            "opened": sorted([*k, was[k]] for k in was.keys() - now.keys()),
+            "bridges": [{"n1": b["n1"], "n2": b["n2"], "was": state(was_b, k), "now": state(now_b, k)}
+                        for k, b in sorted(((k, (now_b.get(k) or was_b[k])) for k in was_b.keys() | now_b.keys()),
+                                           key=lambda kb: (kb[1]["n1"], kb[1]["n2"]))
+                        if state(was_b, k) != state(now_b, k)]}

@@ -334,6 +334,20 @@ class Server(unittest.TestCase):
         self.assertEqual(subprocess.run(["node", "--check", str(server.WEB_DIR / "lab.js")]).returncode, 0)
         self.assertNotRegex(js, r"https?://(?!www\.w3\.org/)")
 
+    def test_a_board_read_again_says_what_changed(self):
+        captures = server.lab.FIDELITY_DIR / "board_0621e4f44e23"
+        text = lambda n: (captures / (n + ".b.txt")).read_text(errors="replace") + (captures / (n + ".xbar.txt")).read_text()
+        first = self.c.post("/api/board", {"name": "live_board", "text": text("same_chip_pairs"), "about": "a V5 on port 7"}).json
+        self.assertIsNone(first["changed"])
+        again = self.c.post("/api/board", {"name": "live_board", "text": text("sf_to_sf"), "live": True}).json
+        self.assertEqual((len(again["changed"]["closed"]), len(again["changed"]["opened"])), (32, 16))
+        self.assertEqual(len([x for x in again["rows"] if x["case"] == "live_board"]), 1)      # the same case, read again
+        same = self.c.post("/api/board", {"name": "live_board", "text": text("sf_to_sf")}).json
+        self.assertEqual(same["changed"], {"closed": [], "opened": [], "bridges": []})
+        for bad in ({"about": 5}, {"live": 1}):
+            r = self.c.post("/api/board", dict({"name": "x", "text": text("sf_to_sf")}, **bad))
+            self.assertEqual(r.status, 400, bad)
+
     def test_board_output_is_judged_kept_and_served_like_a_run(self):
         captures = server.lab.FIDELITY_DIR / "board_0621e4f44e23"
         text = (captures / "k_rows_overflow_metric.b.txt").read_text(errors="replace")
