@@ -89,10 +89,20 @@ click a case.
 - **KiCad sheet tab.** The board's own schematic with the same result drawn
   over it: lit wires, lanes followed along their bus from chip to chip, a
   dot at each label and pin of a live net, and each closed crosspoint as a
-  curve inside its chip from the X pin to the Y pin. Build it once with
+  curve inside its chip from the X pin to the Y pin. A lit wire is followed
+  past the crossbar too: across a closed jumper, the 0R or the 2 ohm shunt
+  it is drawn as the wire is, and on the far side of its op-amp it is
+  **striped**, since a buffer or a scaling stage has changed the signal by
+  then (the ADCs' followers and dividers, the DACs' and the rails' gain
+  stages, the routable buffer); a label there wears a dashed ring, and the
+  tip says the part and what it does. The legend's "after an op-amp" shows
+  these alone. The table is `BEYOND` in `sheet.py`, read from the r7
+  schematic on 2026-11-23: eleven wires have a stage, and R88 (the probe's
+  feed onto `ROUTABLE_BUFFER_IN`) is taken as fitted, as the schematic has
+  it. Build the sheet once with
   `python3 tools/routing_lab/lab.py sheet [board.kicad_sch] [--theme NAME]`
   (needs KiCad's `kicad-cli`; the default is the V5 r7 sheet in
-  `~/Documents/GitHub/JumperlessV5`).
+  `~/Documents/GitHub/JumperlessV5`), and again after a change to `BEYOND`.
 - **Marks, fabric and sheet.** Red is a problem and nothing else is red: a wire
   carrying two nets (a short), a net on a node that is in no net (a stray),
   or a ring where the chip status and the copper disagree (a closed pin

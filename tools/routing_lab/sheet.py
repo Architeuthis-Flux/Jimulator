@@ -3,9 +3,11 @@
 
 overlay() finds, in sheet millimetres (the units of the file and of
 kicad-cli's SVG plot): the wire segments and label positions of every net of
-the crossbar fabric, where each crossbar pin ends, and each crossbar symbol's
-body. build() also has kicad-cli plot the sheet as the backdrop. Both land in
-build/sheet/; nothing is written next to the schematic.
+the crossbar fabric, where each crossbar pin ends, each crossbar symbol's
+body, and the copper a wire's signal goes on to past the fabric (BEYOND: the
+other side of its op-amp, jumper or shunt). build() also has kicad-cli plot
+the sheet as the backdrop. Both land in build/sheet/; nothing is written next
+to the schematic.
 
 Like test/hil/fabric_v5.py this is derived from the schematic, not from the
 firmware's tables. Net names come from fabric_v5, so the two agree by
@@ -36,6 +38,49 @@ KICAD_CLI = ("kicad-cli", "/Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cl
 PAPER = {"A0": (1189.0, 841.0), "A1": (841.0, 594.0), "A2": (594.0, 420.0), "A3": (420.0, 297.0),
          "A4": (297.0, 210.0), "A5": (210.0, 148.0)}
 HINT = "python3 tools/routing_lab/lab.py sheet [path/to/board.kicad_sch]"
+
+
+
+def _past(net, by, kind, way, gain=None):
+    return {"net": net, "by": by, "kind": kind, "way": way, **({"gain": gain} if gain else {})}
+
+
+# What a crossbar wire's signal becomes past the fabric on the V5 r7 sheet, read from that schematic on 2026-11-23:
+# for each wire, the copper beyond it in order away from the crossbar.
+#   net   a label on the sheet, or a name given in ANCHOR to copper that has none
+#   by    the part between
+#   kind  "same": the same signal, across a closed jumper, a 0R or a 2 ohm shunt
+#         "buffer": after an op-amp follower;  "scale": after a stage that scales and shifts it (gain says how)
+#   way   "out": the wire feeds the stage;  "in": the stage drives the wire
+# Only these eleven wires have an op-amp stage (the UART, AREF, the Nano header, the rows and the lanes have none),
+# and the sheet has no level shifter. The page draws "same" as the wire is drawn and the other two striped.
+_ADC_8V = "x0.182 + 1.65 V (+-8 V reads 0.19 to 3.11 V)"
+_DAC = "x4.05 - 8.3 V"
+BEYOND = {
+    "ROUTABLE_BUFFER_IN": [_past("ROUTABLE_BUFFER_OUT", "U7A", "buffer", "out"),
+                           _past("ADC_UNBUFFERED_+-8V_PROBE", "R88 (0R)", "same", "out"),
+                           _past("after U7B", "U7B", "buffer", "out"),
+                           _past("ADC_BUFFERED_+-8V_PROBE", "U7B's divider", "scale", "out", _ADC_8V)],
+    "ROUTABLE_BUFFER_OUT": [_past("ROUTABLE_BUFFER_IN", "U7A", "buffer", "in")],
+    **{"ADC_UNBUFFERED_+-8V_%d" % n: [_past("after U11" + unit, "U11" + unit, "buffer", "out"),
+                                      _past("ADC_BUFFERED_+-8V_%d" % n, "U11%s's divider" % unit, "scale", "out", _ADC_8V)]
+       for n, unit in enumerate("ABCD")},
+    "ADC_UNBUFFERED_5V_4": [_past("after U7D", "U7D", "buffer", "out"),
+                            _past("ADC_BUFFERED_5V_4", "R87 and R82", "scale", "out", "x0.667")],
+    "DAC_0": [_past("R_SENSE+", "R57 (the 2 ohm shunt)", "same", "in"), _past("DAC_0_OUT", "U10A", "scale", "in", _DAC)],
+    "DAC_1": [_past("after U10B", "U12", "same", "in"), _past("DAC_1_OUT", "U10B", "scale", "in", _DAC)],
+    "TOP_RAIL": [_past("after U1807A", "JP3", "same", "in"), _past("DAC_2_OUT", "U1807A", "scale", "in", _DAC)],
+    "BOTTOM_RAIL": [_past("after U1807B", "JP4", "same", "in"), _past("DAC_3_OUT", "U1807B", "scale", "in", _DAC)],
+    "Net-(I1-X11)": [_past("CURR_SENSE+", "JP5", "same", "out")],
+    "Net-(J6-X11)": [_past("CURR_SENSE-", "JP6", "same", "out")],
+    **{"GPIO_%d" % n: [_past("RP_GPIO_%d" % n, "its jumper (JP23 to JP30)", "same", "out")] for n in range(20, 28)},
+}
+# copper with no label, named by a point on it (an op-amp's output pin)
+ANCHOR = {"after U11A": (581.66, 229.87), "after U11B": (580.39, 255.27), "after U11C": (581.66, 280.67),
+          "after U11D": (580.39, 308.61), "after U7D": (581.66, 193.04), "after U7B": (708.025, 193.04),
+          "after U10B": (680.085, 301.625), "after U1807A": (746.76, 262.89), "after U1807B": (745.49, 303.53)}
+# a second label on a wire's own copper: DAC_0's at the shunt
+ALIAS = {"R_SENSE-": "DAC_0"}
 
 
 class SheetUnavailable(Exception):
@@ -113,9 +158,11 @@ def _on_segment(p, seg):
 
 
 def overlay(sch_path):
-    """See the module docstring. Keys: size, nets, pins, bodies."""
+    """See the module docstring. Keys: size, nets, pins, bodies, beyond."""
     tree = parse_sexpr(Path(sch_path).read_text())
     fabric_names = {n for c in fabric_v5.CHIPS for n in fabric_v5.X_NET[c] + fabric_v5.Y_NET[c]}
+    beyond = {wire: past for wire, past in BEYOND.items() if wire in fabric_names}
+    keep = fabric_names | {t["net"] for past in beyond.values() for t in past}     # the nets worth their copper
 
     paper = _one(tree, "paper") or ["paper", "A4"]
     size = [float(paper[2]), float(paper[3])] if paper[1] == "User" else list(PAPER.get(paper[1], PAPER["A4"]))
@@ -202,10 +249,14 @@ def overlay(sch_path):
         for lab in _all(tree, kind):
             at = _one(lab, "at")
             p = (_num(at[1]), _num(at[2]))
-            labels.append((prefix + lab[1], p, group_at(p)))
+            labels.append((ALIAS.get(prefix + lab[1], prefix + lab[1]), p, group_at(p)))
     name_of = {}
     for name, p, g in labels:
-        if g is not None and name in fabric_names:
+        if g is not None and name in keep:
+            name_of.setdefault(g, name)
+    for name, p in ANCHOR.items():                  # copper with no label of its own
+        g = group_at(p)
+        if g is not None and name in keep:
             name_of.setdefault(g, name)
     for p, name in pin_wire.items():                # a pin's own name wins over a label's
         g = group_at(p)
@@ -215,14 +266,16 @@ def overlay(sch_path):
     nets = {}
     for i, seg in enumerate(segments):
         name = name_of.get(find(i))
-        if name in fabric_names:
+        if name in keep:
             nets.setdefault(name, {"segments": [], "labels": []})["segments"].append(list(seg))
     for text, p, g in labels:
         name = name_of.get(g) if g is not None else pin_wire.get(p, text)
-        if name in fabric_names:
+        if name in keep:
             nets.setdefault(name, {"segments": [], "labels": []})["labels"].append(list(p))
     _follow_buses(tree, nets)
-    return {"size": size, "nets": nets, "pins": pins, "bodies": bodies}
+    beyond = {wire: [t for t in past if t["net"] in nets] for wire, past in beyond.items()}     # what this sheet has
+    return {"size": size, "nets": nets, "pins": pins, "bodies": bodies,
+            "beyond": {wire: past for wire, past in beyond.items() if past}}
 
 
 def _follow_buses(tree, nets):

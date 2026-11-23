@@ -109,6 +109,59 @@ class Sheet(unittest.TestCase):
             ((122, 60), (122, 93)), ((122, 60), (178, 60)), ((178, 60), (178, 93)),  # the bus between them, no more
         })
 
+    def test_a_wire_is_followed_past_the_crossbar(self):
+        # what a wire's signal becomes past the fabric: a labelled net after a stage, copper with no label found by
+        # a point on it, and a second label on the wire's own copper read as the wire
+        text = MINI[:-1] + '''
+  (wire (pts (xy 500 100) (xy 520 100)))
+  (global_label "FAR" (at 520 100 0))
+  (wire (pts (xy 500 120) (xy 520 120)))
+  (wire (pts (xy 600 100) (xy 620 100)))
+  (global_label "OTHER_NAME" (at 620 100 0)))'''
+        table = {"1": [{"net": "FAR", "by": "U1A", "kind": "scale", "way": "out"},
+                       {"net": "after U1B", "by": "U1B", "kind": "buffer", "way": "out"},
+                       {"net": "NOT_ON_THIS_SHEET", "by": "U9", "kind": "buffer", "way": "out"}],
+                 "NOT_A_WIRE_HERE": [{"net": "FAR", "by": "U1A", "kind": "scale", "way": "in"}]}
+        with mock.patch.object(sheet.fabric_v5, "X_NET", {"A": ["/AB0"], "B": ["/AB0"]}), \
+             mock.patch.object(sheet.fabric_v5, "Y_NET", {"A": ["x", "1"], "B": ["x", "8"]}), \
+             mock.patch.object(sheet.fabric_v5, "CHIPS", "AB"), \
+             mock.patch.object(sheet, "BEYOND", table), \
+             mock.patch.object(sheet, "ANCHOR", {"after U1B": (510, 120)}), \
+             mock.patch.object(sheet, "ALIAS", {"OTHER_NAME": "1"}):
+            o = sheet.overlay(self.write(text))
+        self.assertEqual(o["nets"]["FAR"], {"segments": [[500, 100, 520, 100]], "labels": [[520, 100]]})
+        self.assertEqual(o["nets"]["after U1B"]["segments"], [[500, 120, 520, 120]])
+        self.assertIn([600, 100, 620, 100], o["nets"]["1"]["segments"])
+        self.assertEqual(o["beyond"], {"1": table["1"][:2]})         # only wires of this fabric, and copper this sheet has
+        self.assertNotIn("SOMETHING_ELSE", o["nets"])
+
+    def test_the_table_of_what_is_past_the_crossbar_names_v5s_wires(self):
+        wires = {n for c in fabric_v5.CHIPS for n in fabric_v5.X_NET[c] + fabric_v5.Y_NET[c]}
+        self.assertEqual([w for w in sheet.BEYOND if w not in wires], [])
+        for wire, past in sheet.BEYOND.items():
+            for t in past:
+                self.assertIn(t["kind"], ("same", "buffer", "scale"), wire)
+                self.assertIn(t["way"], ("in", "out"), wire)
+        named = {t["net"] for past in sheet.BEYOND.values() for t in past}
+        self.assertEqual([a for a in sheet.ANCHOR if a not in named], [])       # every point named is used
+        # the eleven wires with an op-amp stage: the routable buffer's two, five ADCs, two DACs, the two rails
+        staged = sorted(w for w, past in sheet.BEYOND.items() if any(t["kind"] != "same" for t in past))
+        self.assertEqual(staged, sorted(["ROUTABLE_BUFFER_IN", "ROUTABLE_BUFFER_OUT", "ADC_UNBUFFERED_5V_4", "DAC_0", "DAC_1",
+                                         "TOP_RAIL", "BOTTOM_RAIL"] + ["ADC_UNBUFFERED_+-8V_%d" % n for n in range(4)]))
+
+    @unittest.skipUnless(sheet.DEFAULT_SCH.exists(), "the r7 schematic is not on this machine")
+    def test_the_real_sheet_past_the_crossbars(self):
+        o = sheet.overlay(sheet.DEFAULT_SCH)
+        missing = [(w, t["net"]) for w, past in sheet.BEYOND.items() for t in past
+                   if t["net"] not in o["nets"] or t not in o["beyond"].get(w, [])]
+        self.assertEqual(missing, [])                                # r7 has all of it
+        self.assertEqual([t["net"] for t in o["beyond"]["ADC_UNBUFFERED_+-8V_0"]], ["after U11A", "ADC_BUFFERED_+-8V_0"])
+        self.assertGreaterEqual(len(o["nets"]["ADC_BUFFERED_+-8V_0"]["segments"]), 8)
+        self.assertGreaterEqual(len(o["nets"]["after U11A"]["segments"]), 4)
+        self.assertEqual(o["nets"]["DAC_2_OUT"]["segments"], [])     # drawn as two labels and no wire
+        self.assertEqual(len(o["nets"]["DAC_2_OUT"]["labels"]), 2)
+        self.assertGreater(len(o["nets"]["DAC_0"]["segments"]), 1)   # with the copper at the shunt, labelled R_SENSE-
+
     @unittest.skipUnless(sheet.DEFAULT_SCH.exists(), "the r7 schematic is not on this machine")
     def test_the_real_sheet(self):
         o = sheet.overlay(sheet.DEFAULT_SCH)

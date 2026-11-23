@@ -150,6 +150,17 @@ class Export(unittest.TestCase):
         # the crossbars' lines and blocks are drawn over the board's letters, in boxes one letter wide: they join in any font
         self.assertRegex(css, r"\.xchip \.xl, \.xchip \.xblock \{[^}]*width: 1ch")
 
+    def test_the_sheet_follows_a_wire_past_its_op_amp(self):
+        js = (server.WEB_DIR / "lab.js").read_text()
+        css = (server.WEB_DIR / "lab.css").read_text()
+        html = (server.WEB_DIR / "index.html").read_text()
+        self.assertIn("s.beyond", js)                                      # what sheet.py found past each wire
+        self.assertIn("function pastTip(", js)
+        self.assertRegex(css, r"\.s-wire\.thru \{[^}]*stroke-dasharray")     # striped once a stage has changed the signal
+        self.assertRegex(css, r"\.s-tag\.thru \{[^}]*stroke-dasharray")      # and at a label, where there is no wire to stripe
+        self.assertIn('data-kind="thru"', html)                           # with a key in the legend that shows it alone
+        self.assertIn('svg[data-only="thru"] .thru', css)
+
     def test_the_page_is_told_every_chips_pins(self):
         pins = server.pins_of(arrangement.V5)                              # for the crossbars drawn as the board prints them
         self.assertEqual(sorted(pins), list("ABCDEFGHIJKL"))
@@ -268,7 +279,7 @@ class Export(unittest.TestCase):
         self.assertNotIn("border-radius: 9px", css)
         self.assertIn("prefers-reduced-motion", css)
         # the last things that did nothing: a legend key shows its kind alone, the counts and the status tag answer
-        self.assertEqual(html.count('data-kind="'), 6)
+        self.assertEqual(html.count('data-kind="'), 7)
         for function in ("function onlyKind(", "function renderHud(", "function keepUi(", "function keptUi("):
             self.assertIn(function, js)
         self.assertIn('"lab.ui.v1:"', js)                              # the page opens where it was left

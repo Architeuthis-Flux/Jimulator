@@ -211,6 +211,7 @@ async function pickArrangement(name) {
   state.arrangement = name;
   state.info.fabric = data.fabric;
   state.info.nodes = data.nodes;
+  state.info.pins = data.pins;
   const rows = state.info.arrangements || [];                  // the file may have changed since the list was made
   const at = rows.findIndex((a) => a.name === name);
   if (at >= 0) rows[at] = data.arrangement;
@@ -822,7 +823,8 @@ function say(text) {
 // same kind again, or Escape, shows everything.
 const KIND_WORDS = { closed: "closed crosspoints of first paths", dup: "crosspoints of duplicate paths", xp: "closed crosspoints",
   mismatch: "claims that do not match the copper", unrouted: "ends of bridges the router failed",
-  refused: "ends of bridges the firmware said no to", ghost: "free in the copper: missed paths, or the spare copies asked for" };
+  refused: "ends of bridges the firmware said no to", ghost: "free in the copper: missed paths, or the spare copies asked for",
+  thru: "on the KiCad sheet, the far side of a wire's op-amp: its signal after a buffer or a stage that scales it" };
 
 function onlyKind(kind) {
   state.only = kind && state.only !== kind ? kind : null;
@@ -1702,6 +1704,13 @@ async function drawSheetBase() {
     bodies.length ? [0, 0, s.size[0], s.size[1]] : null);
 }
 
+// What a piece of copper past the crossbar is to its wire (sheet.py's BEYOND).
+function pastTip(wire, t) {
+  const stage = t.by + " (" + (t.kind === "buffer" ? "a buffer" : "scaled" + (t.gain ? ": " + t.gain : "")) + ")";
+  return t.net + "\n" + (t.kind === "same" ? "the same signal as " + wire + ", across " + t.by
+    : t.way === "in" ? "drives " + wire + " through " + stage : wire + " after " + stage);
+}
+
 function sheetDot(cls, [x, y], attrs) {                      // a dot that stays one size on screen
   return svg("path", Object.assign({ class: cls, d: "M" + x + " " + y + "l0.001 0" }, attrs));
 }
@@ -1733,6 +1742,25 @@ function drawSheet(paint) {
         hover(part, () => wireTip(name));
         if (!short) part.addEventListener("click", () => isolate(w.nets[0]));
         copper.append(part);
+      }
+      // Past the crossbar: the copper on the other side of the wire's jumper or shunt, drawn as the wire is, and
+      // of its op-amp, striped, since a buffer or a scaling stage has changed the signal by then. A wire that
+      // carries a net of its own (the routable buffer's other end) is drawn as that instead.
+      for (const t of (s.beyond && s.beyond[name]) || []) {
+        const far = s.nets[t.net];
+        if (!far || (paint.wires[t.net] && paint.wires[t.net].nets.length)) continue;
+        const cls = (t.kind === "same" ? "" : " thru") + (short ? " short" : "");
+        const past = far.segments.map(([ax, ay, bx, by]) => svg("path",
+          Object.assign({ class: "s-wire" + cls, d: "M" + ax + " " + ay + "L" + bx + " " + by }, look)));
+        for (const p of far.labels) {                        // a label has no length to stripe: a dashed ring
+          past.push(t.kind === "same" ? sheetDot("s-tag" + cls, p, look)
+            : svg("circle", Object.assign({ class: "s-tag" + cls, cx: p[0], cy: p[1], r: 1.2 }, look)));
+        }
+        for (const part of past) {
+          hover(part, () => pastTip(name, t));
+          if (!short) part.addEventListener("click", () => isolate(w.nets[0]));
+          copper.append(part);
+        }
       }
     }
     for (const pin of w.pins) {

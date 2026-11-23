@@ -201,6 +201,7 @@ table.battery { border-collapse: collapse; width: 100%; }
 .key .ring { width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--problem); }
 .key .dash { width: 14px; height: 0; border-top: 2px dashed var(--ink); }
 .key .dash.grey { border-color: var(--dim); }
+.key .dash.thru { border-top: 3px dashed var(--r8); }
 .key .ring.thin { border: 1px solid var(--ink); }
 .key .cross { font-style: normal; font-weight: 600; }
 #sheet-note { padding: 6px 12px; color: var(--dim); border-bottom: 1px solid var(--line); }
@@ -248,6 +249,9 @@ svg.isolating .s-curve:not(.iso), svg.isolating .s-held:not(.iso), svg.isolating
 .s-wire { stroke-width: 3; stroke-linecap: round; }
 .s-tag { stroke-width: 7; stroke-linecap: round; }
 .s-wire.short, .s-tag.short { stroke: var(--problem); }
+/* past a wire's op-amp, where a buffer or a scaling stage has changed the signal: striped; at a label, a dashed ring */
+.s-wire.thru { stroke-dasharray: 5 4; stroke-linecap: butt; }
+.s-tag.thru { stroke-width: 2; stroke-dasharray: 2.5 2; stroke-linecap: butt; }
 .s-curve { stroke-width: 1.8; }
 .s-curve.dup { stroke-dasharray: 5 3; }
 .s-ring { stroke: var(--problem); stroke-width: 2; fill: rgba(255, 82, 82, .25); }
@@ -355,7 +359,7 @@ svg[data-only] .s-ring, svg[data-only] .s-held, svg[data-only] .s-want { opacity
 svg[data-only="closed"] .xp:not(.dup):not(.ghost), svg[data-only="closed"] .s-curve:not(.dup):not(.ghost),
 svg[data-only="dup"] .xp.dup, svg[data-only="dup"] .s-curve.dup, svg[data-only="mismatch"] .mismatch, svg[data-only="mismatch"] .s-ring,
 svg[data-only="unrouted"] .want.failed, svg[data-only="unrouted"] .s-want.failed, svg[data-only="refused"] .want.refused,
-svg[data-only="refused"] .s-want.refused, svg[data-only="ghost"] .ghost { opacity: 1; }
+svg[data-only="refused"] .s-want.refused, svg[data-only="ghost"] .ghost, svg[data-only="thru"] .thru { opacity: 1; }
 /* what a click lights: a wire by itself, a bridge's two ends, a pin a problem names. In the ink colour, never red. */
 .wire.pick:not(.short) { stroke: var(--ink); stroke-width: 3.2; filter: drop-shadow(0 0 2.5px #fff); }
 .pad.end > circle:first-child { stroke: var(--ink); stroke-width: 2.5; }
