@@ -184,6 +184,7 @@ class Export(unittest.TestCase):
             self.assertIn(key, js)
         # a click says what was clicked (a phone has no hover) and lights it: a wire with no net, a chip, a problem's net
         self.assertIn('id="said"', html)
+        self.assertRegex(css, r"#said \{[^}]*position: absolute")       # over the drawing: what it says moves nothing
         for function in ("function say(", "function touchWire(", "function named(", "function point(", "function letGo("):
             self.assertIn(function, js)
         self.assertIn('id="fit"', html)                                # the drawing back to whole, without a double-click

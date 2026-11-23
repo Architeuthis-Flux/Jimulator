@@ -198,8 +198,9 @@ details pre, pre.report { background: var(--bg); border: 1px solid var(--line); 
   border-radius: 2px; background: var(--dim); opacity: .7; }
 .grip:hover, .grip.on { background: var(--sel); }
 /* what was clicked, in words: a phone has no pointer to hover with */
-#said { display: flex; gap: 8px; align-items: flex-start; padding: 5px 10px; border-bottom: 1px solid var(--line);
-  background: var(--panel); white-space: pre-wrap; max-height: 7.5em; overflow: auto; font-size: 12px; }
+#said { position: absolute; left: 10px; bottom: 18px; z-index: 5; display: flex; gap: 8px; align-items: flex-start;
+  max-width: min(460px, calc(100% - 20px)); max-height: 40%; overflow: auto; padding: 6px 8px 6px 10px;
+  border: 1px solid var(--line); border-radius: 4px; background: var(--tip); white-space: pre-wrap; font-size: 12px; }   /* it lies over the drawing's corner and moves nothing */
 #said span { flex: 1; min-width: 0; }
 #said button { padding: 0 6px; }
 /* what a click lights: a wire by itself, a bridge's two ends, a pin a problem names. In the ink colour, never red. */
