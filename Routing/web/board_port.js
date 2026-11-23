@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 // A board's port 7, read in the page's own code: what the board answers to the
-// five things the lab ever sends, and a fake port that replays a recorded trace
+// five things the lab ever sends, and a fake port that replays a trace
 // of those exchanges. No DOM, no import; under node the last line exports it.
 "use strict";
 
@@ -87,7 +87,7 @@ function reportOf(text) {
   return text.slice(0, chips + rows[11].index + rows[11][0].length);
 }
 
-// What a SerialPort has that the link uses, answering from a recorded trace (JSON Lines).
+// What a SerialPort has that the link uses, answering from a trace (JSON Lines).
 class FakePort {
   constructor(traceText, { gapMs = 1 } = {}) {
     this.gapMs = gapMs;
@@ -204,6 +204,7 @@ class BoardLink {
     this.closing = false;
     this.proven = false;                                   // the port answered N with a net list
     this.out = null;                                       // the query unanswered, or null
+    this.unkept = null;                                    // the query written and not yet in the trace, or null
     this.wakers = [];
     this.exchanges = [];
     this.t0 = 0;
@@ -296,11 +297,13 @@ class BoardLink {
       const echo = text.trimEnd();
       let start = this.text.length, sentAt = Date.now(), again = true, said = -1;
       await this.send(text);
+      this.unkept = text;
       for (;;) {
         const reply = find(this.text.slice(start));
         if (reply != null) {
           this.keep(text, this.text);
           this.text = "";
+          this.unkept = null;
           if (this.silent) { this.silent = false; this.say("live", "reading the board." + this.lastRead()); }
           return reply;
         }
@@ -310,14 +313,17 @@ class BoardLink {
           if (now - sentAt < limit) { await this.nap(limit - (now - sentAt), true); continue; }
           this.keep(text, this.text || null);
           this.text = "";
+          this.unkept = null;
           return null;
         }
         const quiet = now - (began ? this.heard : sentAt);
         if (began && again && quiet >= this.t.STALL_MS) {        // cut short: thrown away, asked once more
           this.keep(text, this.text);
           this.text = "";
+          this.unkept = null;
           start = 0; sentAt = Date.now(); again = false;
           await this.send(text);
+          this.unkept = text;
           continue;
         }
         if (quiet >= this.t.WAIT_SAY_MS && Math.floor(quiet / 1000) !== said) {
@@ -330,7 +336,14 @@ class BoardLink {
         if (began && again) next.push(this.t.STALL_MS - quiet);
         await this.nap(Math.min(...next), true);
       }
-    } finally { this.out = null; }
+    } finally {
+      if (this.unkept) {                                   // ended by a throw or a close: the query is kept all the same
+        this.keep(this.unkept, this.text || null);
+        this.text = "";
+        this.unkept = null;
+      }
+      this.out = null;
+    }
   }
 
   askGen() { return this.ask(":gen\n", (t) => (refusedVerb(t) === "gen" ? { refused: true } : genOf(t))); }
@@ -418,11 +431,16 @@ class BoardLink {
     try { await this.port.close(); } catch (e) { /* already closed */ }
   }
 
-  // The header and every exchange since connect; bytes after the last whole reply are a last line.
+  // The header and every exchange since connect. The header's source is "board", or "replay" when the port is a
+  // FakePort. A query still unanswered is a last line with what has come (null for nothing); else bytes after the
+  // last whole reply are a last line with sent null.
   trace() {
-    const head = { h: 1, what: "routing lab port 7 trace", source: "board", fw: this.fw, about: "recorded by the routing lab from a board" };
+    const head = this.port instanceof FakePort
+      ? { h: 1, what: "routing lab port 7 trace", source: "replay", fw: this.fw,
+        about: "made by the routing lab while it replays a trace (serve --replay): not a recording from a board" }
+      : { h: 1, what: "routing lab port 7 trace", source: "board", fw: this.fw, about: "recorded by the routing lab from a board" };
     const lines = [head, ...this.exchanges];
-    if (this.text) lines.push({ t: Math.round(Date.now() - this.t0) / 1000, sent: null, got: this.text });
+    if (this.unkept || this.text) lines.push({ t: Math.round(Date.now() - this.t0) / 1000, sent: this.unkept, got: this.text || null });
     return lines.map((l) => JSON.stringify(l) + "\n").join("");
   }
 }

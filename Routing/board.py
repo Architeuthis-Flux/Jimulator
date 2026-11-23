@@ -111,7 +111,8 @@ def result(name, text, about="", live=False):
     the case's notes. ValueError, with what is wrong, when the text is not a
     `b` report of this fabric or its path table did not come through whole.
     A whole report read from a live board that lists no bridge is a board with
-    nothing connected (status "empty"); a pasted one is refused."""
+    nothing connected (status "empty"); a pasted one is refused. Claims for
+    net 59 (a sense tap in flight) are read as free, and a note says so."""
     text = ANSI.sub("", text or "")
     b = normalize(text)
     try:
@@ -135,6 +136,12 @@ def result(name, text, about="", live=False):
     if primaries < len(bridges):
         notes.append("the path table lists %d primary paths for %d bridges: part of the report may be missing"
                      % (primaries, len(bridges)))
+    # :paths does not wait out a sense tap, whose claims on free pins are for net 59: the firmware reads 59 as free
+    taps = sum(v == runner.BLOCK_NET for xs, ys in status.values() for v in xs + ys)
+    if taps:
+        b = runner._without_block_claims(b)
+        notes.append("%d claim%s for net %d (a sense tap in flight when the report was read) %s read as free"
+                     % (taps, "" if taps == 1 else "s", runner.BLOCK_NET, "is" if taps == 1 else "are"))
     dumps = XBAR.findall(text)
     if not dumps:
         notes.append(NO_DUMP)

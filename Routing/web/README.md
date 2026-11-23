@@ -227,7 +227,9 @@ The page shows what a board really routed from the text of its `b` report
 - **What it is judged as.** A scored case: shorts, strays, a bridge listed as
   routed whose copper does not join, and claims that disagree with the
   copper are problems; a bridge the board did not route is drawn as not
-  routed. Sense taps and the second-rebuild check need the harness and are
+  routed. Claims for net 59, which a sense tap in flight leaves in the chip
+  status, are read as free (as the firmware reads them), and a note says
+  how many. Sense taps and the second-rebuild check need the harness and are
   not there.
 
 Tested against the 21 captures of the 2026-11-21 board run, each as captured,
@@ -255,9 +257,13 @@ a board yet, and it has not been tried on one.
   one whose name ends `port7` (macOS), or the last of the four. The picker is
   filtered to the board's USB id, which all four share, so the page proves
   the port first: it sends one `N` and wants a net list back. A port that
-  does not answer is closed and forgotten, and nothing else was sent to it.
+  does not answer is closed and forgotten, and nothing else was sent to it;
+  the page says it is not the fourth port, or the board was not answering
+  just then.
   Once the browser has let the page open one port, the button reads "Connect
-  the board again" and uses it without the picker. The port is opened at
+  the board again" and uses it without the picker, until a connect to it
+  fails for any reason but old firmware: then the next click opens the
+  picker. The port is opened at
   115200 and at no other speed.
 - **What the page sends**, as the page says it beside the button:
 
@@ -314,7 +320,11 @@ a board yet, and it has not been tried on one.
   every query. A cable pulled says "lost". Nothing reconnects by itself, and a
   reload does not.
 - **Save trace** is a button. It downloads every byte sent and received since
-  Connect as JSON Lines, one exchange a line (`port7_DATE_TIME.jsonl`).
+  Connect as JSON Lines, one exchange a line (`port7_DATE_TIME.jsonl`). A
+  query still unanswered, or cut off by Disconnect or a pulled cable, is a
+  line with what had come (`"got": null` for nothing). The first line's
+  `source` is `board`, or `replay` when it was made under `serve --replay`
+  (not a recording from a board).
 - **`serve --replay TRACE`.** `python3 Routing/lab.py serve --replay FILE`
   makes Connect read a trace through a fake port in place of a
   board, with no port opened and no Web Serial needed. It is for the tests and

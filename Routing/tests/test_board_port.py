@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: MIT
 """A board's port 7 replies, read by the page's own code (web/board_port.js), and the
-fake port that replays a recorded trace. The code runs under node."""
+fake port that replays a trace. The code runs under node."""
 import json
 import subprocess
 import unittest

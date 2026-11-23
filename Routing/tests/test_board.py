@@ -158,14 +158,31 @@ class Board(unittest.TestCase):
             board.result("x", capture("same_chip_pairs").replace("[1,2,Net 6]", "[1,WARP_CORE,Net 6]"))
         self.assertIn("WARP_CORE", str(cm.exception))
 
+    def test_a_sense_tap_in_flight_is_read_as_free_and_said(self):
+        # :paths does not wait out a sense tap: its claims for net 59 on free pins are in the chip status
+        def tapped(text, chip, x):
+            row = re.search(r"(?m)^%s\t.*$" % chip, text)
+            cols = row.group(0).split("\t")
+            xs = cols[1].split()
+            self.assertEqual(xs[x], ".", (chip, x))                             # a tap claims a free pin only
+            xs[x] = "59"
+            cols[1] = "    ".join(xs) + "    "
+            return text[:row.start()] + "\t".join(cols) + text[row.end():]
+        for name, chip, x in (("same_chip_pairs", "E", 0), ("k_rows_overflow_metric", "K", 15)):    # free copper; GND's free pin
+            untouched = board.result(name, capture(name))
+            r = board.result(name, tapped(capture(name), chip, x))
+            self.assertEqual((r["status"], r["problems"], drawn(r)), (untouched["status"], untouched["problems"], drawn(untouched)), name)
+            self.assertEqual(r["status"], "ok", name)
+            self.assertIn("1 claim for net 59 (a sense tap in flight when the report was read) is read as free", r["notes"], name)
+            self.assertEqual([n for n in r["notes"] if "59" not in n], untouched["notes"], name)
+        two = board.result("x", tapped(tapped(capture("same_chip_pairs"), "E", 0), "F", 3))
+        self.assertIn("2 claims for net 59 (a sense tap in flight when the report was read) are read as free", two["notes"])
+        self.assertFalse([n for n in board.result("x", capture("same_chip_pairs"))["notes"] if "59" in n])
+
     def test_names_are_made_safe(self):
         for given, want in (("my capture (1).txt", "my_capture__1_"), ("nano.b.txt", "nano"), ("../../etc/passwd", "passwd"),
                             ("", "board"), (".hidden", "hidden"), ("x" * 300, "x" * 60)):
             self.assertEqual(board.result(given, capture("same_chip_pairs"))["case"], want, given)
-
-
-if __name__ == "__main__":
-    unittest.main()
 
 
 class Changed(unittest.TestCase):
@@ -207,3 +224,7 @@ class Changed(unittest.TestCase):
         self.assertEqual((len(c["closed"]), len(c["opened"]), len(c["bridges"])), (0, 16, 7))
         with self.assertRaises(ValueError):
             board.result("live_board", bare.split("Chip Status")[0], live=True)     # half a report is still refused
+
+
+if __name__ == "__main__":
+    unittest.main()

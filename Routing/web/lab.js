@@ -821,13 +821,14 @@ async function connectBoard() {
     if (link.byHand || L.link !== link) return;   // disconnected while it was being proved
     await link.close();                            // a port that would not open leaves the link unclosed: not linked now
     const kind = err instanceof LinkError ? err.kind : null;
+    if (kind !== "too_old") L.granted = L.granted.filter((p) => p !== port);    // the next click opens the picker
     if (kind === "not_port_7") {
       try { if (port.forget) await port.forget(); } catch (e) { /* the browser keeps it */ }
-      L.granted = L.granted.filter((p) => p !== port);
-      linkSaid("idle", "That port is not the board's fourth. Nothing but one N was sent to it. "
-        + "Pick the one whose name ends port7 (macOS), or the last of the four.");
+      linkSaid("idle", "That port did not answer N with a net list: it is not the board's fourth port, or the board was not "
+        + "answering just then (it answers from its main loop only: not in probe mode, a menu or an app). "
+        + "Nothing but one N was sent to it. Pick the one whose name ends port7 (macOS), or the last of the four.");
     } else if (kind === "busy") {
-      linkSaid("idle", "Port 7 is open in another program or tab (a Jumperlessim viewer, a script). Close it there, then connect again.");
+      linkSaid("idle", "The port you picked is open in another program or tab (a Jumperlessim viewer, a script). Close it there, then connect again.");
     } else if (kind === "too_old") {
       L.fw = err.fw;
       linkSaid("too_old", "");
@@ -972,7 +973,7 @@ function saveTrace() {
 
 async function installLink() {
   const L = state.link;
-  if (state.info.replay) L.words = "this server replays a recorded trace (serve --replay): Connect reads it in place of a board and opens no port.";
+  if (state.info.replay) L.words = "this server replays a trace (serve --replay): Connect reads it in place of a board and opens no port.";
   $("connect").addEventListener("click", () => { connectBoard().catch((err) => linkSaid("lost", err.message)); });
   $("link-again").addEventListener("click", () => {
     if (!linkOpen()) return;

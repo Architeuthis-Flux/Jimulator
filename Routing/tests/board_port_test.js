@@ -198,10 +198,49 @@ test("bytes nobody asked for, read again, a pulled cable", async () => {        
   port.pull();
   while (seen.states.at(-1)[0] !== "lost") await sleep(5);
   const trace = link.trace().trim().split("\n").map((line) => JSON.parse(line));
-  assert.equal(trace[0].source, "board");
+  assert.equal(trace[0].source, "replay");                                     // a fake port: not a board
   assert.deepEqual(trace.slice(1, 5).map((e) => e.sent), ["N", ":ver\n", ":gen\n", ":gen\n"]);
   assert.ok(trace[4].got.includes("oled_b64{128x32:AAAA}") && P.genOf(trace[4].got).n === 3);   // kept, with the reply after them
   assert.ok(trace.length < 40 && trace.some((e) => e.times > 2));              // the polls of a still board are one line
+});
+
+test("the trace says what it was read from", async () => {
+  const head = (link) => JSON.parse(link.trace().split("\n")[0]);
+  const real = head(new P.BoardLink({}, { reading: () => {}, state: () => {} }));      // a port that is not a FakePort
+  assert.deepEqual([real.source, real.about], ["board", "recorded by the routing lab from a board"]);
+  const port = built();
+  const [link] = linked(port);
+  await link.connect();
+  await link.close();
+  const fake = head(link);
+  assert.equal(fake.source, "replay");
+  assert.match(fake.about, /replays a trace/);
+  assert.match(fake.about, /not a recording from a board/);
+});
+
+// Every write the port saw, from the trace: its sent values, a "times" line counted as many.
+const sentIn = (trace) => trace.trim().split("\n").map((l) => JSON.parse(l)).filter((e) => !e.h && e.sent !== null)
+  .flatMap((e) => Array(e.times || 1).fill(e.sent));
+
+test("a query still unanswered is in the trace: while out, at Disconnect, at a pulled cable", async () => {
+  for (const end of ["close", "pull"]) {
+    const port = built();
+    const [link, seen] = linked(port);
+    await link.connect();
+    const running = link.run();
+    try {
+      while (seen.readings.length < 1) await sleep(5);
+      port.hush();
+      while (!port.waiting.length) await sleep(2);                                // a query is out, unanswered
+      assert.deepEqual(sentIn(link.trace()), port.written, end + ": while it is out");
+      const last = JSON.parse(link.trace().trim().split("\n").at(-1));
+      assert.deepEqual([last.sent, last.got], [port.waiting[0], null], end);
+      if (end === "close") await link.close(); else port.pull();
+      await running;
+      assert.deepEqual(sentIn(link.trace()), port.written, end);
+      assert.equal(JSON.parse(link.trace().trim().split("\n").at(-1)).sent, port.waiting[0], end);
+    } finally { await link.close(); }                                           // a failed check leaves no link polling
+  }
 });
 
 const STRAY = "oled_b64{128x32:AAAA}\r\n";
