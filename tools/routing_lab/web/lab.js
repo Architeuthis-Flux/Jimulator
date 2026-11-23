@@ -1635,6 +1635,8 @@ function drawHeat() {
     if (path.classList.contains("heat")) path.style.stroke = "";
     path.classList.remove("heat", "take");
   }
+  const drawing = document.querySelector("#fabric svg");
+  if (drawing) drawing.classList.toggle("picking", state.tab === "ranking" && state.takeAway.length > 0);
   if (state.tab !== "ranking") return;
   const r = state.ranking;
   $("view-title").textContent = !r ? state.arrangement + ": not ranked yet"
@@ -1664,15 +1666,18 @@ function rankTip(name) {
     + "\nused in " + w.usage.cases + " cases"
     + (w.needed_by ? "\nproved needed by " + w.needed_by.length + (w.needed_by.length ? " (" + w.needed_by.slice(0, 4).join(", ")
       + (w.needed_by.length > 4 ? ", ..." : "") + ")" : "") + ", not needed by " + w.not_needed + ", unknown for " + w.unknown.length : "")
-    + "\nclick: " + (state.takeAway.includes(name) ? "keep it" : "take it away");
+    + "\nclick: " + (state.takeAway.includes(name) ? "let it go" : STATIC ? "light it here and in the table" : "pick it: lit here and in the table, and taken away by Run without these");
 }
 
+// A click on a ranked wire, in the drawing or on its row, picks it or lets it go. A picked wire is lit in both
+// places (its row, and its line in the drawing while the others step back), and picked wires are what "Run
+// without these" takes away. An exported page lights them too; only the run is the lab's.
 function toggleTakeAway(name) {
-  if (STATIC) return;                              // an exported page cannot run without them
   if (!state.ranking || !state.ranking.wires.some((w) => w.wire === name)) return;      // only a wire that is ranked
   const at = state.takeAway.indexOf(name);
   if (at >= 0) state.takeAway.splice(at, 1);
   else state.takeAway.push(name);
+  state.justPicked = at >= 0 ? null : name;        // its row is brought into sight
   renderRanking();
   drawHeat();
 }
@@ -1777,16 +1782,17 @@ function renderRanking() {
 
   // wires picked to take away, and the run without them
   const away = el("div", { class: "away" }, state.takeAway.length ? el("span", { class: "hint", style: "border:0;cursor:default",
-    text: "take away:" }) : el("div", { class: "hint", text: "Click a wire, here or in the drawing, to take it away." }));
-  for (const name of state.takeAway) away.append(el("span", { text: name + " ×", title: "keep it", onclick: () => toggleTakeAway(name) }));
-  if (!STATIC) box.append(away);
+    text: STATIC ? "lit:" : "picked, to take away:" }) : el("div", { class: "hint", text: "Click a wire, here or in the drawing: it is lit in both"
+      + (STATIC ? "." : ", and the battery can be run without the wires picked.") }));
+  for (const name of state.takeAway) away.append(el("span", { text: name + " ×", title: "let it go", onclick: () => toggleTakeAway(name) }));
+  box.append(away);
   if (state.takeAway.length) {
     box.append(el("div", { class: "ask" },
-      el("button", { type: "button", text: "Run without these", disabled: state.busy || cannot ? "" : null,
+      STATIC ? null : el("button", { type: "button", text: "Run without these", disabled: state.busy || cannot ? "" : null,
         title: "route the ticked classes on " + state.arrangement + " without these wires, and show it on the Fabric tab",
         onclick: async () => { if (await runBattery(state.takeAway.slice())) showTab("fabric"); } }),
       el("button", { type: "button", text: "clear", onclick: () => { state.takeAway = []; renderRanking(); drawHeat(); } }),
-      el("span", { class: "hint", text: "the run's arrangement can then be saved as a file (left column)" })));
+      STATIC ? null : el("span", { class: "hint", text: "the run's arrangement can then be saved as a file (left column)" })));
   }
 
   const sort = state.rankSort;
@@ -1803,7 +1809,7 @@ function renderRanking() {
     onclick: () => { state.rankSort = { key: c.key, down: c.key === sort.key ? !sort.down : false }; renderRanking(); } }))));
   for (const w of rows) {
     table.append(el("tr", { class: "case" + (state.takeAway.includes(w.wire) ? " take" : ""), onclick: () => toggleTakeAway(w.wire),
-      title: rankTip(w.wire) },
+      "data-wire": w.wire, title: rankTip(w.wire) },
       columns.map((c) => {
         const v = c.show ? c.show(w) : c.of(w);
         return el("td", { text: v == null ? "" : c.signed && v > 0 ? "+" + v : String(v),
@@ -1811,6 +1817,11 @@ function renderRanking() {
       })));
   }
   box.append(table);
+  if (state.justPicked) {                          // picked in the drawing, its row may be far down the table
+    const row = [...table.rows].find((r) => r.dataset.wire === state.justPicked);
+    state.justPicked = null;
+    if (row) row.scrollIntoView({ block: "nearest" });
+  }
   box.append(el("div", { class: "hint", text: "usage counts follow the router's search order and say nothing of need; a negative "
     + "loss is the router doing better without the wire" }));
   if (hasNeeded()) {

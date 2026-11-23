@@ -98,9 +98,10 @@ table.battery { border-collapse: collapse; width: 100%; }
 .xp.dup { fill: var(--bg) !important; stroke-width: 2; }
 .held { fill: none; stroke-width: 1; opacity: .75; }
 .mismatch { fill: none; stroke: var(--problem); stroke-width: 2; }
-/* the ranking's tint, from dim through teal to yellow (set by the page); a wire picked to take away is dashed */
+/* the ranking's tint, from dim through teal to yellow (set by the page); a wire picked is lit and the others step back */
 .wire.heat { stroke-width: 2.6; }
-.wire.heat.take { stroke-dasharray: 2 3; }
+.wire.heat.take { stroke-width: 4.5; filter: drop-shadow(0 0 2.5px #fff); }
+svg.picking .wire.heat:not(.take) { opacity: .3; }
 /* what an arrangement changes on a chip's edge: a design, not a fault */
 .pin-taken { fill: none; stroke: var(--dim); stroke-width: 1.4; }
 .pin-changed { fill: none; stroke: var(--ink); stroke-width: 1; }
@@ -150,7 +151,8 @@ body.dropping #left { outline: 2px dashed var(--changed); outline-offset: -4px; 
 #ranking th { cursor: pointer; }
 #ranking th:nth-child(2), #ranking td:nth-child(2) { text-align: left; max-width: 104px; overflow: hidden; text-overflow: ellipsis; }
 #ranking th.on { color: var(--ink); }
-#ranking tr.case.take td { color: var(--dim); text-decoration: line-through; }
+#ranking tr.case.take td { background: var(--sel); color: var(--ink); font-weight: 600; }      /* a wire picked: lit, as in the drawing */
+#ranking tr.case { scroll-margin-top: 2.5em; }                 /* clear of the table's sticky heads when brought into sight */
 .away span { display: inline-block; border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px; margin: 0 4px 4px 0; cursor: pointer; }
 #drawn { margin: 8px 0 0; }
 #drawn .hint { margin-bottom: 4px; line-height: 1.35; }
@@ -185,9 +187,9 @@ ul.notes li { color: var(--dim); }
 details pre, pre.report { background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 6px; overflow: auto;
   max-height: 420px; font-size: 11px; }
 
-/* a narrow screen (a phone): the three columns become one page. The drawing comes first and keeps its place at the top
+/* a screen too narrow for three columns (a phone, a small window): they become one page. The drawing comes first and keeps its place at the top
    while the rest scrolls under it: the battery (capped, scrolling inside itself), then the case or the ranking. */
-@media (max-width: 900px) {
+@media (max-width: 1200px) {
   html, body { height: auto; }
   main, main.ranking { display: flex; flex-direction: column; height: auto; }
   section { overflow: visible; }
@@ -196,6 +198,7 @@ details pre, pre.report { background: var(--bg); border: 1px solid var(--line); 
   #case, #ranking { order: 3; border-left: 0; overflow-x: auto; }
   #tabs { flex-wrap: nowrap; overflow-x: auto; }
   #tabs button { flex: none; }
+  #ranking tr.case { scroll-margin-top: 60vh; }    /* clear of the drawing, which stays on top */
   #legend { display: none; }                       /* the marks are named where they show, in the case's own lists */
   #tip { display: none; }                          /* there is no pointer to hang it on */
 }

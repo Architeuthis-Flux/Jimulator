@@ -127,10 +127,23 @@ class Export(unittest.TestCase):
         self.assertIn('hidden = !STATIC.rank', js)                                 # the tab is there when there is one
         self.assertNotIn('a ranking is asked of the server', js)
 
+    def test_a_lane_clicked_on_the_ranking_is_lit_in_the_table_and_in_the_drawing(self):
+        js = (server.WEB_DIR / "lab.js").read_text()
+        css = (server.WEB_DIR / "lab.css").read_text()
+        at = js.index("function toggleTakeAway")
+        self.assertNotIn("if (STATIC) return", js[at:at + 700])        # an exported page lights a lane too
+        self.assertIn("scrollIntoView", js)                            # picked in the drawing, its row comes into sight
+        self.assertIn('classList.toggle("picking"', js)
+        self.assertNotIn("line-through", css)                          # lit, not crossed out
+        self.assertRegex(css, r"#ranking tr\.case\.take td \{[^}]*var\(--sel\)")
+        self.assertRegex(css, r"\.wire\.heat\.take \{[^}]*drop-shadow")
+        self.assertIn("svg.picking .wire.heat:not(.take)", css)        # the others step back
+        self.assertNotIn("stroke-dasharray: 2 3", css)                 # a picked wire is no longer dashed
+
     def test_the_page_fits_a_phone_and_its_drawing_takes_fingers(self):
         js = (server.WEB_DIR / "lab.js").read_text()
         css = (server.WEB_DIR / "lab.css").read_text()
-        self.assertIn("@media (max-width: 900px)", css)                # one column on a narrow screen
+        self.assertIn("@media (max-width: 1200px)", css)                # one column on a narrow screen
         self.assertIn("touch-action: none", css)                       # the drawing, not the page, takes the fingers
         self.assertIn("const zoomAbout", js)                           # the wheel and two fingers zoom the same way
         self.assertIn("fingers.size === 2", js)
