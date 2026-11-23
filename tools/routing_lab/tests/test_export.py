@@ -229,6 +229,10 @@ class Export(unittest.TestCase):
         for function in ("function onlyKind(", "function renderHud(", "function keepUi(", "function keptUi("):
             self.assertIn(function, js)
         self.assertIn('"lab.ui.v1:"', js)                              # the page opens where it was left
+        self.assertIn('ArrowLeft: "left", ArrowRight: "right", ArrowUp: "top", ArrowDown: "bottom"', js)   # a plate moves its panel by the keys too
+        self.assertIn('\\25B2', css)                                   # a problem wears a mark as well as the red
+        self.assertNotIn('var(--r1)', css.split('--rainbow:')[1].split(';', 1)[1])   # the reddish pink stays out of the page's furniture
+        self.assertIn('aria-pressed', js)
         self.assertIn('id="hud"', html)
         self.assertIn("svg[data-only]", css)
 

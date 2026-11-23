@@ -298,7 +298,8 @@ function cell(col, row) {
   return td;
 }
 
-const CLASS_HUES = [1, 2, 3, 7, 8, 9, 10, 11];        // the rainbow's steps a class row may wear
+const CLASS_HUES = [2, 3, 7, 8, 9, 10, 11];           // the rainbow's steps a class row may wear: no blue, no orange, and not
+                                                      // the first pink, which sits too near the red that means a problem
 
 function classRow(name, rows, at) {
   const worst = (key) => {
@@ -2078,6 +2079,7 @@ function showTab(name) {
   say("");
   for (const button of document.querySelectorAll("#tabs button")) {
     button.classList.toggle("on", button.dataset.tab === name);
+    if (button.dataset.tab) button.setAttribute("aria-pressed", String(button.dataset.tab === name));
   }
   $("fabric").hidden = name === "sheet";           // the ranking is drawn on the fabric too
   $("sheet").hidden = name !== "sheet";
@@ -2348,6 +2350,21 @@ function installPanels() {
       window.addEventListener("keydown", key, true);
     });
     plate.addEventListener("dblclick", resetLayout);
+    // without a drag: with the plate in focus an arrow puts the panel on that side of the view (the view, of the
+    // tests), and Home puts the panels back
+    plate.tabIndex = 0;
+    plate.setAttribute("role", "button");
+    plate.setAttribute("aria-label", "the " + name + " panel: an arrow key moves it to that side of the "
+      + (name === "view" ? "tests" : "view") + ", Home puts the panels back");
+    plate.addEventListener("keydown", (event) => {
+      const side = { ArrowLeft: "left", ArrowRight: "right", ArrowUp: "top", ArrowDown: "bottom" }[event.key];
+      if (!side && event.key !== "Home") return;
+      event.preventDefault();
+      event.stopPropagation();                     // the keys are the plate's here, not a list's
+      if (event.key === "Home") resetLayout();
+      else if (wide()) movePanel(name, name === "view" ? "tests" : "view", side);
+      plate.focus();                               // the panel was taken out and put back: its plate keeps the keys
+    });
     const fold = panel.querySelector(".fold");
     if (fold) {
       fold.addEventListener("click", () => {
@@ -2499,8 +2516,9 @@ async function start() {
   });
   $("filter-unclean").addEventListener("change", renderBattery);
   $("filter-changed").addEventListener("change", renderBattery);
-  for (const button of document.querySelectorAll("#tabs button")) {
+  for (const button of document.querySelectorAll("#tabs button[data-tab]")) {
     button.addEventListener("click", () => showTab(button.dataset.tab));
+    button.setAttribute("aria-pressed", String(button.classList.contains("on")));
   }
   $("compare").addEventListener("change", () => {
     state.compare = $("compare").checked;
