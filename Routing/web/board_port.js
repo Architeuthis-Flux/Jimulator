@@ -193,7 +193,8 @@ class BoardLink {
   constructor(port, on, opts) {
     this.port = port;
     this.on = on;
-    this.t = Object.assign({}, BOARD_PORT, opts);
+    this.t = Object.assign({}, BOARD_PORT);               // the timings may be changed; the speed and the five may not
+    for (const k of Object.keys(opts || {})) if (k.endsWith("_MS")) this.t[k] = opts[k];
     this.reader = null;
     this.writer = null;
     this.pumping = null;
@@ -221,10 +222,14 @@ class BoardLink {
 
   lastRead() { return this.lastAt === null ? "" : " Last read " + hhmmss(this.lastAt) + "."; }
 
-  wake() { for (const w of this.wakers.splice(0)) w(); }
+  // Wakes every wait; with byte, only the waits a byte ends.
+  wake(byte) {
+    for (const w of this.wakers.slice()) if (!byte || w.byByte) w();
+  }
 
-  // Resolves on the next byte, the end, a close or again(), or after ms, and leaves no timer behind.
-  nap(ms) {
+  // Resolves after ms, or sooner on the end, a close or again(), and with byByte on the next byte.
+  // It leaves no timer behind.
+  nap(ms, byByte) {
     return new Promise((resolve) => {
       const done = () => {
         clearTimeout(timer);
@@ -233,6 +238,7 @@ class BoardLink {
         resolve();
       };
       const timer = setTimeout(done, Math.max(0, ms));
+      done.byByte = byByte;
       this.wakers.push(done);
     });
   }
@@ -258,7 +264,7 @@ class BoardLink {
       if (res.done) break;
       this.text += decoder.decode(res.value, { stream: true });
       this.heard = Date.now();
-      this.wake();
+      this.wake(true);
     }
     try { if (this.reader) this.reader.releaseLock(); } catch (e) { /* already let go */ }
     this.reader = null;
@@ -274,18 +280,20 @@ class BoardLink {
   }
 
   async send(text) {
-    if (!this.t.SENDS.includes(text)) throw new Error("the link sends only " + JSON.stringify(this.t.SENDS));
+    if (!BOARD_PORT.SENDS.includes(text)) throw new Error("the link sends only " + JSON.stringify(BOARD_PORT.SENDS));
     if (text !== "N" && !this.proven) throw new Error("no : before the port has answered N with a net list");
     await this.writer.write(new TextEncoder().encode(text));
   }
 
   // Sends text and returns what find first finds in the bytes since. With a limit, null
   // after it. Without, it waits for ever: "waiting" when silent, asked once more after a stall.
+  // A reply has begun once the board has echoed the query; bytes before the echo are no answer.
   async ask(text, find, limit) {
     if (this.out) throw new Error("a query is already out: " + JSON.stringify(this.out));
     if (this.closing || this.ended) throw new LinkError("gone", GONE);
     this.out = text;
     try {
+      const echo = text.trimEnd();
       let start = this.text.length, sentAt = Date.now(), again = true, said = -1;
       await this.send(text);
       for (;;) {
@@ -297,9 +305,9 @@ class BoardLink {
           return reply;
         }
         if (this.closing || this.ended) throw new LinkError("gone", GONE);
-        const now = Date.now(), began = this.text.length > start;
+        const now = Date.now(), began = this.text.indexOf(echo, start) >= 0;
         if (limit !== undefined) {
-          if (now - sentAt < limit) { await this.nap(limit - (now - sentAt)); continue; }
+          if (now - sentAt < limit) { await this.nap(limit - (now - sentAt), true); continue; }
           this.keep(text, this.text || null);
           this.text = "";
           return null;
@@ -320,7 +328,7 @@ class BoardLink {
         }
         const next = [quiet < this.t.WAIT_SAY_MS ? this.t.WAIT_SAY_MS - quiet : 1000 - (quiet % 1000)];
         if (began && again) next.push(this.t.STALL_MS - quiet);
-        await this.nap(Math.min(...next));
+        await this.nap(Math.min(...next), true);
       }
     } finally { this.out = null; }
   }
@@ -329,7 +337,7 @@ class BoardLink {
 
   async connect() {
     this.say("probing", "asking the port for a net list, to be sure it is the board's port 7.");
-    try { await this.port.open({ baudRate: this.t.BAUD, bufferSize: this.t.BUFFER }); }
+    try { await this.port.open({ baudRate: BOARD_PORT.BAUD, bufferSize: BOARD_PORT.BUFFER }); }
     catch (e) {
       if (e && e.name === "NetworkError") throw new LinkError("busy", "the port is held by another program or tab.");
       throw e;

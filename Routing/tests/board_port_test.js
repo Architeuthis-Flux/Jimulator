@@ -204,6 +204,50 @@ test("bytes nobody asked for, read again, a pulled cable", async () => {        
   assert.ok(trace.length < 40 && trace.some((e) => e.times > 2));              // the polls of a still board are one line
 });
 
+const STRAY = "oled_b64{128x32:AAAA}\r\n";
+
+test("a stray line while a query is out is no reply, and the query is not sent again", async () => {
+  const port = built();
+  const [link, seen] = linked(port);
+  await link.connect();
+  link.run();
+  while (seen.readings.length < 1) await sleep(5);
+  port.hush();
+  await sleep(20);                                                              // the next :gen is out, unanswered
+  const sent = port.written.length;
+  port.add(STRAY);
+  await sleep(250);                                                             // four STALL_MS of silence after it
+  assert.equal(port.most, 1);
+  assert.ok(port.written.length <= sent + 1);
+  port.speak();
+  await link.close();
+});
+
+test("bytes between polls do not hurry the next poll", async () => {
+  const port = made([N, VER, gen(3, 1, 2), paths("same_chip_pairs"), dump("same_chip_pairs"), gen(3, 1)]);
+  const [link, seen] = linked(port, { POLL_MS: 50 });
+  await link.connect();
+  link.run();
+  while (seen.readings.length < 1) await sleep(5);
+  const before = port.written.length;
+  const chatter = setInterval(() => port.add(STRAY), 2);
+  await sleep(300);
+  clearInterval(chatter);
+  await link.close();
+  const polls = port.written.length - before;                                   // about 300 / 50 = 6
+  assert.ok(polls >= 2 && polls <= 9, polls + " polls in 300 ms at POLL_MS 50");
+});
+
+test("only the timings can be changed: not the speed, not what is sent", async () => {
+  const port = built();
+  const [link] = linked(port, { BAUD: 9600, BUFFER: 16, SENDS: P.BOARD_PORT.SENDS.concat(["b"]) });
+  await link.connect();
+  assert.deepEqual(port.opened, { baudRate: 115200, bufferSize: 65536 });
+  await assert.rejects(link.send("b"));
+  await link.close();
+  assert.ok(!port.written.includes("b"));
+});
+
 (async () => {
   for (const [name, fn] of tests) {
     try { await fn(); } catch (e) { console.log("FAIL " + name + "\n" + (e.stack || e)); process.exitCode = 1; }
