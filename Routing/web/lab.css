@@ -391,9 +391,6 @@ ul.problems li.names, ul.notes li.names { cursor: pointer; text-decoration: unde
 #link-row { flex-wrap: wrap; gap: 4px 10px; }
 #link-row > p, #link-row > details { flex: 1 0 100%; margin: 0; line-height: 1.35; }
 #link-status { height: 4.1em; overflow-y: auto; }  /* three lines from the start: its words change and nothing moves */
-#link-trace { color: var(--dim); cursor: pointer; font-family: var(--label); font-weight: 600; font-size: 11px; text-transform: uppercase;
-  letter-spacing: .07em; text-decoration: underline dotted; text-underline-offset: 3px; }
-#link-trace:hover { color: var(--accent); }
 #link-sends summary { margin-top: 0; }
 #link-sends p { margin: 4px 0 0; }
 #view-title.link-stale { opacity: .5; }

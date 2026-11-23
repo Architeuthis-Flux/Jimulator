@@ -819,6 +819,7 @@ async function connectBoard() {
     L.fw = (await link.connect()).fw;
   } catch (err) {
     if (link.byHand || L.link !== link) return;   // disconnected while it was being proved
+    await link.close();                            // a port that would not open leaves the link unclosed: not linked now
     const kind = err instanceof LinkError ? err.kind : null;
     if (kind === "not_port_7") {
       try { if (port.forget) await port.forget(); } catch (e) { /* the browser keeps it */ }
@@ -955,14 +956,18 @@ function movedWords(b) {
   return "was " + (b.was || "not there") + ", now " + (b.now || "gone");
 }
 
+// The trace as a file: a link made for the download alone, clicked, and let go.
 function saveTrace() {
-  const a = $("link-trace");
   if (!state.link.link) return;
   const d = new Date();
   const two = (n) => String(n).padStart(2, "0");
-  if (a.href.startsWith("blob:")) URL.revokeObjectURL(a.href);
-  a.href = URL.createObjectURL(new Blob([state.link.link.trace()], { type: "application/x-ndjson" }));
-  a.download = "port7_" + d.getFullYear() + "-" + two(d.getMonth() + 1) + "-" + two(d.getDate()) + "_" + hhmmss(d).replace(/:/g, "") + ".jsonl";
+  const name = "port7_" + d.getFullYear() + "-" + two(d.getMonth() + 1) + "-" + two(d.getDate()) + "_" + hhmmss(d).replace(/:/g, "") + ".jsonl";
+  const url = URL.createObjectURL(new Blob([state.link.link.trace()], { type: "application/x-ndjson" }));
+  const a = el("a", { href: url, download: name, hidden: "" });
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 async function installLink() {

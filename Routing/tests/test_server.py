@@ -361,6 +361,9 @@ class Server(unittest.TestCase):
         self.assertIn("javascript", r.headers["Content-Type"])
         page = self.c.get("/", token=None).body
         self.assertLess(page.index('<script src="board_port.js"></script>'), page.index('<script src="lab.js"></script>'))
+        # save trace is a button: a keyboard reaches it, and its click makes the file whatever the browser does with an href
+        self.assertIn('<button id="link-trace" type="button" class="quiet"', page)
+        self.assertIn("URL.revokeObjectURL", js)
         for anchor in ('id="connect"', 'id="link-sends"', "Nothing is sent to any other port"):
             self.assertIn(anchor, page)
         for never in ("b (its routing report)", "Couldn't find a path"):

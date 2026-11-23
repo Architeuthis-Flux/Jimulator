@@ -53,6 +53,10 @@ class Port(unittest.TestCase):
         self.assertEqual((lines[0]["h"], lines[0]["source"]), (1, "built"))
         self.assertEqual({e["sent"] for e in lines[1:]}, set(SENDS))
 
+    def test_a_connect_that_fails_leaves_the_page_not_linked(self):
+        p = subprocess.run(["node", str(HERE / "link_page_test.js"), str(server.WEB_DIR)], capture_output=True, text=True, timeout=60)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+
     def test_the_port_code_under_node(self):
         p = subprocess.run(["node", str(HERE / "board_port_test.js"), str(CAPTURES), str(TRACE)], capture_output=True, text=True,
                            timeout=120)                   # a link that waits for ever is a failed test, not a hung suite
