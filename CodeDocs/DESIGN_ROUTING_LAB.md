@@ -475,41 +475,94 @@ Throwaway prototypes, for sizing.
   shown"; wires taken away and "Run without these"; a board's `b` output
   pasted or dropped; compare; resistance; missed paths and spare copies.
 - **What is published data.** Everything from the exact solver. The rankings
-  on file travel as they are. So do the solver's answers on file, under the
-  keys the lab keeps them by: "ask the solver" in the tab gives the published
-  answer when that question was asked on the Mac, and otherwise says it was
-  not. An arrangement only the solver can route shows what was published for
-  it; nodes clicked on it are not routed, and the page says why. "Rank now" is
-  not offered. My calls.
+  on file travel as they are, each with when it was made. The solver's
+  answers are asked for at publishing, for a set that is written down: every
+  published case (the classes `lab.py web` is given; dense, real, stress,
+  beyond and edge if none), as each published router routes it on each
+  arrangement it can route, asked on that arrangement and on every
+  arrangement of the same feed that only the solver can route, under both
+  rules, at 20 s with the fewest crosspoints wanted. The tab asks with those
+  same settings and cannot change the seconds, so it finds each answer under
+  the key the lab keeps it by (the question, the rule, the limit, and the
+  bytes of `solver/solve.py`, which travels unchanged for that reason). "Ask
+  the solver" on one of those cases gives the published answer; on anything
+  else, for example a netlist made by clicking, it says the solver is not on
+  the web. An arrangement only the solver can route shows what was published
+  for it; nodes clicked on it are not routed, and the page says why. "Rank
+  now" is not offered. My calls.
 - **It opens at once.** The page first shows a published run, as stage 1's
   pages do, and can be read straight away. The engine is fetched when
   something live is first asked for, and the page says how far along it is.
   After that it comes from the browser's cache.
-- **A case that never comes back.** The engine is one worker. If a case has
-  not answered in 20 s the page ends the worker, reports the case as a
-  timeout as the local lab does, starts another and goes on with the rest.
+- **A case that never comes back.** The engine is one worker (slopswap
+  cannot set the headers that shared memory between workers needs). It hands
+  the page each case as it finishes. If one has not come back in 20 s the
+  page ends the worker, starts another and goes on with the rest; the new
+  worker reports that case as a timeout, as the local lab does. What must
+  outlive a worker is kept by the page and given to the next one: the results
+  so far, any arrangement made here by taking wires away, and a board's
+  pasted output.
 - **The bundle is one flat folder** of files that name each other by relative
   path, with nothing fetched from another site (slopswap's rules, and the
   docs' later): the page, the worker's script, Pyodide's files, the lab's
   Python as one zip, a `.wasm` for each router, a list of the routers, and
   the published runs, rankings and solver answers as JSON.
-- **One command makes it.** `lab.py web OUT --variant REF ... [--theme FILE]`
-  writes the folder. `lab.py web-setup` fetches the pinned Pyodide once, as
-  `solver-setup` fetches OR-tools; emsdk must be installed. The build script
+- **One command makes it.** `lab.py web OUT --variant REF ... [--classes ...]
+  [--theme FILE]` writes the folder: the routers, the run the page opens on
+  (the first router, on V5, the classes given), the rankings on file for
+  those routers, and the solver's answers for the set above. It needs emsdk,
+  the pinned Pyodide (`lab.py web-setup` fetches it once, as `solver-setup`
+  fetches OR-tools) and the solver; without the solver it publishes no solver
+  answers and says so. The first time it asks the solver for everything
+  (minutes to an hour); after that the answers are on file. The build script
   for the browser is not under `harness/`, whose hash is what the board check
-  vouches for. The theme file is head tags and CSS laid over the lab's own
-  (for slopswap: the Jumperless stylesheet and the lab's colours pointed at
-  it), so the local page keeps its look. Publishing is copying the folder
-  into `slopswap/routing-lab/` and pushing; the live page becomes that
-  folder's `index.html` and stage 1's two pages are removed. My calls.
+  vouches for. The theme is what `slopswap/.tools/routing_lab_dress.py` does
+  to stage 1's pages (the site's stylesheet linked, the lab's colours pointed
+  at it, a title, a description and a breadcrumb, and a refusal to write a
+  page that holds the home path), given as a file so the local page keeps its
+  look. Publishing is copying the folder into `slopswap/routing-lab/` and
+  pushing; the live page becomes that folder's `index.html` and stage 1's two
+  pages are removed. My calls.
 - **On a phone** it is the one-column page of stage 1, and a tap on a node
   picks it up as a click does. Checked at 375 px before it is published.
 - **The KiCad sheet** is fetched only when its tab is opened (10 MB, 1.4 MB
-  compressed). The r7 project is in the public JumperlessV5 repository. My
-  call.
+  compressed). The r7 project is in the public JumperlessV5 repository. It
+  is published when `lab.py sheet` has been run in the checkout (it needs
+  `kicad-cli`); without it the tab says the sheet was not published. My call.
 - **The docs page, later.** The same bundle with a switch that leaves out the
   arrangement picker, the Ranking tab and anything said about V6, in a flat
   folder of its own as `docs/pixelmap/` is. Not designed further here.
+
+### Where the lab meets the machine
+
+The Python files are one set, serving the local lab and the tab, and the
+local lab behaves as before. These are the places that need a process, a
+thread, git or a compiler, and what each does in the tab:
+
+- **Starting the harness** (`runner.run_harness`): the WebAssembly program,
+  one fresh instance, read as text mode reads.
+- **Building a router** (`variants.build`) and **finding one**
+  (`variants.resolve`, and the server's own `resolve`): the published list.
+  A name not on it is refused with the list.
+- **The pool of threads** in `runner.run_battery`: one case after another.
+- **The timeout**: made by the page's 20 s, as above, since the tab cannot
+  interrupt a running instance.
+- **The solver** (`ceiling.ask`, and the checks that it is installed): a
+  third state beside "installed" and "not installed", which is "published
+  answers only". The page shows the ask buttons with the seconds fixed.
+- **The run the page opens on**: the engine is given it when it starts, so a
+  case of it can be asked about without routing it again.
+- **"Checked against a board"**: published with the router's list. The tab
+  does not hash `harness/`.
+- **Off in the tab**: dropped source files (`/api/paths`), "re-run on save"
+  (`/api/watch`), making a ranking (POST `/api/rank`), the sheet's build.
+- **Files by path.** The lab finds `test/hil`, its cases, its arrangements
+  and `solver/solve.py` by where they are, and stamps its cache with the
+  bytes of five of its own files. So the zip is unpacked in the tab as real
+  files in the same places. A ranking is put where `rank.path` looks.
+- **Two Pythons.** The Mac's is 3.13 and Pyodide's 3.14. The battery's
+  generated classes come from seeded `random`; the test of the engine against
+  the server covers every class, fuzz too, to show they come out the same.
 
 ### What needs a server
 
