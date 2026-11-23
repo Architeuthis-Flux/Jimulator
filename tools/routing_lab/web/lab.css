@@ -60,6 +60,8 @@ button:focus-visible { outline: 0; box-shadow: inset 0 0 0 2px var(--focus); }  
 main { display: flex; height: 100vh; }
 .vrow, .vcol { display: flex; flex: 1 1 0; min-width: 0; min-height: 0; }
 .vcol { flex-direction: column; }
+/* the one of a row or a stack that takes what the others leave is never squeezed to nothing: the others give way */
+@media (min-width: 1201px) { .vrow > .flexi { min-width: 340px; } .vcol > .flexi { min-height: 180px; } }
 .panel { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--panel); }
 .panel > .body { flex: 1 1 0; min-height: 0; overflow: auto; padding: 10px; scrollbar-color: var(--line) transparent; scrollbar-width: thin; }
 .panel.shut > .body { display: none; }
@@ -87,6 +89,38 @@ main { display: flex; height: 100vh; }
 .vrow > .panel.shut .plate { padding: 0 0 16px; clip-path: polygon(0 0, 100% 0, 100% calc(100% - 11px), 0 100%); }
 .vrow > .panel.shut .plate b { padding: 8px 0 7px; }
 .vrow > .panel.shut .bar-note { flex: 1; }
+/* a quiet button: one of the lesser choices on a bar */
+button.quiet { padding: 2px 7px; clip-path: none; background: none; color: var(--dim); font-size: 11px; }
+button.quiet:hover { background: none; color: var(--ink); }
+button.quiet.on { background: none; color: var(--ink); box-shadow: inset 0 -2px 0 var(--accent); }
+#side-tabs { flex: none; display: inline-flex; }
+/* a view given a panel of its own */
+.viewpanel { --c: var(--r8); background: var(--bg); }
+.viewpanel > .view { flex: 1 1 0; min-height: 0; }
+.panel.shut > .view { display: none; }
+/* zoom: out, fit, in, in the drawing's lower right corner over its readout */
+#zoom { position: absolute; right: 10px; bottom: 38px; z-index: 5; display: flex; gap: 3px; }
+#zoom button { padding: 2px 9px; clip-path: none; font-family: var(--mono); font-size: 12px; background: var(--panel-2); }
+#zoom button:hover { background: var(--line); }
+/* the crossbars as the board prints them: a block where an X pin and a Y pin are joined, lines along the pins in use */
+.xgrid { display: flex; flex-wrap: wrap; align-content: flex-start; gap: 10px 12px; height: 100%; overflow: auto; padding: 22px 8px 44px;
+  scrollbar-color: var(--line) transparent; scrollbar-width: thin; }
+.xgrid .xchip { margin: 0; font: var(--xfont, 11px)/1.15 var(--mono); color: var(--dim); background: none; border: 0; padding: 0; }
+.xchip .xname { color: var(--ink); }
+.xchip .xdot { opacity: .45; }
+.xchip .xwire { cursor: pointer; }
+.xchip .xwire:hover, .xchip .xwire.pick { color: var(--ink); background: var(--sel); }
+/* A pin's line and a closed crosspoint's block are drawn here, over their letters (which a copy still takes), each
+   in a box one letter wide and one line high: so the pieces join and the columns hold in any font. */
+.xchip .xl, .xchip .xblock { display: inline-block; width: 1ch; height: 1.15em; vertical-align: top; overflow: hidden;
+  color: transparent; --w: max(1px, .1em); }
+.xchip .xh { background: linear-gradient(var(--h), var(--h)) center / 100% var(--w) no-repeat; }
+.xchip .xv { background: linear-gradient(var(--v), var(--v)) center / var(--w) 100% no-repeat; }
+.xchip .xh.xv { background: linear-gradient(var(--h), var(--h)) center / 100% var(--w) no-repeat,
+  linear-gradient(var(--v), var(--v)) center / var(--w) 100% no-repeat; }
+.xchip .xblock { cursor: pointer; background: linear-gradient(var(--h), var(--h)) center / 100% 78% no-repeat; }
+.xchip .xblock.dup { opacity: .55; }
+#xbar.isolating :is([data-net], [data-net2]):not(.iso) { opacity: .2; }
 /* the line between two panels: drag it */
 .split { flex: 0 0 5px; position: relative; z-index: 5; background: var(--bg); touch-action: none; }
 .split.ew { cursor: col-resize; border-left: 1px solid var(--line); border-right: 1px solid var(--line); }
@@ -220,7 +254,7 @@ svg.isolating .s-curve:not(.iso), svg.isolating .s-held:not(.iso), svg.isolating
 .s-held { stroke-width: 1.5; }
 .s-want { stroke-width: 1.6; stroke-dasharray: 3 2; }
 
-#tip { position: absolute; pointer-events: none; background: var(--tip); border: 1px solid var(--line); border-radius: 4px;
+#tip { position: fixed; pointer-events: none; background: var(--tip); border: 1px solid var(--line); border-radius: 4px;
   padding: 5px 8px; max-width: 340px; white-space: pre-wrap; z-index: 5; }
 
 /* dropped files, compare */
@@ -306,6 +340,7 @@ details pre, pre.report { background: var(--bg); border: 1px solid var(--line); 
 #said button:hover { color: var(--ink); }
 /* the view's own readout, in its lower right corner: how far in the drawing is, and what the case closes */
 #hud { position: absolute; right: 10px; bottom: 18px; z-index: 4; pointer-events: none; color: var(--dim); font-family: var(--label);
+  background: color-mix(in srgb, var(--bg) 82%, transparent); padding: 0 4px;
   font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .1em; text-align: right; }
 #hud b { color: var(--ink); font-family: var(--mono); font-weight: 500; letter-spacing: 0; }
 /* corner marks on the view, as on a console's screen */
@@ -348,6 +383,9 @@ ul.problems li.names, ul.notes li.names { cursor: pointer; text-decoration: unde
   #centre.shut { height: auto; }
   #panel-tests { order: 2; }
   #panel-case { order: 3; }
+  .viewpanel { order: 4; height: 62vh; }
+  .viewpanel.shut { height: auto; }
+  #pop { display: none; }
   .panel > .body { flex: none; }                   /* as tall as what it holds: the page scrolls, not the panel */
   #panel-tests > .body { max-height: 40vh; }
   #panel-case > .body { overflow: visible; overflow-x: auto; }

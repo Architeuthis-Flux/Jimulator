@@ -55,10 +55,10 @@
   <section class="panel" id="centre" data-panel="view">
     <nav id="tabs" class="bar">
       <span class="plate" title="drag onto a side of another panel to move this one there; double-click to put the panels back"><b>02</b> View</span>
-      <button type="button" data-tab="fabric" class="on">Fabric</button>
-      <button type="button" data-tab="sheet">KiCad sheet</button>
-      <button type="button" data-tab="ranking" title="What the firmware's router loses without each lane, bounce row and hub lane, and whether any netlist is proved to need it">Ranking</button>
-      <button type="button" id="fit" title="the whole drawing again (a double-click on it does the same)">fit</button>
+      <button type="button" data-tab="fabric" class="on" title="the crossbars and every piece of copper between them (drag this tab onto a side of a panel to give the view a panel of its own)">Fabric</button>
+      <button type="button" data-tab="sheet" title="the board's own schematic (drag this tab onto a side of a panel to give the view a panel of its own)">KiCad sheet</button>
+      <button type="button" data-tab="xbar" title="the twelve crossbars as the board prints them (its C command); drag this tab onto a side of a panel to give the view a panel of its own">Crossbars</button>
+      <button type="button" id="pop" class="quiet" title="give the view shown a panel of its own, under the tests; its plate moves it and its tabs button puts it back">dock</button>
       <span id="view-title"></span>
       <label id="compare-box" hidden title="copper only this router closes is outlined; copper only the baseline closes is dashed grey"><input id="compare" type="checkbox"> compare with baseline</label>
       <span id="legend">
@@ -77,6 +77,8 @@
     <div id="hud"></div>
     <div id="fabric" class="view"></div>
     <div id="sheet" class="view" hidden></div>
+    <div id="xbar" class="view" hidden></div>
+    <div id="zoom"><button type="button" data-zoom="out" title="further out">&minus;</button><button type="button" data-zoom="fit" id="fit" title="the whole drawing; on the sheet a second press shows the whole sheet (a double-click on the drawing does the same)">fit</button><button type="button" data-zoom="in" title="closer in">+</button></div>
     <div id="tip" hidden></div>
   </section>
 
@@ -84,6 +86,7 @@
     <header class="bar">
       <span class="plate" title="drag onto a side of another panel to move this one there; double-click to put the panels back"><b>03</b> <span id="case-plate">Case</span></span>
       <span class="bar-note" id="case-note"></span>
+      <span id="side-tabs"><button type="button" class="quiet on" data-side="case" title="the case picked: its bridges, nets and problems">case</button><button type="button" class="quiet" data-side="ranking" title="What the firmware's router loses without each lane, bounce row and hub lane, and whether any netlist is proved to need it. The fabric wears its tint.">ranking</button></span>
       <button type="button" class="fold" title="fold this panel away, or open it" aria-expanded="true"></button>
     </header>
     <div class="body" id="case"><p class="hint">Run a battery, then pick a case.</p></div>

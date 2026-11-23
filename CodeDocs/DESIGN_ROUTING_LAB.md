@@ -347,7 +347,7 @@ Built as above, with these differences:
 - **Needed is asked one wire at a time.** For each netlist and each wire the
   solver is asked whether a routing exists without that wire. Two wires that
   are each not needed may be needed together; that is not asked.
-- **A custom set is a run, not a number.** Wires picked on the Ranking tab
+- **A custom set is a run, not a number.** Wires picked with the page's ranking open
   are taken away together and the battery is run on what is left; the run is
   shown like any other, and the arrangement can be saved as a file and
   scored. No combined loss against the baseline is printed.
@@ -530,7 +530,7 @@ Throwaway prototypes, for sizing.
   is published when `lab.py sheet` has been run in the checkout (it needs
   `kicad-cli`); without it the tab says the sheet was not published. My call.
 - **The docs page, later.** The same bundle with a switch that leaves out the
-  arrangement picker, the Ranking tab and anything said about V6, in a flat
+  arrangement picker, the ranking and anything said about V6, in a flat
   folder of its own as `docs/pixelmap/` is. Not designed further here.
 
 ### Where the lab meets the machine
@@ -589,7 +589,7 @@ says what each would take.
   request to another site: the page opens on the published run; two nodes
   clicked on `v5` are routed and drawn; the same on `v6_feed_off` has no feed
   bridge; a dense case's wires taken away and run; a `b` report pasted; the
-  Ranking tab shows the published ranking; `v6_rails_on_chips` shows its
+  page's ranking shows the published one; `v6_rails_on_chips` shows its
   published answers and says why a click is not routed.
 - The same at 375 px.
 - The local lab's tests and its page behave as before.

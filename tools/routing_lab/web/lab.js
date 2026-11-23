@@ -40,6 +40,7 @@ const state = {
   bridge: null,      // "n1-n2" of the bridge picked in the case panel: its row and its two ends are marked
   pickedWire: null,  // a wire clicked on the Fabric tab that carries no single net: lit by itself
   pointed: null,     // what a clicked problem or note names: {nets, wires, pins, nodes}
+  side: "case",      // the right panel's face: "case", or "ranking" (and then the fabric wears the ranking's tint)
   only: null,        // a kind picked in the legend ("dup", "unrouted", ...): the rest of the routing steps back
   v5nodes: null,     // V5's nodes, for the name of one the arrangement picked has dropped
   drawn: [],         // the netlist made by clicking nodes: [[node, node]]
@@ -221,7 +222,7 @@ async function pickArrangement(name) {
     renderCase();
     redraw();
   } else $("view-title").textContent = name === "v5" ? "" : name + ": its copper";
-  if (state.tab === "ranking") loadRanking();
+  if (ranking()) loadRanking();
 }
 
 // The solver's routing as the picture itself: when the arrangement picked is not the one the shown run was routed
@@ -721,11 +722,18 @@ async function selectCase(name) {
 // Both views of the selected case. The fabric is drawn against a second routing of the same case when there is
 // one: the solver's when that is asked for, else the baseline's.
 function redraw() {
-  if (state.tab === "ranking") {                   // that tab tints the copper by the ranking, with no case on it
+  if (ranking() && !state.current) {               // the ranking's tint, and no case to show yet
     drawFabric(null);
     drawHeat();
+    drawXbar(null);
     return;
   }
+  // with the ranking in the side panel the fabric wears its tint; the sheet and the crossbars still show the case
+  const fabricOf = (paint, base, who) => {
+    if (!ranking()) return drawFabric(paint, base, who);
+    drawFabric(null);
+    drawHeat();
+  };
   const on = ranOn();
   if (on.name !== state.arrangement) {             // the run is on other copper than the drawing: draw none of it
     const solved = solvedShown();
@@ -738,16 +746,20 @@ function redraw() {
         : state.arrangement + ": its copper. The run shown is on " + on.name + ": pick that arrangement to see it drawn"
           + (state.info.solver ? ", or ask the solver for this case on " + state.arrangement + " (Ceiling)." : ".");
     drawSheet(null);                               // the sheet is V5's own
-    drawFabric(solved);
+    drawXbar(solved);
+    fabricOf(solved);
     return;
   }
   const solved = state.ceiling.draw && state.ceiling.answer && state.ceiling.answer.paint;
   const base = solved || (state.base && state.base.paint);
-  $("view-title").textContent = state.selected + "   " + state.run.variant.name
+  const title = state.selected + "   " + state.run.variant.name
     + (state.run.board ? "" : "   " + arrangementWords(on))
     + (solved ? "   against the solver's routing" : base ? "   against " + state.run.baseline.name : "");
+  $("view-title").textContent = title;
   drawSheet(state.current.paint);
-  drawFabric(state.current.paint, base, solved ? "the solver" : "the baseline");
+  drawXbar(state.current.paint);
+  fabricOf(state.current.paint, base, solved ? "the solver" : "the baseline");
+  if (ranking() && state.tab !== "fabric") $("view-title").textContent = title;     // the tint's own words belong to the fabric
 }
 
 // ---------------------------------------------------------------- the case panel
@@ -767,6 +779,10 @@ function applyIsolation() {
   for (const row of document.querySelectorAll("#case .net")) {
     row.classList.toggle("on", Number(row.dataset.net) === state.isolated);
   }
+  $("xbar").classList.toggle("isolating", state.isolated != null);
+  for (const node of $("xbar").querySelectorAll("[data-net], [data-net2]")) {
+    node.classList.toggle("iso", [node.dataset.net, node.dataset.net2].includes(String(state.isolated)));
+  }
   for (const row of document.querySelectorAll("#case .bridges tr[data-bridge-key]")) {
     row.classList.toggle("on", state.isolated != null && Number(row.dataset.net) === state.isolated);
     row.classList.toggle("at", row.dataset.bridgeKey === state.bridge);
@@ -779,6 +795,9 @@ function applyIsolation() {
   for (const [wire, g] of Object.entries(fabric.pads)) g.classList.toggle("end", ends.has(wire));
   for (const [name, path] of Object.entries(fabric.wires)) {
     path.classList.toggle("pick", name === state.pickedWire || pointed.wires.includes(name));
+  }
+  for (const label of $("xbar").querySelectorAll(".xwire")) {
+    label.classList.toggle("pick", label.dataset.wire === state.pickedWire || pointed.wires.includes(label.dataset.wire));
   }
   for (const old of document.querySelectorAll("#fabric-svg .spot")) old.remove();
   if (fabric.marks) {
@@ -817,8 +836,8 @@ function onlyKind(kind) {
 
 // The view's own readout, in its lower right corner: how far in it is, and what the case shown closes.
 function renderHud() {
-  const view = document.querySelector(state.tab === "sheet" ? "#sheet-svg" : "#fabric-svg");
-  const paint = state.tab === "ranking" ? null : shownPaint();
+  const view = state.tab === "xbar" ? null : document.querySelector(state.tab === "sheet" ? "#sheet-svg" : "#fabric-svg");
+  const paint = ranking() && state.tab === "fabric" ? null : shownPaint();
   const parts = [];
   if (view && view.dataset.zoom) parts.push(["zoom", view.dataset.zoom + "%"]);
   if (paint) parts.push(["xp", paint.crosspoints.length], ["nets", Object.keys(paint.nets || {}).length], ["bridges", paint.bridges.length]);
@@ -835,7 +854,7 @@ function keptUi() {
 
 function keepUi() {
   try {
-    localStorage.setItem(UI_KEY, JSON.stringify({ tab: state.tab, selected: state.selected, sort: state.sort, closed: state.closed,
+    localStorage.setItem(UI_KEY, JSON.stringify({ tab: state.tab, side: state.side, selected: state.selected, sort: state.sort, closed: state.closed,
       unclean: $("filter-unclean").checked }));
   } catch (e) { /* a private window */ }
 }
@@ -1050,7 +1069,7 @@ function renderCase() {
   }
   box.append(el("details", {}, el("summary", { text: solved ? "b report of the run on " + ranOn().name : "b report" }),
     el("pre", { text: result.b })));
-  $("case-note").textContent = state.tab === "ranking" ? $("case-note").textContent : result.case;
+  $("case-note").textContent = ranking() ? $("case-note").textContent : result.case;
   applyIsolation();
 }
 
@@ -1166,7 +1185,7 @@ function renderCeiling() {
 const ZOOM_PER_PIXEL = 0.002;      // doublings of the zoom for one pixel of scrolling: the one number to tune the feel
 
 // full: the box a double-click returns to; widest: how far out the wheel may go
-function panZoom(view, full, widest = full[2] * 1.5) {
+function panZoom(view, full, widest = full[2] * 1.5, all = null) {
   let box = full.slice();
   const apply = () => {
     view.setAttribute("viewBox", box.join(" "));
@@ -1248,9 +1267,18 @@ function panZoom(view, full, widest = full[2] * 1.5) {
       event.stopPropagation();
     }
   }, true);
-  const whole = () => { box = full.slice(); apply(); };
+  // back to the box it opened on; when it is there already and there is more to show (the whole sheet), to that
+  const whole = () => {
+    const there = box.every((v, i) => Math.abs(v - full[i]) < 0.5);
+    box = (there && all ? all : full).slice();
+    apply();
+  };
   view.addEventListener("dblclick", whole);
   view.addEventListener("fit", whole);          // the fit button
+  view.addEventListener("zoomby", (event) => {   // the zoom buttons: about the middle of the view
+    const r = view.getBoundingClientRect();
+    zoomAbout({ clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 }, event.detail);
+  });
   apply();
 }
 
@@ -1259,15 +1287,14 @@ function hover(node, text) {
     const tip = $("tip");
     tip.textContent = typeof text === "function" ? text() : text;
     tip.hidden = false;
-    const frame = $("centre").getBoundingClientRect();
-    tip.style.left = Math.min(event.clientX - frame.left + 14, frame.width - 350) + "px";
-    tip.style.top = (event.clientY - frame.top + 14) + "px";
+    tip.style.left = Math.max(4, Math.min(event.clientX + 14, window.innerWidth - 350)) + "px";
+    tip.style.top = Math.min(event.clientY + 14, window.innerHeight - 90) + "px";
   });
   node.addEventListener("pointerleave", () => { $("tip").hidden = true; });
 }
 
 function wireTip(name) {
-  if (state.tab === "ranking") return rankTip(name);
+  if (ranking()) return rankTip(name);
   const paint = shownPaint();
   const w = paint && paint.wires[name];
   const kind = state.info.fabric.wires[name] ? state.info.fabric.wires[name].kind : "";
@@ -1278,6 +1305,100 @@ function wireTip(name) {
     + (p.mark === "mismatch" ? "   <- does not match the copper" : "")).join("\n");
   const fault = w.nets.length > 1 ? "   SHORT" : w.stray ? "   STRAY: this node is in no net" : "";
   return name + "  (" + w.kind + ")\ncarries: " + riding + fault + "\n" + pins;
+}
+
+// ---------------------------------------------------------------- the crossbars, as the board prints them
+
+// A wire's name in the few letters the board's own print gives it.
+const SHORT_NAMES = [[/^(ROUTABLE_)?BUF(FER)?_IN$/, "BFi"], [/^(ROUTABLE_)?BUF(FER)?_OUT$/, "BFo"], [/^TOP_RAIL$/, "TRl"],
+  [/^BOTTOM_RAIL$/, "BRl"], [/^DAC_?(\d)$/, "Da$1"], [/^ADC_?(\d)$/, "Ad$1"], [/^GPIO_?(\d+)$/, "GP$1"], [/^(?:NANO_)?([AD]\d+)$/, "n$1"],
+  [/^ISENSE_PLUS$/, "I+"], [/^ISENSE_MINUS$/, "I-"], [/^UART_RX$/, "uRX"], [/^UART_TX$/, "uTX"], [/^AREF$/, "ARF"], [/^RESET$/, "RST"]];
+
+function shortWire(name, nodeOf) {
+  if (name == null) return "x";                    // this arrangement has no copper on the pin
+  if (name.startsWith("unconnected")) return "u";
+  const lane = /^\/?([A-L]{2}\d?)$/.exec(name);
+  if (lane) return lane[1];
+  const full = nodeOf[name] == null ? name : nodeName(Number(nodeOf[name]));
+  for (const [from, to] of SHORT_NAMES) if (from.test(full)) return full.replace(from, to);
+  return /^\d+$/.test(full) ? full : full.slice(0, 4);
+}
+
+// Every chip as the grid the firmware's crossbar print draws (its C command): a row for each X pin, a column for
+// each Y pin, a block where the two are joined (a lighter one for a duplicate path's), and lines along the pins
+// that carry something, each in its net's colour. The wire on each pin is named at the row's end and under the
+// column. A block or a name answers a click as its dot or its wire does in the fabric.
+function drawXbar(paint) {
+  const box = $("xbar");
+  const pins = state.info.pins;
+  if (!pins) {
+    box.replaceChildren(el("pre", { class: "hint", style: "padding:16px; white-space:pre-wrap",
+      text: "This page was made before it could draw the crossbars." }));
+    return;
+  }
+  const nodeOf = {};
+  for (const [node, known] of Object.entries(state.info.nodes)) nodeOf[known.wire] = node;
+  const closed = {};                               // "chip.x.y" -> the crosspoint
+  const on = {};                                   // "chip.X3" or "chip.Y1" -> the nets on that pin
+  const add = (key, net) => { (on[key] = on[key] || new Set()).add(net); };
+  for (const c of (paint ? paint.crosspoints : [])) {
+    closed[c.chip + "." + c.x + "." + c.y] = c;
+    add(c.chip + ".X" + c.x, c.net);
+    add(c.chip + ".Y" + c.y, c.net);
+  }
+  // A piece of a pin's line. The letter is the board's (it is what a copy takes), and the style sheet draws the
+  // line over it so that the pieces join whatever the font: along the row in the row's net's colour, down the
+  // column in the column's; red when two nets are on the pin.
+  const line = (text, row, col) => {
+    const node = el("span", { text: text, class: "xl" + (row ? " xh" : "") + (col ? " xv" : "") });
+    for (const [nets, hue, key] of [[row, "--h", "net"], [col, "--v", "net2"]]) {
+      if (!nets) continue;
+      node.style.setProperty(hue, nets.size === 1 ? netColour([...nets][0]) : "var(--problem)");
+      if (nets.size === 1) node.dataset[key] = [...nets][0];
+    }
+    return node;
+  };
+  const label = (wire, width) => el("span", { class: "xwire", "data-wire": wire, title: wire || "no copper on this pin",
+    text: shortWire(wire, nodeOf).padEnd(width),
+    onclick: () => { if (wire && fabric.wires[wire] && !ranking()) touchWire(wire); } });
+  const grid = el("div", { class: "xgrid" });
+  for (const chip of Object.keys(pins)) {
+    const pre = el("pre", { class: "xchip" });
+    pre.append(el("span", { class: "xname", text: "          chip " + chip + "\n" }), "     0  1  2  3  4  5  6  7\n");
+    for (let x = 0; x < 16; x++) {
+      const row = on[chip + ".X" + x];
+      pre.append(String(x).padStart(3) + " ");
+      for (let y = 0; y < 8; y++) {
+        const col = on[chip + ".Y" + y];
+        const c = closed[chip + "." + x + "." + y];
+        pre.append(row ? line("─", row, null) : " ");
+        if (c) {
+          const words = () => c.chip + "  x" + c.x + " y" + c.y + "\nnet " + netLabel(c.net) + ", path " + c.path
+            + (c.dup ? " (a duplicate)" : "");
+          const block = el("span", { class: "xblock" + (c.dup ? " dup" : ""), text: c.dup ? "▓" : "█", "data-net": c.net,
+            style: "--h:" + netColour(c.net) });
+          hover(block, words);
+          block.addEventListener("click", () => {
+            const again = state.isolated === c.net && !state.bridge;
+            letGo();
+            if (again) return;
+            state.isolated = c.net;
+            say(words());
+            applyIsolation();
+          });
+          pre.append(block);
+        } else if (row || col) pre.append(line(row && col ? "┼" : row ? "─" : "│", row, col));
+        else pre.append(el("span", { class: "xdot", text: "." }));
+        pre.append(row ? line("─", row, null) : " ");
+      }
+      pre.append(" ", label(pins[chip].x[x], 0), "\n");
+    }
+    pre.append("    ");
+    for (let y = 0; y < 8; y++) pre.append(" ", label(pins[chip].y[y], 2));
+    grid.append(pre);
+  }
+  box.replaceChildren(grid);
+  applyIsolation();
 }
 
 // ---------------------------------------------------------------- the fabric view
@@ -1308,7 +1429,7 @@ function drawFabricBase() {
     const chip = svg("g", { class: "chip" },
       svg("rect", { x: c.x, y: c.y, width: 16 * f.cell, height: 8 * f.cell }),
       svg("text", { x: c.x + 16 * f.cell + 6, y: c.y + 14, text: name }));
-    chip.addEventListener("click", () => { if (state.tab !== "ranking") touchChip(name); });
+    chip.addEventListener("click", () => { if (!ranking()) touchChip(name); });
     chips.append(chip);
   }
   // What the arrangement changes, on the chip's edge where the pin is: a grey cross for a pin taken away, a thin
@@ -1333,7 +1454,7 @@ function drawFabricBase() {
     hit.addEventListener("pointerenter", () => path.classList.add("under"));
     hit.addEventListener("pointerleave", () => path.classList.remove("under"));
     hit.addEventListener("click", () => {
-      if (state.tab === "ranking") {
+      if (ranking()) {
         toggleTakeAway(name);
         say(state.takeAway.includes(name) ? rankTip(name) : "");
         return;
@@ -1352,9 +1473,9 @@ function drawFabricBase() {
       ? svg("text", { x: p.x + 3, y: p.y - 7, transform: "rotate(-60 " + (p.x + 3) + " " + (p.y - 7) + ")", text: p.label })
       : svg("text", { x: p.x, y: p.y + 13, "text-anchor": "middle", text: p.label });
     const g = svg("g", { class: "pad" }, svg("circle", { cx: p.x, cy: p.y, r: 3.6 }), text);
-    hover(g, () => wireTip(name) + (STATIC || state.tab === "ranking" ? "" : "\nclick: connect this node to another"));
+    hover(g, () => wireTip(name) + (STATIC || ranking() ? "" : "\nclick: connect this node to another"));
     g.addEventListener("click", () => {
-      if (state.tab === "ranking") return;
+      if (ranking()) return;
       if (STATIC) touchWire(name);                 // a page that cannot connect nodes says what the node is on
       else clickNode(name);
     });
@@ -1366,7 +1487,7 @@ function drawFabricBase() {
   fabric.ghost = svg("g", { class: "ghosts" });
   // the pads lie over the wires' hit areas, so that a click on a node lands on the node and not on its wire
   view.append(chips, wires, fabric.ghost, fabric.dots, fabric.marks, hits, pads, pinMarks);
-  view.addEventListener("click", (event) => { if (event.target === view && state.tab !== "ranking") letGo(); });
+  view.addEventListener("click", (event) => { if (event.target === view && !ranking()) letGo(); });
   $("fabric").replaceChildren(view);
   markFrom();
   panZoom(view, [0, 0, f.size[0], f.size[1]]);
@@ -1577,7 +1698,8 @@ async function drawSheetBase() {
   const y0 = Math.min(...bodies.map((b) => b[1])) - 30;
   const x1 = Math.max(...bodies.map((b) => b[2])) + 50;
   const y1 = Math.max(...bodies.map((b) => b[3])) + 20;
-  panZoom(view, bodies.length ? [x0, y0, x1 - x0, y1 - y0] : [0, 0, s.size[0], s.size[1]], s.size[0] * 1.2);
+  panZoom(view, bodies.length ? [x0, y0, x1 - x0, y1 - y0] : [0, 0, s.size[0], s.size[1]], s.size[0] * 1.2,
+    bodies.length ? [0, 0, s.size[0], s.size[1]] : null);
 }
 
 function sheetDot(cls, [x, y], attrs) {                      // a dot that stays one size on screen
@@ -1690,7 +1812,7 @@ function markFrom() {
 }
 
 function clickNode(wire) {
-  if (STATIC || state.tab === "ranking") return;
+  if (STATIC || ranking()) return;
   const node = nodeOn(wire);
   if (node == null) return;                        // copper with no node on it
   if (state.from == null || state.from === node) {
@@ -1877,8 +1999,8 @@ function drawHeat() {
     path.classList.remove("heat", "take");
   }
   const drawing = document.querySelector("#fabric svg");
-  if (drawing) drawing.classList.toggle("picking", state.tab === "ranking" && state.takeAway.length > 0);
-  if (state.tab !== "ranking") return;
+  if (drawing) drawing.classList.toggle("picking", ranking() && state.takeAway.length > 0);
+  if (!ranking()) return;
   const r = state.ranking;
   $("view-title").textContent = !r ? state.arrangement + ": not ranked yet"
     : "tinted by " + (state.heat === "needed" && hasNeeded() ? "the netlists proved to need each wire (the exact solver)"
@@ -2031,7 +2153,7 @@ function renderRanking() {
     box.append(el("div", { class: "ask" },
       STATIC ? null : el("button", { type: "button", text: "Run without these", disabled: state.busy || cannot ? "" : null,
         title: "route the ticked classes on " + state.arrangement + " without these wires, and show it on the Fabric tab",
-        onclick: async () => { if (await runBattery(state.takeAway.slice())) showTab("fabric"); } }),
+        onclick: async () => { if (await runBattery(state.takeAway.slice())) showSide("case"); } }),
       el("button", { type: "button", text: "clear", onclick: () => { state.takeAway = []; renderRanking(); drawHeat(); } }),
       STATIC ? null : el("span", { class: "hint", text: "the run's arrangement can then be saved as a file (left column)" })));
   }
@@ -2074,43 +2196,84 @@ function renderRanking() {
 
 // ---------------------------------------------------------------- starting
 
+// The ranking is in the side panel, and then the fabric wears its tint.
+function ranking() {
+  return state.side === "ranking";
+}
+
+// The view's tabs pick a view and nothing else: the fabric, the KiCad sheet, or the crossbars as the board prints
+// them. A view that has a panel of its own (layout.out) has no tab and is always shown.
 function showTab(name) {
+  if (layout.out.includes(name)) name = Object.keys(VIEWS).find((v) => !layout.out.includes(v));
   state.tab = name;
   say("");
-  for (const button of document.querySelectorAll("#tabs button")) {
-    button.classList.toggle("on", button.dataset.tab === name);
-    if (button.dataset.tab) button.setAttribute("aria-pressed", String(button.dataset.tab === name));
+  for (const button of document.querySelectorAll("#tabs button[data-tab]")) {
+    const on = button.dataset.tab === name;
+    button.classList.toggle("on", on);
+    button.setAttribute("aria-pressed", String(on));
+    button.hidden = layout.out.includes(button.dataset.tab);
   }
-  $("fabric").hidden = name === "sheet";           // the ranking is drawn on the fabric too
-  $("sheet").hidden = name !== "sheet";
-  if (name === "sheet") loadBackdrop();
-  $("case").hidden = name === "ranking";
-  $("ranking").hidden = name !== "ranking";
-  $("case-plate").textContent = name === "ranking" ? "Ranking" : "Case";
+  for (const view of Object.keys(VIEWS)) if (!layout.out.includes(view)) $(view).hidden = view !== name;
+  if (name === "sheet" || layout.out.includes("sheet")) loadBackdrop();
   renderArrangement();                             // the sheet's note belongs to the sheet tab
-  if (name === "ranking") {
-    renderRanking();
-    loadRanking();
-  }
-  if (state.current || name === "ranking") redraw();
+  if (state.current || ranking()) redraw();
   else drawHeat();                                 // nothing routed is shown: only the tint, if any, is taken off
-  $("case-note").textContent = name === "ranking" ? state.arrangement : (state.selected || "");
   renderHud();
   keepUi();
 }
 
+// The right panel's two faces: the case picked, or the ranking (a lesser view; its tint is drawn on the fabric).
+function showSide(name) {
+  state.side = name;
+  say("");
+  for (const button of document.querySelectorAll("#side-tabs button")) {
+    const on = button.dataset.side === name;
+    button.classList.toggle("on", on);
+    button.setAttribute("aria-pressed", String(on));
+  }
+  $("case").hidden = name === "ranking";
+  $("ranking").hidden = name !== "ranking";
+  $("case-plate").textContent = name === "ranking" ? "Ranking" : "Case";
+  $("case-note").textContent = name === "ranking" ? state.arrangement : (state.selected || "");
+  if (name === "ranking") {
+    renderRanking();
+    loadRanking();
+    if (state.tab !== "fabric" && !layout.out.includes("fabric")) return showTab("fabric");     // where its tint is drawn
+  }
+  if (state.current || ranking()) redraw();
+  else drawHeat();
+  renderHud();
+  keepUi();
+}
+
+// The zoom buttons, for the view shown: further out, the whole of it, closer in. The crossbars are text, and their
+// size is their zoom.
+function zoomView(how, which = state.tab) {
+  if (which === "xbar") {
+    const now = parseFloat($("xbar").style.getPropertyValue("--xfont")) || 11;
+    $("xbar").style.setProperty("--xfont", (how === "fit" ? 11 : Math.max(7, Math.min(22, now + (how === "in" ? 1 : -1)))) + "px");
+    return;
+  }
+  const view = document.querySelector(which === "sheet" ? "#sheet-svg" : "#fabric-svg");
+  if (!view) return;
+  view.dispatchEvent(how === "fit" ? new Event("fit") : new CustomEvent("zoomby", { detail: how === "in" ? 0.7 : 1 / 0.7 }));
+}
+
 // ---------------------------------------------------------------- the panels: where they are, how big, what is shut
 
-// The page is three panels: the tests, the view and the case. They sit in a tree of rows and stacks. Drag a panel
+// The page is three panels: the tests, the view and the case; and a view (the fabric, the sheet, the crossbars) can
+// be given a panel of its own, so that several show at once. They sit in a tree of rows and stacks. Drag a panel
 // by its plate onto a side of another and it goes there; drag the line between two to size them; a panel's fold
 // button shuts it to its bar. A double-click on a plate puts all of it back. The browser keeps the tree, the sizes
 // and what is shut (when it keeps anything). In the one-column page (a phone) the panels keep one order, the view
 // first, and only the view's height drags.
-const PANELS = ["tests", "view", "case"];
+const BASE = ["tests", "view", "case"];
+const VIEWS = { fabric: "Fabric", sheet: "KiCad sheet", xbar: "Crossbars" };      // each is the id of its element too
 const LAYOUT0 = { d: "r", k: ["tests", "view", "case"] };          // d: "r" a row, "c" a stack; k: panels and trees
 const SIZE0 = { tests: [490, 320], case: [450, 320] };             // a panel's own width in a row, height in a stack
 const LAYOUT_KEY = "lab.layout.v1";
-const layout = { tree: LAYOUT0, size: {}, shut: [] };
+const layout = { tree: LAYOUT0, size: {}, shut: [], out: [] };         // out: the views with panels of their own
+const panelsNow = () => BASE.concat(layout.out);
 
 const leaves = (t) => (typeof t === "string" ? [t] : t.k.flatMap(leaves));
 const wide = () => window.matchMedia("(min-width: 1201px)").matches;
@@ -2150,17 +2313,22 @@ function layPut(t, target, v, side) {
 }
 
 function soundTree(t) {
-  if (typeof t === "string") return PANELS.includes(t);
+  if (typeof t === "string") return BASE.includes(t) || t in VIEWS;
   return Boolean(t) && (t.d === "r" || t.d === "c") && Array.isArray(t.k) && t.k.length > 0 && t.k.every(soundTree);
 }
 
 function keptLayout() {
   try {
     const kept = JSON.parse(localStorage.getItem(LAYOUT_KEY) || "null");
-    if (!kept || !soundTree(kept.tree) || leaves(kept.tree).slice().sort().join() !== PANELS.slice().sort().join()) return null;
+    if (!kept || !soundTree(kept.tree)) return null;
+    const all = leaves(kept.tree);
+    const out = all.filter((n) => n in VIEWS);
+    // each panel once, the three that are always there among them, and a view left for the tabs
+    if (new Set(all).size !== all.length || BASE.some((n) => !all.includes(n)) || out.length >= Object.keys(VIEWS).length) return null;
     const size = {};
     for (const [key, px] of Object.entries(kept.size || {})) if (Number.isFinite(px) && px > 0) size[key] = px;
-    return { tree: kept.tree, size: size, shut: (Array.isArray(kept.shut) ? kept.shut : []).filter((n) => n === "tests" || n === "case") };
+    return { tree: kept.tree, size: size, out: out,
+      shut: (Array.isArray(kept.shut) ? kept.shut : []).filter((n) => n !== "view" && all.includes(n)) };
   } catch (e) { return null; }
 }
 
@@ -2169,7 +2337,9 @@ function keepLayout() {
 }
 
 const sizeKey = (c, d) => leaves(c).slice().sort().join("+") + ":" + d;
-const sizeOf = (c, d) => layout.size[sizeKey(c, d)] || (typeof c === "string" && SIZE0[c] ? SIZE0[c][d === "r" ? 0 : 1] : d === "r" ? 460 : 320);
+// a panel's own size when it has one; a row or a stack is as big as the biggest of what it holds would be alone
+const sizeOf = (c, d) => layout.size[sizeKey(c, d)]
+  || Math.max(...leaves(c).map((n) => (SIZE0[n] ? SIZE0[n][d === "r" ? 0 : 1] : d === "r" ? 460 : 320)));
 // the child of a row or a stack that takes what the others leave: the one holding the view, else the last one open
 function flexibleOf(t) {
   const open = (c) => !(typeof c === "string" && layout.shut.includes(c));
@@ -2185,12 +2355,14 @@ function applySizes() {
     const flexible = flexibleOf(t);
     t.k.forEach((c, i) => {
       const shut = typeof c === "string" && layout.shut.includes(c);
-      kids[i].style.flex = shut ? "0 0 auto" : i === flexible ? "1 1 0" : "0 0 " + sizeOf(c, t.d) + "px";
+      // a sized one gives way when there is not room for them all; the flexible one keeps a least size (lab.css)
+      kids[i].style.flex = shut ? "0 0 auto" : i === flexible ? "1 1 0" : "0 1 " + sizeOf(c, t.d) + "px";
+      kids[i].classList.toggle("flexi", i === flexible && !shut);
       if (typeof c !== "string") walk(c, kids[i]);
     });
   };
   walk(layout.tree, document.querySelector("main"));
-  for (const name of PANELS) {
+  for (const name of panelsNow()) {
     const shut = layout.shut.includes(name);
     panelOf(name).classList.toggle("shut", shut);
     const fold = panelOf(name).querySelector(".fold");
@@ -2247,12 +2419,48 @@ function splitBetween(t, i) {
   return bar;
 }
 
-// The tree as nested boxes in <main>, the three panels moved into their places (they are never made again).
+// A view's own panel: made when the view is first given one. The view itself moves into it and is drawn there.
+const viewPanels = {};
+
+function viewPanel(name) {
+  let panel = viewPanels[name];
+  const view = $(name);                            // null while its panel is out of the page, and then it is in it
+  if (panel) {
+    if (view && view.parentNode !== panel) { view.hidden = false; panel.append(view); }
+    return panel;
+  }
+  const number = String(4 + Object.keys(VIEWS).indexOf(name)).padStart(2, "0");
+  panel = el("section", { class: "panel viewpanel", "data-panel": name },
+    el("header", { class: "bar" },
+      el("span", { class: "plate", title: "drag onto a side of another panel to move this one there; double-click to put the panels back" },
+        el("b", { text: number }), " " + VIEWS[name]),
+      el("span", { class: "bar-note" }),
+      ...[["out", "\u2212", "further out"], ["fit", "fit", "the whole drawing"], ["in", "+", "closer in"]].map(([how, text, title]) =>
+        el("button", { type: "button", class: "quiet", text: text, title: title, onclick: () => zoomView(how, name) })),
+      el("button", { type: "button", class: "quiet", text: "tabs", title: "put this view back among the view's tabs", onclick: () => dockBack(name) }),
+      el("button", { type: "button", class: "fold", title: "fold this panel away, or open it", "aria-expanded": "true" })));
+  view.hidden = false;
+  panel.append(view);
+  wirePanel(panel, name);
+  viewPanels[name] = panel;
+  return panel;
+}
+
+// The tree as nested boxes in <main>, the panels moved into their places (they are never made again). A view
+// with a panel of its own gets it; one that has lost its panel goes back among the view's tabs.
 function buildLayout() {
   const root = document.querySelector("main");
   const panels = {};
-  for (const name of PANELS) panels[name] = panelOf(name);
-  for (const name of PANELS) panels[name].remove();
+  for (const view of Object.keys(VIEWS)) {
+    if (layout.out.includes(view)) viewPanel(view);
+    else if ($(view).parentNode !== $("centre")) {
+      $("centre").insertBefore($(view), $("zoom"));
+      $(view).hidden = state.tab !== view;
+      viewPanels[view].remove();
+    }
+  }
+  for (const name of panelsNow()) panels[name] = name in VIEWS ? viewPanel(name) : panelOf(name);
+  for (const name of panelsNow()) panels[name].remove();
   root.replaceChildren();
   const make = (t, box) => {
     box.classList.add(t.d === "r" ? "vrow" : "vcol");
@@ -2279,103 +2487,143 @@ function resetLayout() {
   layout.tree = LAYOUT0;
   layout.size = {};
   layout.shut = [];
+  layout.out = [];
   buildLayout();
+  showTab(state.tab);
   keepLayout();
+}
+
+// Give a view a panel of its own, on a side of another panel. One view always stays among the tabs.
+function popOut(view, target, side) {
+  if (layout.out.includes(view)) return;
+  if (layout.out.length + 1 >= Object.keys(VIEWS).length) {
+    say("One view stays in the view panel: put another back among its tabs first.");
+    return;
+  }
+  layout.out.push(view);
+  layout.tree = layNorm(layPut(layout.tree, target, view, side));
+  buildLayout();
+  showTab(state.tab);                              // the tabs that are left, and one of them shown
+  keepLayout();
+}
+
+// Put a view back among the view panel's tabs, and show it there.
+function dockBack(view) {
+  layout.out = layout.out.filter((v) => v !== view);
+  layout.shut = layout.shut.filter((n) => n !== view);
+  layout.tree = layNorm(layWithout(layout.tree, view));
+  buildLayout();
+  showTab(view);
+  keepLayout();
+}
+
+// Where a panel being dragged would go: the panel nearest the pointer, and the side of it the pointer is at.
+let dropLine = null;
+
+function dropPlace(x, y, skip) {
+  let best = null;
+  for (const name of panelsNow()) {
+    if (name === skip) continue;
+    const r = panelOf(name).getBoundingClientRect();
+    const ox = x < r.left ? r.left - x : x > r.right ? x - r.right : 0;
+    const oy = y < r.top ? r.top - y : y > r.bottom ? y - r.bottom : 0;
+    const far = Math.hypot(ox, oy);
+    if (best && far >= best.far) continue;
+    const fx = (x - (r.left + r.right) / 2) / Math.max(1, r.width);
+    const fy = (y - (r.top + r.bottom) / 2) / Math.max(1, r.height);
+    best = { v: name, r: r, far: far, side: Math.abs(fx) >= Math.abs(fy) ? (fx < 0 ? "left" : "right") : (fy < 0 ? "top" : "bottom") };
+  }
+  return best;
+}
+
+// A drag that moves a panel: from a plate (the panel itself) or from a view's tab (the view, into a panel of its
+// own). Nothing moves until the pointer has gone 6 px; a line shows where the drop would put it; Escape calls it off.
+function dragToPlace(handle, skip, dimmed, drop) {
+  handle.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0 || !wide()) return;
+    const from = [event.clientX, event.clientY];
+    let on = false;
+    let to = null;
+    const move = (e) => {
+      if (!on) {
+        if (Math.abs(e.clientX - from[0]) + Math.abs(e.clientY - from[1]) < 6) return;
+        on = true;
+        dimmed().classList.add("moving");
+        document.body.classList.add("paneldrag");
+      }
+      to = dropPlace(e.clientX, e.clientY, skip);
+      if (!to) return;
+      if (!dropLine) { dropLine = el("div", { class: "dropbar" }); document.body.append(dropLine); }
+      const across = to.side === "left" || to.side === "right";
+      dropLine.style.left = (to.side === "right" ? to.r.right - 4 : to.r.left) + "px";
+      dropLine.style.top = (to.side === "bottom" ? to.r.bottom - 4 : to.r.top) + "px";
+      dropLine.style.width = (across ? 4 : to.r.width) + "px";
+      dropLine.style.height = (across ? to.r.height : 4) + "px";
+    };
+    const end = (done) => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", cancel);
+      window.removeEventListener("keydown", key, true);
+      if (dropLine) dropLine.remove();
+      dropLine = null;
+      dimmed().classList.remove("moving");
+      document.body.classList.remove("paneldrag");
+      if (on) handle.dataset.dragged = "1";          // the click that ends the drag is not a click on the handle
+      if (done && on && to) drop(to);
+    };
+    const up = () => end(true);
+    const cancel = () => end(false);
+    const key = (e) => { if (e.key === "Escape") { e.stopPropagation(); end(false); } };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", cancel);
+    window.addEventListener("keydown", key, true);
+  });
+}
+
+// A panel's bar: its plate moves it (by a drag, or with the plate in focus by the arrow keys), and its fold button
+// shuts it.
+function wirePanel(panel, name) {
+  const plate = panel.querySelector(".plate");
+  dragToPlace(plate, name, () => panel, (to) => movePanel(name, to.v, to.side));
+  plate.addEventListener("dblclick", resetLayout);
+  plate.tabIndex = 0;
+  plate.setAttribute("role", "button");
+  plate.setAttribute("aria-label", "the " + name + " panel: an arrow key moves it to that side of the "
+    + (name === "view" ? "tests" : "view") + ", Home puts the panels back");
+  plate.addEventListener("keydown", (event) => {
+    const side = { ArrowLeft: "left", ArrowRight: "right", ArrowUp: "top", ArrowDown: "bottom" }[event.key];
+    if (!side && event.key !== "Home") return;
+    event.preventDefault();
+    event.stopPropagation();                       // the keys are the plate's here, not a list's
+    if (event.key === "Home") resetLayout();
+    else if (wide()) movePanel(name, name === "view" ? "tests" : "view", side);
+    if (panelOf(name)) panelOf(name).querySelector(".plate").focus();      // taken out and put back: its plate keeps the keys
+  });
+  const fold = panel.querySelector(".fold");
+  if (fold) {
+    fold.addEventListener("click", () => {
+      const at = layout.shut.indexOf(name);
+      if (at >= 0) layout.shut.splice(at, 1);
+      else layout.shut.push(name);
+      applySizes();
+      keepLayout();
+    });
+  }
 }
 
 function installPanels() {
   const kept = keptLayout();
   if (kept) Object.assign(layout, kept);
+  for (const name of BASE) wirePanel(panelOf(name), name);
   buildLayout();
-  let line = null;                                 // where the panel being dragged would go
-  const hide = () => { if (line) line.remove(); line = null; };
-  const place = (x, y, skip) => {                  // the panel nearest the pointer, and the side of it the pointer is at
-    let best = null;
-    for (const name of PANELS) {
-      if (name === skip) continue;
-      const r = panelOf(name).getBoundingClientRect();
-      const ox = x < r.left ? r.left - x : x > r.right ? x - r.right : 0;
-      const oy = y < r.top ? r.top - y : y > r.bottom ? y - r.bottom : 0;
-      const far = Math.hypot(ox, oy);
-      if (best && far >= best.far) continue;
-      const fx = (x - (r.left + r.right) / 2) / Math.max(1, r.width);
-      const fy = (y - (r.top + r.bottom) / 2) / Math.max(1, r.height);
-      best = { v: name, r: r, far: far, side: Math.abs(fx) >= Math.abs(fy) ? (fx < 0 ? "left" : "right") : (fy < 0 ? "top" : "bottom") };
-    }
-    return best;
-  };
-  const show = (to) => {
-    if (!line) { line = el("div", { class: "dropbar" }); document.body.append(line); }
-    const r = to.r;
-    const across = to.side === "left" || to.side === "right";
-    line.style.left = (to.side === "right" ? r.right - 4 : r.left) + "px";
-    line.style.top = (to.side === "bottom" ? r.bottom - 4 : r.top) + "px";
-    line.style.width = (across ? 4 : r.width) + "px";
-    line.style.height = (across ? r.height : 4) + "px";
-  };
-  for (const name of PANELS) {
-    const panel = panelOf(name);
-    const plate = panel.querySelector(".plate");
-    plate.addEventListener("pointerdown", (event) => {
-      if (event.button !== 0 || !wide()) return;
-      const from = [event.clientX, event.clientY];
-      let on = false;
-      let to = null;
-      const move = (e) => {
-        if (!on) {
-          if (Math.abs(e.clientX - from[0]) + Math.abs(e.clientY - from[1]) < 6) return;
-          on = true;
-          panel.classList.add("moving");
-          document.body.classList.add("paneldrag");
-        }
-        to = place(e.clientX, e.clientY, name);
-        if (to) show(to);
-      };
-      const end = (done) => {
-        window.removeEventListener("pointermove", move);
-        window.removeEventListener("pointerup", up);
-        window.removeEventListener("pointercancel", cancel);
-        window.removeEventListener("keydown", key, true);
-        hide();
-        panel.classList.remove("moving");
-        document.body.classList.remove("paneldrag");
-        if (done && on && to) movePanel(name, to.v, to.side);
-      };
-      const up = () => end(true);
-      const cancel = () => end(false);
-      const key = (e) => { if (e.key === "Escape") { e.stopPropagation(); end(false); } };
-      window.addEventListener("pointermove", move);
-      window.addEventListener("pointerup", up);
-      window.addEventListener("pointercancel", cancel);
-      window.addEventListener("keydown", key, true);
-    });
-    plate.addEventListener("dblclick", resetLayout);
-    // without a drag: with the plate in focus an arrow puts the panel on that side of the view (the view, of the
-    // tests), and Home puts the panels back
-    plate.tabIndex = 0;
-    plate.setAttribute("role", "button");
-    plate.setAttribute("aria-label", "the " + name + " panel: an arrow key moves it to that side of the "
-      + (name === "view" ? "tests" : "view") + ", Home puts the panels back");
-    plate.addEventListener("keydown", (event) => {
-      const side = { ArrowLeft: "left", ArrowRight: "right", ArrowUp: "top", ArrowDown: "bottom" }[event.key];
-      if (!side && event.key !== "Home") return;
-      event.preventDefault();
-      event.stopPropagation();                     // the keys are the plate's here, not a list's
-      if (event.key === "Home") resetLayout();
-      else if (wide()) movePanel(name, name === "view" ? "tests" : "view", side);
-      plate.focus();                               // the panel was taken out and put back: its plate keeps the keys
-    });
-    const fold = panel.querySelector(".fold");
-    if (fold) {
-      fold.addEventListener("click", () => {
-        const at = layout.shut.indexOf(name);
-        if (at >= 0) layout.shut.splice(at, 1);
-        else layout.shut.push(name);
-        applySizes();
-        keepLayout();
-      });
-    }
+  // a view's tab, dragged onto a side of a panel, gives the view a panel of its own there; the dock button does the
+  // same for the view shown, under the tests
+  for (const button of document.querySelectorAll("#tabs button[data-tab]")) {
+    dragToPlace(button, null, () => button, (to) => popOut(button.dataset.tab, to.v, to.side));
   }
+  $("pop").addEventListener("click", () => popOut(state.tab, "tests", "bottom"));
   // the one-column page: the view's lower edge drags its height
   const grip = el("div", { class: "grip under", title: "drag to size the drawing; double-click to put it back" });
   grip.addEventListener("pointerdown", (event) => {
@@ -2407,7 +2655,7 @@ function installPanels() {
 // lit), or on the Ranking tab its lanes (another is lit). Right goes to the case's list and Left back to the
 // battery. Home and End go to a list's ends. Escape lets go of what is lit.
 function keyList() {
-  if (state.tab === "ranking") {
+  if (ranking()) {
     return { rows: [...document.querySelectorAll("#ranking tr.case")], at: (tr) => tr.classList.contains("take"),
       go: (tr) => {
         if (state.takeAway.length > 1) return;     // several are picked: they are a set, not a place in the list
@@ -2440,7 +2688,7 @@ function installKeys() {
     if (t instanceof HTMLTextAreaElement || t instanceof HTMLSelectElement || (t && t.isContentEditable)) return;
     if (t instanceof HTMLInputElement && !["checkbox", "radio", "button"].includes(t.type)) return;      // typing
     if (event.key === "Escape") {
-      if (state.tab === "ranking" && state.takeAway.length) {
+      if (ranking() && state.takeAway.length) {
         state.takeAway = [];
         renderRanking();
         drawHeat();
@@ -2450,7 +2698,7 @@ function installKeys() {
       return;
     }
     if (event.key === "ArrowRight" || event.key === "ArrowLeft") {
-      if (state.tab === "ranking") return;
+      if (ranking()) return;
       state.keys = event.key === "ArrowRight" && state.current ? "case" : "battery";
       event.preventDefault();
       return;
@@ -2504,10 +2752,8 @@ async function start() {
     key.addEventListener("click", () => onlyKind(key.dataset.kind));
     key.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onlyKind(key.dataset.kind); } });
   }
-  $("fit").addEventListener("click", () => {
-    const view = document.querySelector(state.tab === "sheet" ? "#sheet-svg" : "#fabric-svg");
-    if (view) view.dispatchEvent(new Event("fit"));
-  });
+  for (const button of document.querySelectorAll("#zoom button")) button.addEventListener("click", () => zoomView(button.dataset.zoom));
+  for (const button of document.querySelectorAll("#side-tabs button")) button.addEventListener("click", () => showSide(button.dataset.side));
   $("controls").addEventListener("submit", (event) => { event.preventDefault(); runBattery(); });
   $("ohms").addEventListener("input", () => {
     state.ohms = Number($("ohms").value) || state.info.ohms;
@@ -2517,7 +2763,10 @@ async function start() {
   $("filter-unclean").addEventListener("change", renderBattery);
   $("filter-changed").addEventListener("change", renderBattery);
   for (const button of document.querySelectorAll("#tabs button[data-tab]")) {
-    button.addEventListener("click", () => showTab(button.dataset.tab));
+    button.addEventListener("click", () => {
+      if (button.dataset.dragged) return delete button.dataset.dragged;      // it was dragged out, not clicked
+      showTab(button.dataset.tab);
+    });
     button.setAttribute("aria-pressed", String(button.classList.contains("on")));
   }
   $("compare").addEventListener("change", () => {
@@ -2540,7 +2789,7 @@ async function start() {
   $("drop-hint").hidden = Boolean(STATIC);
 
   if (STATIC) {
-    document.querySelector('#tabs button[data-tab="ranking"]').hidden = !STATIC.rank;      // there when one travelled
+    $("side-tabs").hidden = !STATIC.rank;         // the ranking's face is there when one travelled
     for (const id of ["variant", "baseline", "arrangement", "run", "live"]) $(id).disabled = true;
     // what cannot be changed here is said once, in words ("Shown:"), and takes no room: the table is what there is to use
     for (const id of ["variant", "arrangement"]) $(id).closest("label").hidden = true;
@@ -2560,9 +2809,9 @@ async function start() {
     renderBattery();
     const first = state.run.rows.find((r) => r.case === kept.selected) || state.run.rows.find(unclean) || state.run.rows[0];
     if (first) await selectCase(first.case);
-    const tab = document.querySelector('#tabs button[data-tab="' + (kept.tab === "sheet" || kept.tab === "ranking" ? kept.tab : "fabric") + '"]');
-    if (tab && !tab.hidden && tab.dataset.tab !== "fabric") showTab(tab.dataset.tab);
-  }
+    showTab(kept.tab in VIEWS ? kept.tab : state.tab);       // and the tabs of the views that have panels of their own go
+    if (kept.side === "ranking" && STATIC.rank) showSide("ranking");
+  } else if (layout.out.length) showTab(state.tab);
 }
 
 start().catch((err) => {

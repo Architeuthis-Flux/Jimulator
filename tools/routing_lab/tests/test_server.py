@@ -636,7 +636,8 @@ class Server(unittest.TestCase):
                      "lab.py rank --needed", "needed: the exact solver proves"):
             self.assertIn(used, js)
         page = self.c.get("/", token=None).body
-        self.assertIn('data-tab="ranking"', page)
+        self.assertIn('data-side="ranking"', page)                    # the right panel's other face, not a view
+        self.assertNotIn('data-tab="ranking"', page)
         css = self.c.get("/lab.css", token=None).body
         self.assertIn(".heat", css)
         for rule in re.findall(r"[^{}]*\.heat[^{}]*\{[^}]*\}", css):

@@ -78,7 +78,7 @@ def write(path, variant_spec, baseline_spec=None, classes=("dense", "real", "str
         if which:
             which["name"] = _shown_name(which["name"])
     info = dict(server.info(), sheet=sheet_data is not None, variants=[], solver=False, fabric=fabric_view.layout(a),
-                nodes=server.nodes_of(a), arrangements=[server.arrangement_row(a)])
+                nodes=server.nodes_of(a), pins=server.pins_of(a), arrangements=[server.arrangement_row(a)])
     ranking = server.ranking_on_file(v, a)
     if ranking:
         ranking["variant"] = run["variant"]         # the same router (it is found by its hash), under the name the page shows

@@ -348,7 +348,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def api_get_fabric(self, query, body):
         """The drawing of an arrangement's copper, and its nodes."""
         a = self.arrangement_of(query.get("arrangement"))
-        return {"fabric": fabric_view.layout(a), "nodes": nodes_of(a), "arrangement": arrangement_row(a)}
+        return {"fabric": fabric_view.layout(a), "nodes": nodes_of(a), "pins": pins_of(a), "arrangement": arrangement_row(a)}
 
     def api_post_board(self, query, body):
         """What a board printed for `b` (see board.py), judged and kept as a
@@ -461,7 +461,8 @@ def info(trees=()):
     named = [{"spec": t, "name": os.path.basename(t)} for t in trees]
     return {"classes": lab.CLASSES, "variants": [{"spec": "worktree", "name": "worktree"}] + named,
             "verified": lab.verified_against_a_board(), "ohms": lab.OHMS, "about": lab.about(),
-            "fabric": fabric_view.layout(), "nodes": nodes_of(arrangement.V5), "arrangements": arrangements(),
+            "fabric": fabric_view.layout(), "nodes": nodes_of(arrangement.V5), "pins": pins_of(arrangement.V5),
+            "arrangements": arrangements(),
             "sheet": (SHEET_DIR / "overlay.json").is_file(), "solver": ceiling.solver_installed()}
 
 
@@ -475,6 +476,13 @@ def ranking_on_file(v, a):
     wires = {w["wire"]: [list(p) for p in w["pins"]] for w in rank.wires(a)}
     return dict(doc, made=time.strftime("%Y-%m-%d %H:%M", time.localtime(where.stat().st_mtime)),
                 stale=not rank.same_copper(doc, rank.fabric_of(a), a.feed, wires, rank.nodes_as_v5(a)))
+
+
+def pins_of(a):
+    """{chip: {"x": [the wire on each of 16 pins], "y": [on each of 8]}} of an
+    arrangement, None where it has no copper on a pin: what the page needs to
+    draw the crossbars as the board prints them."""
+    return {chip: {"x": list(a.X_NET[chip]), "y": list(a.Y_NET[chip])} for chip in a.CHIPS}
 
 
 def nodes_of(a):

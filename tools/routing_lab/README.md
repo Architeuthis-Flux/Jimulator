@@ -76,8 +76,15 @@ click a case.
   pin taken away and a thin ring a pin on another wire than V5 has it on; a
   wire of no shape V5 has (a rail on a pin of every chip) is drawn as a bus
   on a level of its own.
-- **Ranking tab.** The fabric tinted by what the router loses without each
-  wire, or by how many netlists are proved to need it, with the table beside
+- **Crossbars tab.** The twelve chips as the board itself prints them (its
+  `C` command): a row for each X pin, a column for each Y pin, a block
+  where the two are joined, lines along the pins that carry something in
+  their net's colour, and the wire on each pin named at the row's end and
+  under the column. A block lights its net and a name picks its wire, as in
+  the fabric. Selecting the text copies the board's own characters.
+- **Ranking**, the second face of the case panel (the small "ranking" on
+  its bar). The table is there and the fabric wears its tint: what the
+  router loses without each wire, or how many netlists are proved to need
   it. See "The lane ranking".
 - **KiCad sheet tab.** The board's own schematic with the same result drawn
   over it: lit wires, lanes followed along their bus from chip to chip, a
@@ -86,7 +93,7 @@ click a case.
   `python3 tools/routing_lab/lab.py sheet [board.kicad_sch] [--theme NAME]`
   (needs KiCad's `kicad-cli`; the default is the V5 r7 sheet in
   `~/Documents/GitHub/JumperlessV5`).
-- **Marks, both tabs.** Red is a problem and nothing else is red: a wire
+- **Marks, fabric and sheet.** Red is a problem and nothing else is red: a wire
   carrying two nets (a short), a net on a node that is in no net (a stray),
   or a ring where the chip status and the copper disagree (a closed pin
   nobody claims, a claim for another net, or, in the cases judged strictly,
@@ -109,16 +116,24 @@ click a case.
   legend, or a count in the case panel, shows that kind of mark alone. The
   same click again, a click on the empty drawing, or Escape lets go. The
   arrow keys move through the tests; Right goes to the case's bridges and
-  nets and Left back; on the Ranking tab they move through the lanes. A
-  column head sorts the cases of each class by it. **fit** shows the whole
-  drawing, and the view's corner says how far in it is.
+  nets and Left back; with the ranking open they move through the lanes. A
+  column head sorts the cases of each class by it. The three buttons in the
+  drawing's corner zoom out, fit and zoom in (on the sheet a second **fit**
+  shows the whole sheet; on the crossbars they size the text), and the
+  corner says how far in the drawing is.
 - **Panels.** The page is three panels: the tests, the view and the case.
   Drag a panel by its name plate onto a side of another and it goes there;
   drag the line between two to size them; the button on a panel's bar folds
-  it to the bar. A double-click on a plate puts all of it back. The browser
-  keeps the arrangement, the sizes and what is folded, and for each page
-  the tab, the case and the table's order it was left on. On a narrow
-  screen the panels are one column, the view on top, and only fold.
+  it to the bar. A double-click on a plate puts all of it back. The view's
+  tabs pick a view and nothing else, and a view can have a panel of its
+  own, so that the fabric, the sheet and the crossbars show at once: drag
+  its tab onto a side of a panel, or press **dock** for the view shown (it
+  goes under the tests). Such a panel has its own zoom buttons, and
+  **tabs** on its bar puts the view back. One view always stays among the
+  tabs. The browser keeps the arrangement, the sizes, what is folded and
+  which views have panels, and for each page the tab, the case and the
+  table's order it was left on. On a narrow screen the panels are one
+  column, the view on top, and only fold.
 - **The look.** Jumperless's greys, rainbow and magenta, on panels cut like
   a ship's console: name plates, cut corners, narrow capital labels. Red
   still means a problem and nothing else. The fonts (Archivo Narrow, IBM
@@ -166,7 +181,7 @@ server (table, case panel, fabric view, missed paths and spare copies; not
 the KiCad backdrop, and it cannot ask the solver). With `--arrangement NAME`
 the run is on that arrangement, one the firmware's router can route, and the
 page is drawn on its copper. The ranking kept for the router on it travels
-too and shows on the Ranking tab; the page cannot make one or run without
+too and shows as the page's ranking; the page cannot make one or run without
 wires. On a narrow screen the page is one column, the drawing on top; one
 finger pans it and two zoom. `clean` deletes the caches
 under `build/` (results, variant trees, binaries, solver answers), which grow
@@ -539,7 +554,7 @@ primaries.
 
 **One wire at a time.** Every line is about taking that one wire away. Two
 wires that are each not needed may be needed together. To ask about a set,
-take them all away and run: on the page's Ranking tab, click the wires (in
+take them all away and run: with the page's ranking open, click the wires (in
 the drawing or the table), then "Run without these". The run is on the
 arrangement "NAME without A, B"; the text of a file for it is shown under
 the Arrangement picker, to save under `arrangements/` if it is worth
@@ -556,10 +571,10 @@ copper is what it was. The solver's work is never thrown away: whenever a
 file holding it would be written over (the copper changed, or a new
 `--needed` over other classes), the old file is first copied aside beside it
 as `<name>.set-aside.json` (then `-2`, `-3`: one never replaces another), and
-the command and the Ranking tab say so. The tab also says when a ranking is
+the command and the page's ranking say so. The page also says when a ranking is
 of copper the arrangement's file no longer has.
 
-**The Ranking tab** shows the file for the Router named and the arrangement
+**The page's ranking** shows the file for the Router named and the arrangement
 picked: the fabric tinted by the router's loss or by how many netlists need
 each wire (dim through teal to yellow; a wire the router routes more without
 is blue; nothing there is red), and the table, sorted by a click on a

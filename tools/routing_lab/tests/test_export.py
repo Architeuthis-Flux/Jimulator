@@ -120,6 +120,50 @@ class Export(unittest.TestCase):
             self.assertEqual(lab.main(["export", str(out), "--classes", "real", "--arrangement", "v6_feed_off"]), 0)
         self.assertEqual(carried(out)["run"]["arrangement"]["name"], "v6_feed_off")
 
+    def test_the_tabs_pick_a_view_and_a_view_can_have_a_panel_of_its_own(self):
+        js = (server.WEB_DIR / "lab.js").read_text()
+        css = (server.WEB_DIR / "lab.css").read_text()
+        html = (server.WEB_DIR / "index.html").read_text()
+        # the view's tabs pick a view and nothing else: the fabric, the sheet, the crossbars as the board prints them
+        self.assertEqual(re.findall(r'data-tab="(\w+)"', html), ["fabric", "sheet", "xbar"])
+        self.assertIn('id="xbar"', html)
+        for function in ("function drawXbar(", "function shortWire("):
+            self.assertIn(function, js)
+        self.assertIn(".xchip", css)
+        # the ranking is the right panel's other face, and a quiet one
+        self.assertEqual(re.findall(r'data-side="(\w+)"', html), ["case", "ranking"])
+        self.assertIn("function showSide(", js)
+        self.assertNotIn('state.tab === "ranking"', js)
+        self.assertNotIn('state.tab !== "ranking"', js)
+        # zoom has buttons of its own in the drawing's corner: out, fit, in
+        self.assertIn('id="zoom"', html)
+        self.assertEqual(re.findall(r'data-zoom="(\w+)"', html), ["out", "fit", "in"])
+        self.assertIn('"zoomby"', js)
+        # a view can be given a panel of its own (a tab dragged onto a side of a panel, or the dock button), and put back
+        for function in ("function popOut(", "function dockBack(", "function viewPanel("):
+            self.assertIn(function, js)
+        self.assertIn('id="pop"', html)
+        self.assertIn(".viewpanel", css)
+        self.assertRegex(css, r"#tip \{[^}]*position: fixed")            # a tip follows the pointer in whichever panel the view is
+        self.assertIn("function zoomView(how, which = state.tab)", js)   # and such a panel zooms its own view
+        self.assertIn(".vrow > .flexi", css)                              # the panel that takes what is left is never squeezed away
+        # the crossbars' lines and blocks are drawn over the board's letters, in boxes one letter wide: they join in any font
+        self.assertRegex(css, r"\.xchip \.xl, \.xchip \.xblock \{[^}]*width: 1ch")
+
+    def test_the_page_is_told_every_chips_pins(self):
+        pins = server.pins_of(arrangement.V5)                              # for the crossbars drawn as the board prints them
+        self.assertEqual(sorted(pins), list("ABCDEFGHIJKL"))
+        self.assertEqual((len(pins["K"]["x"]), len(pins["K"]["y"])), (16, 8))
+        self.assertEqual(pins["K"]["x"][2], "ROUTABLE_BUFFER_IN")
+        self.assertEqual(pins["A"]["y"][1], "1")
+        self.assertEqual(server.pins_of(arrangement.load("v6_rails_on_chips"))["A"]["x"][7], "TOP_RAIL")
+        self.assertIsNone(server.pins_of(rank.without(arrangement.V5, "KL"))["K"]["x"][12])     # a pin taken away is no wire
+        self.assertEqual(server.info()["pins"], pins)
+        out = self.tmp / "pins.html"
+        with mock.patch.object(rank, "DIR", self.tmp / "rank"):
+            export.write(out, "worktree", classes=("real",), arrangement_name="v6_feed_off")
+        self.assertEqual(carried(out)["info"]["pins"]["L"]["x"][0], "30")
+
     def test_the_kicad_sheet_travels_beside_the_page_when_asked_for(self):
         built = self.tmp / "sheet"
         built.mkdir()
@@ -193,7 +237,6 @@ class Export(unittest.TestCase):
         self.assertRegex(css, r"#said \{[^}]*position: absolute")       # over the drawing: what it says moves nothing
         for function in ("function say(", "function touchWire(", "function named(", "function point(", "function letGo("):
             self.assertIn(function, js)
-        self.assertIn('id="fit"', html)                                # the drawing back to whole, without a double-click
         self.assertIn("state.sort", js)                                # the battery sorts by a column, as the ranking does
         self.assertIn(".wire.pick", css)
         self.assertIn(".bridges tr.at", css)
