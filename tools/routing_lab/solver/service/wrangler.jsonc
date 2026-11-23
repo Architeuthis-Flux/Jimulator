@@ -1,0 +1,23 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "routing-lab-solver",
+	"main": "src/index.js",
+	"compatibility_date": "2026-09-29",
+	// A question whose asker has gone is stopped (index.js listens to request.signal).
+	"compatibility_flags": ["enable_request_signal"],
+	// Reachable only on the page's own hostname: no workers.dev address, no preview addresses.
+	"workers_dev": false,
+	"preview_urls": false,
+	"routes": [{ "pattern": "slopswap.org/api/solve", "zone_name": "slopswap.org" }],
+	"observability": { "enabled": true },
+	"containers": [
+		{
+			"class_name": "Solver",
+			"scheduling_policy": "durable_object",
+			// Built with solver/ as the context, so the image holds the lab's own solve.py.
+			"images": { "solver": { "dockerfile": "./Dockerfile", "build_context": ".." } }
+		}
+	],
+	"durable_objects": { "bindings": [{ "name": "SOLVER", "class_name": "Solver" }] },
+	"exports": { "Solver": { "type": "durable-object", "storage": "sqlite" } }
+}

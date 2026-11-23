@@ -1,0 +1,3 @@
+# service/Dockerfile is built with this folder as its context. Only the solver goes in.
+*
+!solve.py
