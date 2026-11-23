@@ -385,6 +385,33 @@ svg[data-only="refused"] .s-want.refused, svg[data-only="ghost"] .ghost, svg[dat
 .bridges tr.at td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
 ul.problems li.names, ul.notes li.names { cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px; }
 
+/* a board linked over port 7 (lab.js, connectBoard): what the link says, under its button, in words and never in red
+   (a board that stands, is gone or is too old is no problem of the routing); and what moved at the board's last
+   change, lit in the colour of a change on every view */
+#link-row { flex-wrap: wrap; gap: 4px 10px; }
+#link-row > p, #link-row > details { flex: 1 0 100%; margin: 0; line-height: 1.35; }
+#link-status { height: 4.1em; overflow-y: auto; }  /* three lines from the start: its words change and nothing moves */
+#link-trace { color: var(--dim); cursor: pointer; font-family: var(--label); font-weight: 600; font-size: 11px; text-transform: uppercase;
+  letter-spacing: .07em; text-decoration: underline dotted; text-underline-offset: 3px; }
+#link-trace:hover { color: var(--accent); }
+#link-sends summary { margin-top: 0; }
+#link-sends p { margin: 4px 0 0; }
+#view-title.link-stale { opacity: .5; }
+#view-title.link-stale::after { content: attr(data-read); }
+svg .link-closed { fill: none; stroke: var(--changed); stroke-width: 1.6; pointer-events: none; }
+svg .link-opened { fill: none; stroke: var(--dim); stroke-width: 1.2; pointer-events: none; }
+.s-link { fill: none; vector-effect: non-scaling-stroke; pointer-events: none; }
+.s-link.link-closed { stroke-width: 7; stroke-linecap: round; opacity: .55; }
+.s-link.link-opened { stroke-width: 1.8; stroke-dasharray: 3 3; }
+.xchip .link-closed { outline: 1px solid var(--changed); outline-offset: 0; }
+.xchip .link-opened { outline: 1px solid var(--dim); outline-offset: -1px; opacity: 1; }
+.bridges tr.link-moved:not(.at) td:first-child { box-shadow: inset 3px 0 0 var(--changed); }
+.bridges .moved-words { color: var(--changed); font-size: 11px; padding-left: 15px; white-space: normal; }
+svg.isolating .link-closed:not(.iso), svg.isolating .link-opened { opacity: .12; }
+svg[data-only] .link-closed, svg[data-only] .link-opened { opacity: .1; }
+svg[data-only="link-closed"] .link-closed, svg[data-only="link-opened"] .link-opened { opacity: 1; }
+svg[data-only="link-closed"] .s-link.link-closed { opacity: .55; }
+
 /* a screen too narrow for the panels side by side (a phone, a small window): they become one page. The view comes
    first and keeps its place at the top while the rest scrolls under it: the tests (capped, scrolling inside
    themselves), then the case or the ranking. The panels are not moved here; they still fold. */

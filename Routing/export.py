@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 """One battery run as a single HTML file that opens anywhere and asks nothing.
 
-The file is the page (index.html with lab.css and lab.js inlined) plus
+The file is the page (index.html with lab.css, board_port.js and lab.js inlined) plus
 window.LAB_STATIC = {info, run, cases, rank, when}: what the server would have
 answered. It carries no token, no path under the home directory, and not the
 KiCad sheet backdrop (10 MB, and its bitmap) unless asked to; the sheet tab
@@ -32,6 +32,8 @@ def page(static):
             ('<link rel="stylesheet" href="lab.css">',
              "<style>\n%s</style>" % (server.WEB_DIR / "lab.css").read_text(encoding="utf-8")),
             ('<script>window.LAB_TOKEN = "__LAB_TOKEN__";</script>', "<script>window.LAB_STATIC = %s;\n</script>" % data),
+            ('<script src="board_port.js"></script>',
+             "<script>\n%s</script>" % (server.WEB_DIR / "board_port.js").read_text(encoding="utf-8")),
             ('<script src="lab.js"></script>',
              "<script>\n%s</script>" % (server.WEB_DIR / "lab.js").read_text(encoding="utf-8"))):
         if tag not in html:

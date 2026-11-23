@@ -397,6 +397,16 @@ class Cli(unittest.TestCase):
         self.assertEqual(code, 1, out)
         self.assertIn("python3 Routing/lab.py solver-setup", out)
 
+    def test_serve_replay_of_a_file_that_is_no_trace_stops_with_the_reason(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "notes.txt")
+            with open(path, "w") as f:
+                f.write("hello\n")
+            with mock.patch("webbrowser.open", side_effect=AssertionError("opened a browser")):
+                code, out = run(["serve", "--replay", path, "--no-open", "--port", "0"])
+        self.assertEqual(code, 1, out)
+        self.assertIn(path, out)
+
     def test_build_prints_the_binary(self):
         code, out = run(["build"])
         self.assertEqual(code, 0)

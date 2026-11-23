@@ -60,8 +60,9 @@ class Refused(Exception):
 class LabServer(http.server.ThreadingHTTPServer):
     daemon_threads = True
 
-    def __init__(self, port, trees):
+    def __init__(self, port, trees, replay=None):
         super().__init__(("127.0.0.1", port), Handler)
+        self.replay = replay                # a port 7 trace the page replays in place of a board (serve --replay), or None
         self.token = secrets.token_urlsafe(24)
         self.trees = [str(Path(t).expanduser().resolve()) for t in trees]
         self.runs = {}                      # (variant hash, arrangement name) -> {case name: result}
@@ -74,8 +75,24 @@ class LabServer(http.server.ThreadingHTTPServer):
         return "http://127.0.0.1:%d/" % self.server_address[1]
 
 
-def make_server(port=0, trees=()):
-    return LabServer(port, trees)
+def make_server(port=0, trees=(), replay=None):
+    return LabServer(port, trees, replay)
+
+
+TRACE_HEAD = "routing lab port 7 trace"
+
+
+def trace_text(path):
+    """The text of a port 7 trace file (web/board_port.js writes and replays
+    them); ValueError naming the file when its first line is not a trace's header."""
+    text = Path(path).read_text(encoding="utf-8")
+    try:
+        head = json.loads(text.split("\n", 1)[0])
+    except ValueError:
+        head = None
+    if not (isinstance(head, dict) and head.get("h") == 1 and head.get("what") == TRACE_HEAD):
+        raise ValueError("%s is not a port 7 trace: its first line is not {\"h\": 1, \"what\": \"%s\", ...}" % (path, TRACE_HEAD))
+    return text
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -260,7 +277,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     # --- API -----------------------------------------------------------------------
     def api_get_info(self, query, body):
-        return info(self.server.trees)
+        return dict(info(self.server.trees), replay=self.server.replay is not None)
+
+    def api_get_replay(self, query, body):
+        """The trace the server was started with, for the page's fake port."""
+        if self.server.replay is None:
+            raise Refused(404, "this server was not started with a trace", hint="python3 Routing/lab.py serve --replay FILE")
+        return {"trace": self.server.replay}
 
     def api_post_run(self, query, body):
         """The battery on an arrangement: {"variant", "baseline", "classes",

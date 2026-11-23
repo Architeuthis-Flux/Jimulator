@@ -68,8 +68,8 @@ class Client:
 
 
 @contextlib.contextmanager
-def running(trees=()):
-    srv = server.make_server(0, trees)
+def running(trees=(), replay=None):
+    srv = server.make_server(0, trees, replay=replay)
     thread = threading.Thread(target=srv.serve_forever, daemon=True)
     thread.start()
     try:
@@ -148,7 +148,7 @@ class Server(unittest.TestCase):
         for anchor in ('id="battery"', 'id="fabric"', 'id="case"', 'id="build-error"'):
             self.assertIn(anchor, page)
         for text in (self.c.get("/lab.js", token=None).body, self.c.get("/lab.css", token=None).body):
-            self.assertNotRegex(text, r"https?://(?!www\.w3\.org/)")  # only the SVG namespace
+            self.assertNotRegex(text, r"https?://(?!www\.w3\.org/|github\.com/Architeuthis-Flux/JumperlOS/releases)")  # only the SVG namespace
 
     def test_info_names_every_node(self):
         nodes = self.c.get("/api/info").json["nodes"]
@@ -288,7 +288,7 @@ class Server(unittest.TestCase):
             self.assertIn(used, js)
         self.assertEqual(subprocess.run(["node", "--check", str(server.WEB_DIR / "lab.js")]).returncode, 0)
         for text in (js, self.c.get("/lab.css", token=None).body):
-            self.assertNotRegex(text, r"https?://(?!www\.w3\.org/)")  # still nothing from the network
+            self.assertNotRegex(text, r"https?://(?!www\.w3\.org/|github\.com/Architeuthis-Flux/JumperlOS/releases)")  # still nothing from the network
         self.assertIn(".ghost", self.c.get("/lab.css", token=None).body)
 
     def test_info_says_whether_the_solver_is_there(self):
@@ -332,7 +332,7 @@ class Server(unittest.TestCase):
                      "Not known after", "info.solver", "lab.py solver-setup"):
             self.assertIn(used, js)
         self.assertEqual(subprocess.run(["node", "--check", str(server.WEB_DIR / "lab.js")]).returncode, 0)
-        self.assertNotRegex(js, r"https?://(?!www\.w3\.org/)")
+        self.assertNotRegex(js, r"https?://(?!www\.w3\.org/|github\.com/Architeuthis-Flux/JumperlOS/releases)")
 
     def test_a_board_read_again_says_what_changed(self):
         captures = server.lab.FIDELITY_DIR / "board_0621e4f44e23"
@@ -347,6 +347,31 @@ class Server(unittest.TestCase):
         for bad in ({"about": 5}, {"live": 1}):
             r = self.c.post("/api/board", dict({"name": "x", "text": text("sf_to_sf")}, **bad))
             self.assertEqual(r.status, 400, bad)
+
+    def test_the_page_connects_a_board_on_port_7_and_sends_only_the_five(self):
+        js = self.c.get("/lab.js", token=None).body
+        for used in ('"/api/replay"', "function connectBoard", "async function showReading", "function drawMoved",
+                     "requestPort({ filters: [BOARD_PORT.FILTER] })", '"live_board"', '"too_old"', ".forget("):
+            self.assertIn(used, js)
+        for never in ("getWriter", "setSignals", "baudRate: 1200", ":oled"):      # the link writes; the page never does
+            self.assertNotIn(never, js)
+        self.assertEqual(subprocess.run(["node", "--check", str(server.WEB_DIR / "lab.js")]).returncode, 0)
+        r = self.c.get("/board_port.js", token=None)
+        self.assertEqual(r.status, 200)
+        self.assertIn("javascript", r.headers["Content-Type"])
+        page = self.c.get("/", token=None).body
+        self.assertLess(page.index('<script src="board_port.js"></script>'), page.index('<script src="lab.js"></script>'))
+        for anchor in ('id="connect"', 'id="link-sends"', "Nothing is sent to any other port"):
+            self.assertIn(anchor, page)
+        for never in ("b (its routing report)", "Couldn't find a path"):
+            self.assertNotIn(never, page)
+        css = self.c.get("/lab.css", token=None).body
+        rules = [body for head, body in re.findall(r"([^{}]*)\{([^{}]*)\}", css) if re.search(r"link-(closed|opened)", head)]
+        self.assertTrue(rules)
+        for body in rules:                                              # what moved is lit, and not as a problem
+            self.assertNotIn("--problem", body)
+        self.assertIs(self.c.get("/api/info").json["replay"], False)
+        self.assertEqual(self.c.get("/api/replay").status, 404)
 
     def test_board_output_is_judged_kept_and_served_like_a_run(self):
         captures = server.lab.FIDELITY_DIR / "board_0621e4f44e23"
@@ -389,7 +414,7 @@ class Server(unittest.TestCase):
         self.assertNotIn("0.85", js)                                    # the fixed step a trackpad fired sixty times a second
         self.assertIn('id="drop-hint"', self.c.get("/", token=None).body)
         self.assertEqual(subprocess.run(["node", "--check", str(server.WEB_DIR / "lab.js")]).returncode, 0)
-        self.assertNotRegex(js, r"https?://(?!www\.w3\.org/)")
+        self.assertNotRegex(js, r"https?://(?!www\.w3\.org/|github\.com/Architeuthis-Flux/JumperlOS/releases)")
 
     def test_the_page_says_what_is_running_and_what_is_shown(self):
         page = self.c.get("/", token=None).body
@@ -844,6 +869,17 @@ class Server(unittest.TestCase):
         self.assertEqual(self.c.get("/api/nope").status, 404)
         self.assertEqual(self.c.request("POST", "/api/run", raw=b"{not json").status, 400)
         self.assertEqual(self.c.request("POST", "/api/run", raw=b"[1, 2]").status, 400)
+
+
+class Replay(unittest.TestCase):
+    def test_a_server_started_with_a_trace_hands_it_to_the_page(self):
+        trace = (server.LAB / "tests" / "fixtures" / "port7_built.jsonl").read_text()
+        with running(replay=trace) as c:
+            self.assertIs(c.get("/api/info").json["replay"], True)
+            r = c.get("/api/replay")
+            self.assertEqual(r.status, 200)
+            self.assertEqual(r.json, {"trace": trace})
+            self.assertEqual(c.get("/api/replay", token=None).status, 403)
 
 
 if __name__ == "__main__":

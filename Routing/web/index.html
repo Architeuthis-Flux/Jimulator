@@ -36,6 +36,13 @@
         <label class="inline first" title="What one closed crosspoint is taken to be, for the ohm columns. 42 is what a board measured.">ohms per crosspoint <input id="ohms" type="number" min="1" step="1" value="42"></label>
       </div>
       <p id="drop-hint" class="hint" title="A b report copied from a terminal or saved from a serial log; with the port-7 ':crossbar' reply too if you have it. Source files dropped here replace the router's own for the next Run.">Drop or paste a board's <b>b</b> output to see what it routed. Drop a source file to try it.</p>
+      <div class="row" id="link-row">
+        <button id="connect" type="button" title="Read the routing of a Jumperless V5 plugged into this computer, over its fourth USB serial port, and redraw it when it changes">Connect a board</button>
+        <button id="link-again" type="button" class="quiet" hidden title="read the board's routing now, whether or not its counter has moved">read again</button>
+        <a id="link-trace" hidden title="every byte sent to the board and received from it since Connect, one exchange a line (JSON Lines)">save trace</a>
+        <p id="link-status" class="hint"></p>
+        <details id="link-sends" class="hint"><summary>what the page sends</summary><p>To the board's fourth port only, and only after you press Connect. N once: its net list, which proves the port is the right one. :ver once: its firmware version. :gen twice a second: a counter that moves when the board rebuilds its routing, and whether it has finished sending it. :paths and :crossbar when that counter has moved: its routing report, and which crosspoints are closed. All five are questions. None makes, removes or reroutes a connection, and none prints on the board's own terminal. Nothing is sent to any other port. The picker lists the board's four ports and they look alike: pick the one whose name ends port7 (macOS), or the last of the four. A wrong port gets the one N and is closed. Opening the second one by mistake can reset an Arduino plugged into the board.</p></details>
+      </div>
       <div id="drawn"></div>
       <p id="verified" hidden>not verified against a board</p>
       <p id="exported" hidden></p>
@@ -95,6 +102,7 @@
     <div class="body" id="ranking" hidden></div>
   </section>
 </main>
+<script src="board_port.js"></script>
 <script src="lab.js"></script>
 </body>
 </html>

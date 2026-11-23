@@ -47,6 +47,12 @@ const state = {
   drawn: [],         // the netlist made by clicking nodes: [[node, node]]
   drawnFrom: null,   // {cls, case} whose settings it is routed with, when it started from a case of the battery
   from: null,        // the node picked up by a first click, waiting for the second
+  // a board linked over port 7 (connectBoard). name: "idle", or a state of the link; moved: the last "changed" the
+  // server gave that held anything; held: the newest reading, waiting for a run or a post to be done; granted: the
+  // ports the browser already lets this page open; run: the server's newest answer for the board's run; first: the
+  // next reading is the link's first; movedAt: when the board changed while another run or case was shown
+  link: { link: null, name: "idle", words: "", fw: null, moved: null, held: null, granted: [],
+          run: null, first: true, posting: false, movedAt: null },
 };
 
 // The solver's word on one case of one run: asked (busy) on the copper of the arrangement `on`, answered (answer,
@@ -659,6 +665,7 @@ async function runBattery(without) {
     state.busy = false;
     renderArrangement();
     renderDrawn();
+    takeHeld();
   }
 }
 
@@ -685,20 +692,8 @@ async function showBoards(list) {
   $("busy").hidden = false;
   renderArrangement();
   try {
-    let data = null;
-    for (const [name, text] of list) data = await api("/api/board", { name: name, text: text });
-    if (state.arrangement !== "v5") await pickArrangement("v5");      // a board is V5: draw its output on V5's copper
-    $("build-error").hidden = true;
-    state.run = data;
-    state.cases = {};
-    forgetDrawn();
-    state.compare = false;
-    $("compare").checked = false;
-    $("compare-box").hidden = true;
-    state.closed.board = false;
-    renderRegressions();
-    renderBattery();
-    await selectCase(data.shown);
+    const data = await postBoards(list);
+    await takeBoardRun(data, data.shown);
   } catch (err) {
     showProblem(err.message);
   } finally {
@@ -706,7 +701,31 @@ async function showBoards(list) {
     state.busy = false;
     renderArrangement();
     renderDrawn();
+    takeHeld();
   }
+}
+
+// Reports posted to the server, each kept as a case of the board's run; its answer for the last.
+async function postBoards(list, about, live) {
+  let data = null;
+  for (const [name, text] of list) data = await api("/api/board", { name: name, text: text, about: about, live: live });
+  return data;
+}
+
+// The board's run (the server's answer) becomes the run shown, with the case named selected.
+async function takeBoardRun(data, name) {
+  if (state.arrangement !== "v5") await pickArrangement("v5");      // a board is V5: draw its output on V5's copper
+  $("build-error").hidden = true;
+  state.run = data;
+  state.cases = {};
+  forgetDrawn();
+  state.compare = false;
+  $("compare").checked = false;
+  $("compare-box").hidden = true;
+  state.closed.board = false;
+  renderRegressions();
+  renderBattery();
+  await selectCase(name);
 }
 
 const pastes = new Map();      // pasted text -> the name it was given, so the same paste again is the same case
@@ -719,6 +738,247 @@ function installPaste() {
     if (!pastes.has(text)) pastes.set(text, "pasted_" + (pastes.size + 1));
     showBoards([[pastes.get(text), text]]);
   });
+}
+
+// ---------------------------------------------------------------- a board linked over port 7
+//
+// Connect opens the board's fourth USB serial port (board_port.js, BoardLink), which sends only BOARD_PORT.SENDS,
+// and only after the click. Each reading the link gives is judged as a pasted report is, as the case live_board,
+// and drawn again where it is shown, with what changed since the reading before lit (drawMoved). A board that
+// stands, is gone or is too old is not a problem of the routing: it is said under the button, and never in red.
+
+const LINK_CASE = "live_board";
+const LINK_STALE = ["waiting", "lost", "too_old"];       // the view's title dims, and says when the board was last read
+const tooOld = (fw) => "This board's firmware (" + fw + ") is too old for a live view: it has no :gen and :paths on port 7. "
+  + "They come with " + BOARD_PORT.NEEDS + ": https://github.com/Architeuthis-Flux/JumperlOS/releases. "
+  + "The page does not ask b in their place, because b prints on the board's terminal.";
+
+const linkOpen = () => Boolean(state.link.link && !state.link.link.closing);
+const linkShown = () => Boolean(state.run && state.run.board && state.selected === LINK_CASE && state.current);
+
+function linkSaid(name, words) {
+  state.link.name = name;
+  state.link.words = name === "too_old" ? tooOld(state.link.fw) : words;
+  renderLink();
+}
+
+// The button, the words under it, "read again" and "save trace"; and the view's title while the board stands.
+function renderLink() {
+  const L = state.link;
+  const why = state.info.replay ? null : serialWhyNot(navigator, window.isSecureContext);
+  $("connect").textContent = linkOpen() ? "Disconnect" : L.granted.length === 1 ? "Connect the board again" : "Connect a board";
+  $("connect").disabled = Boolean(why);
+  $("link-again").hidden = !linkOpen() || L.name === "probing";
+  $("link-trace").hidden = !L.link;
+  if (linkShown()) L.movedAt = null;
+  const status = $("link-status");
+  if (why) status.replaceChildren(why);
+  else {
+    status.replaceChildren((L.name === "idle" ? "" : L.name.replace("_", " ") + ": ") + L.words);
+    if (L.movedAt) {
+      status.append(" ", el("span", { class: "does", text: "the board changed at " + L.movedAt,
+        title: "click: show the board's newest reading", onclick: showLinkRun }));
+    }
+  }
+  const title = $("view-title");
+  const stale = linkShown() && LINK_STALE.includes(L.name);
+  const at = L.link && L.link.lastAt;
+  title.classList.toggle("link-stale", stale);
+  title.dataset.read = stale && at ? "   last read " + hhmmss(at) : "";
+}
+
+// The button's click: connect (the port the browser already lets this page open when it is one, else the one picked),
+// or, when linked, disconnect.
+async function connectBoard() {
+  const L = state.link;
+  if (linkOpen()) {
+    L.link.byHand = true;
+    await L.link.close();
+    linkSaid("idle", "disconnected. Nothing more is sent.");
+    return;
+  }
+  let port;
+  try {
+    if (state.info.replay) port = new FakePort((await api("/api/replay")).trace, { gapMs: 300 });
+    else if (L.granted.length === 1) port = L.granted[0];
+    else port = await navigator.serial.requestPort({ filters: [BOARD_PORT.FILTER] });      // the picker needs the click
+  } catch (err) {
+    linkSaid("idle", err.name === "NotFoundError" ? "no port was picked. Nothing was sent." : err.message);
+    return;
+  }
+  // the link takes a throw in these for a port that failed: they show their own faults instead
+  const link = new BoardLink(port, {
+    reading: (r) => { if (state.link.link === link) showReading(r); },
+    state: (name, words) => {
+      try { if (state.link.link === link) linkSaid(name, words); } catch (err) { showProblem("The link's state could not be shown: " + err.message); }
+    },
+  });
+  Object.assign(L, { link: link, fw: null, first: true, held: null });
+  renderLink();
+  try {
+    L.fw = (await link.connect()).fw;
+  } catch (err) {
+    if (link.byHand || L.link !== link) return;   // disconnected while it was being proved
+    const kind = err instanceof LinkError ? err.kind : null;
+    if (kind === "not_port_7") {
+      try { if (port.forget) await port.forget(); } catch (e) { /* the browser keeps it */ }
+      L.granted = L.granted.filter((p) => p !== port);
+      linkSaid("idle", "That port is not the board's fourth. Nothing but one N was sent to it. "
+        + "Pick the one whose name ends port7 (macOS), or the last of the four.");
+    } else if (kind === "busy") {
+      linkSaid("idle", "Port 7 is open in another program or tab (a Jumperlessim viewer, a script). Close it there, then connect again.");
+    } else if (kind === "too_old") {
+      L.fw = err.fw;
+      linkSaid("too_old", "");
+    } else linkSaid("lost", err.message);
+    return;
+  }
+  linkSaid("live", "firmware " + L.fw + ". Reading the board.");
+  link.run();                                      // never throws; it says how it ends
+}
+
+// A reading of the linked board, posted as the case live_board. The first of a link is shown as a pasted report is;
+// a later one replaces that case's row and, when it is the case shown, is drawn where it is with nothing else moved.
+async function showReading(r) {
+  const L = state.link;
+  if (state.busy || L.posting) {                   // the newest waits for the run, or the post, to be done
+    L.held = r;
+    return;
+  }
+  L.posting = true;
+  try {
+    const about = "a V5's own routing, read over port 7 at " + hhmmss(r.at) + ", firmware " + r.fw + ", generation " + r.gen
+      + "; not a run of the lab's router";
+    const data = await postBoards([[LINK_CASE, r.b + "\n" + r.xbar]], about, true);
+    const c = data.changed;
+    L.run = data;
+    if (c && (c.closed.length || c.opened.length || c.bridges.length)) L.moved = c;
+    delete state.cases[data.variant.hash + "/v5/" + LINK_CASE];
+    if (state.busy) {                              // a run began while it was posted: shown when that is done
+      if (!L.held) L.held = r;
+    } else if (L.first) {
+      L.first = false;
+      L.movedAt = null;
+      await takeBoardRun(data, LINK_CASE);
+    } else if (state.run && state.run.board) {
+      const row = data.rows.find((x) => x.case === LINK_CASE);
+      const i = state.run.rows.findIndex((x) => x.case === LINK_CASE);
+      if (i >= 0) state.run.rows[i] = row;
+      else state.run.rows.push(row);
+      const left = $("left").scrollTop;
+      renderBattery();
+      $("left").scrollTop = left;
+      if (state.selected === LINK_CASE) await redrawLinkCase();
+      else L.movedAt = hhmmss(r.at);
+    } else L.movedAt = hhmmss(r.at);
+  } catch (err) {
+    showProblem("A reading of the board could not be shown: " + err.message);
+  } finally {
+    L.posting = false;
+    renderLink();
+    takeHeld();
+  }
+}
+
+// The reading held while a run or a post was out, now that neither is.
+function takeHeld() {
+  const r = state.link.held;
+  if (!r || state.busy || state.link.posting) return;
+  state.link.held = null;
+  showReading(r);
+}
+
+// The board's case, shown, read again: its result and paint fetched again and drawn. The zoom and place of each
+// view, the layout, the tab, the face, the filters, the net lit and the bridge picked stay as they were.
+async function redrawLinkCase() {
+  const run = state.run, mine = state.picking;
+  const current = await caseOf(run.variant, LINK_CASE);
+  if (run !== state.run || mine !== state.picking || state.selected !== LINK_CASE) return;     // a click came first
+  const grid = $("xbar").querySelector(".xgrid");
+  const scrolled = [$("case").scrollTop, grid ? grid.scrollTop : 0, grid ? grid.scrollLeft : 0];
+  state.current = current;
+  state.ceiling = newCeiling(run);                 // the solver's word was on the reading before
+  showMissed();
+  renderCase();
+  redraw();
+  const now = $("xbar").querySelector(".xgrid");
+  $("case").scrollTop = scrolled[0];
+  if (now) [now.scrollTop, now.scrollLeft] = [scrolled[1], scrolled[2]];
+}
+
+// "the board changed at ...": the board's newest reading, shown.
+function showLinkRun() {
+  if (!state.link.run || state.busy) return;
+  if (ranking()) showSide("case");
+  takeBoardRun(state.link.run, LINK_CASE).catch((err) => showProblem(err.message));
+}
+
+// What the board changed at its last change that changed anything, on every view on screen: a crosspoint it closed
+// ringed in the colour of a change, one it opened hollow and grey where it was. Neither is red.
+function drawMoved() {
+  const m = state.link.moved;
+  if (!m || !linkShown()) return;
+  if (!ranking() && fabric.marks) {                // with the ranking open the fabric wears its tint
+    for (const [chip, x, y, net] of m.closed) {
+      const [cx, cy] = cellCentre(chip, x, y);
+      fabric.marks.append(svg("circle", { class: "link-closed", cx: cx, cy: cy, r: 6, "data-net": net }));
+    }
+    for (const [chip, x, y] of m.opened) {
+      const [cx, cy] = cellCentre(chip, x, y);
+      fabric.marks.append(svg("circle", { class: "link-opened", cx: cx, cy: cy, r: 3.3 }));
+    }
+  }
+  if (sheet.data && sheet.live) {
+    const under = svg("g", {}), over = svg("g", {});
+    for (const [chip, x, y, net] of m.closed) {
+      const d = sheetCurve({ chip: chip, x: x, y: y });
+      if (d) under.append(svg("path", { class: "s-link link-closed", d: d, "data-net": net }));
+    }
+    for (const [chip, x, y] of m.opened) {
+      const d = sheetCurve({ chip: chip, x: x, y: y });
+      if (d) over.append(svg("path", { class: "s-link link-opened", d: d }));
+    }
+    sheet.live.prepend(under);                     // under the net's own curve, which stays as it is
+    sheet.live.append(over);
+  }
+  for (const [list, cls] of [[m.closed, "link-closed"], [m.opened, "link-opened"]]) {
+    for (const [chip, x, y] of list) {
+      const cell = $("xbar").querySelector('[data-at="' + chip + "." + x + "." + y + '"]');
+      if (cell) cell.classList.add(cls);
+    }
+  }
+  applyIsolation();
+}
+
+// A bridge whose state changed, in words: "was routed, now unrouted".
+function movedWords(b) {
+  return "was " + (b.was || "not there") + ", now " + (b.now || "gone");
+}
+
+function saveTrace() {
+  const a = $("link-trace");
+  if (!state.link.link) return;
+  const d = new Date();
+  const two = (n) => String(n).padStart(2, "0");
+  if (a.href.startsWith("blob:")) URL.revokeObjectURL(a.href);
+  a.href = URL.createObjectURL(new Blob([state.link.link.trace()], { type: "application/x-ndjson" }));
+  a.download = "port7_" + d.getFullYear() + "-" + two(d.getMonth() + 1) + "-" + two(d.getDate()) + "_" + hhmmss(d).replace(/:/g, "") + ".jsonl";
+}
+
+async function installLink() {
+  const L = state.link;
+  if (state.info.replay) L.words = "this server replays a recorded trace (serve --replay): Connect reads it in place of a board and opens no port.";
+  $("connect").addEventListener("click", () => { connectBoard().catch((err) => linkSaid("lost", err.message)); });
+  $("link-again").addEventListener("click", () => {
+    if (!linkOpen()) return;
+    L.link.again();
+    linkSaid(L.name, "reading the board again, whether or not its counter has moved.");
+  });
+  $("link-trace").addEventListener("click", saveTrace);
+  renderLink();
+  if (state.info.replay || serialWhyNot(navigator, window.isSecureContext)) return;
+  try { L.granted = await navigator.serial.getPorts(); } catch (e) { L.granted = []; }      // asks the browser, not a board
+  renderLink();
 }
 
 // One case of the shown run as a variant routed it. Kept and asked for by the variant and the arrangement
@@ -765,6 +1025,7 @@ async function selectCase(name) {
 // Both views of the selected case. The fabric is drawn against a second routing of the same case when there is
 // one: the solver's when that is asked for, else the baseline's.
 function redraw() {
+  renderLink();
   if (ranking() && !state.current) {               // the ranking's tint, and no case to show yet
     drawFabric(null);
     drawHeat();
@@ -803,6 +1064,7 @@ function redraw() {
   drawXbar(state.current.paint);
   fabricOf(state.current.paint, base, solved ? "the solver" : "the baseline");
   if (ranking() && state.tab !== "fabric") $("view-title").textContent = title;     // the tint's own words belong to the fabric
+  drawMoved();
 }
 
 // ---------------------------------------------------------------- the case panel
@@ -866,7 +1128,8 @@ function say(text) {
 const KIND_WORDS = { closed: "closed crosspoints of first paths", dup: "crosspoints of duplicate paths", xp: "closed crosspoints",
   mismatch: "claims that do not match the copper", unrouted: "ends of bridges the router failed",
   refused: "ends of bridges the firmware said no to", ghost: "free in the copper: missed paths, or the spare copies asked for",
-  thru: "on the KiCad sheet, the far side of a wire's op-amp: its signal after a buffer or a stage that scales it" };
+  thru: "on the KiCad sheet, the far side of a wire's op-amp: its signal after a buffer or a stage that scales it",
+  "link-closed": "crosspoints the board closed at its last change", "link-opened": "crosspoints the board opened at its last change" };
 
 function onlyKind(kind) {
   state.only = kind && state.only !== kind ? kind : null;
@@ -1064,7 +1327,17 @@ function renderCase() {
       m.taps == null ? null : does((m.taps - m.taps_dead.length) + " of " + m.taps + " taps reachable", "ring the nodes with no sense-tap route",
         () => (tapNote ? point(named(tapNote), tapNote) : say("every scanned node has a sense-tap route"))),
       m.repeat_same === false ? ", ROUTES DIFFER ON A SECOND REBUILD" : null));
+    const mv = linkShown() && state.link.moved;
+    if (mv) {
+      box.append(el("div", { class: "counts" }, "at the board's last change: ",
+        does(mv.closed.length + " closed", "show the crosspoints it closed alone", () => onlyKind("link-closed")), ", ",
+        does(mv.opened.length + " opened", "show the crosspoints it opened alone", () => onlyKind("link-opened")), ", ",
+        does(count(mv.bridges.length, "bridge") + " changed", "say which", () => say(mv.bridges.length
+          ? mv.bridges.map((x) => nodeName(x.n1) + " - " + nodeName(x.n2) + ": " + movedWords(x)).join("\n") : "no bridge changed"))));
+    }
   }
+  const moved = (b) => (linkShown() && state.link.moved ? state.link.moved.bridges : [])
+    .find((x) => (x.n1 === b.n1 && x.n2 === b.n2) || (x.n1 === b.n2 && x.n2 === b.n1));
 
   if (paint.problems.length) {
     box.append(el("h2", { text: "problems", class: "trouble" }),
@@ -1084,10 +1357,12 @@ function renderCase() {
     const routed = b.state === "routed";
     const old = before[b.n1 + "-" + b.n2];
     const oldRouted = old && old.state === "routed";
-    const tr = el("tr", { class: routed ? "" : (failed(b) ? "unrouted" : "no"), "data-net": b.net, "data-bridge-key": b.n1 + "-" + b.n2 },
+    const change = moved(b);
+    const tr = el("tr", { class: (routed ? "" : (failed(b) ? "unrouted" : "no")) + (change ? " link-moved" : ""), "data-net": b.net, "data-bridge-key": b.n1 + "-" + b.n2 },
       el("td", {}, b.net == null ? null : el("span", { class: "swatch", style: "display:inline-block;margin-right:5px;background:" + netColour(b.net) }),
         nodeName(b.n1) + " - " + nodeName(b.n2) + (b.infra ? "  (probe feed)" : ""),
         routed ? null : el("div", { class: "state", text: stateWords(b, paint) }),
+        change ? el("div", { class: "moved-words", text: movedWords(change) }) : null,
         old && old.state !== b.state ? el("div", { class: "state", text: "baseline: " + STATE_WORDS[old.state] }) : null),
       el("td", {}, routed ? String(b.copies) : "", versus(routed ? String(b.copies) : "", oldRouted ? String(old.copies) : undefined)),
       el("td", { text: routed ? String(b.hops) : "" }),
@@ -1418,6 +1693,7 @@ function drawXbar(paint) {
         const col = on[chip + ".Y" + y];
         const c = closed[chip + "." + x + "." + y];
         pre.append(row ? line("─", row, null) : " ");
+        let cell;
         if (c) {
           const words = () => c.chip + "  x" + c.x + " y" + c.y + "\nnet " + netLabel(c.net) + ", path " + c.path
             + (c.dup ? " (a duplicate)" : "");
@@ -1432,9 +1708,11 @@ function drawXbar(paint) {
             say(words());
             applyIsolation();
           });
-          pre.append(block);
-        } else if (row || col) pre.append(line(row && col ? "┼" : row ? "─" : "│", row, col));
-        else pre.append(el("span", { class: "xdot", text: "." }));
+          cell = block;
+        } else if (row || col) cell = line(row && col ? "┼" : row ? "─" : "│", row, col);
+        else cell = el("span", { class: "xdot", text: "." });
+        cell.dataset.at = chip + "." + x + "." + y;      // where drawMoved finds it
+        pre.append(cell);
         pre.append(row ? line("─", row, null) : " ");
       }
       pre.append(" ", label(pins[chip].x[x], 0), "\n");
@@ -2036,6 +2314,7 @@ async function routeDrawn(added) {
     state.busy = false;
     renderArrangement();
     renderDrawn();
+    takeHeld();
   }
   // another arrangement was picked while this one was routed: the netlist goes with the copper looked at
   if (state.arrangement !== asked && state.run && state.run.drawn && state.drawn.length) await routeDrawn();
@@ -2914,6 +3193,8 @@ async function start() {
   }
   renderDrawn();
   $("drop-hint").hidden = Boolean(STATIC);
+  $("link-row").hidden = Boolean(STATIC);          // an exported page has no judge to show a board's routing with
+  if (!STATIC) installLink();
 
   if (STATIC) {
     $("side-tabs").hidden = !STATIC.rank;         // the ranking's face is there when one travelled

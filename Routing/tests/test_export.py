@@ -34,7 +34,7 @@ class Export(unittest.TestCase):
         size = export.write(out, "worktree", classes=("dense",))
         html = out.read_text()
         self.assertEqual(size, len(html.encode()))
-        self.assertNotRegex(html, r'<script[^>]+src=|<link[^>]+href=|https?://(?!www\.w3\.org)')
+        self.assertNotRegex(html, r'<script[^>]+src=|<link[^>]+href=|https?://(?!www\.w3\.org|github\.com/Architeuthis-Flux/JumperlOS/releases)')
         data = json.loads(STATIC.search(html).group(1))
         self.assertEqual(len(data["run"]["rows"]), 21)
         self.assertIn("chain_all_chips", data["cases"])
@@ -340,6 +340,19 @@ class Export(unittest.TestCase):
         self.assertIn('aria-pressed', js)
         self.assertIn('id="hud"', html)
         self.assertIn("svg[data-only]", css)
+
+    def test_the_exported_page_carries_the_link_code_and_hides_the_connect_row(self):
+        html = export.page({})
+        self.assertNotIn("<script src=", html)
+        self.assertIn("class BoardLink", html)                         # lab.js never names a thing that is not there
+        self.assertIn('$("link-row").hidden = Boolean(STATIC)', (server.WEB_DIR / "lab.js").read_text())
+        web = self.tmp / "web"
+        shutil.copytree(server.WEB_DIR, web)
+        index = web / "index.html"
+        index.write_text(index.read_text().replace('<script src="board_port.js"></script>', ""))
+        with mock.patch.object(server, "WEB_DIR", web), self.assertRaises(ValueError) as e:
+            export.page({})
+        self.assertIn("board_port.js", str(e.exception))
 
     def test_clean_empties_the_caches(self):
         for name in ("results", "variants", "bin", "sheet", "ceiling", "solver-venv"):

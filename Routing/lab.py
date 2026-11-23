@@ -4,7 +4,7 @@
 of netlists with it, and judge the result against the schematic.
 
     lab.py run [--variant V] [--baseline V0] [--classes dense,real,...] [--case NAME] [--jobs N] [--json FILE]
-    lab.py serve [--port 8765] [--tree DIR]... [--no-open]
+    lab.py serve [--port 8765] [--tree DIR]... [--no-open] [--replay TRACE]
     lab.py sheet [BOARD.kicad_sch] [--theme NAME]
     lab.py export OUT.html [--variant V] [--baseline V0] [--classes ...]
     lab.py clean
@@ -276,7 +276,14 @@ def cmd_serve(args):
     import webbrowser
 
     import server
-    srv = server.make_server(args.port, args.tree or [])
+    replay = None
+    if args.replay:
+        try:
+            replay = server.trace_text(args.replay)
+        except ValueError as e:
+            print("lab.py: %s" % e, file=sys.stderr)
+            return 1
+    srv = server.make_server(args.port, args.tree or [], replay=replay)
     print("routing lab: %s   (Ctrl-C stops it)" % srv.url, flush=True)
     if not args.no_open:
         webbrowser.open(srv.url)
@@ -660,6 +667,7 @@ def main(argv):
     srv.add_argument("--tree", action="append", metavar="DIR",
                      help="another checkout (a directory holding src/) the page may use as a variant; repeatable")
     srv.add_argument("--no-open", action="store_true", help="do not open a browser")
+    srv.add_argument("--replay", metavar="FILE", help="a port 7 trace (.jsonl) the page's Connect replays in place of a board")
     srv.set_defaults(fn=cmd_serve)
     fid = sub.add_parser("fidelity", help="compare the harness against a board capture of the dense suite")
     fid.add_argument("capture_dir", help="a JL_ROUTING_SNAP_DIR capture, named board_<commit>")
