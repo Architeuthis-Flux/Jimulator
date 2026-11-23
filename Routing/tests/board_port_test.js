@@ -369,6 +369,41 @@ test("disconnect says off once, within its limit, and not over a query that is o
   assert.ok(port.written.filter((w) => w === ":watch:routing:off\n").length <= 1);
 });
 
+test("a line that rides behind the reply to a round's first :gen starts the next round, with no slow wait", async () => {
+  const port = made([N, VER, gen(3, 1), ACK,
+    { sent: ":gen\n", got: ":gen\r\ngen{3,1}\r\nchanged{routing,5}\r\n" },    // one chunk: the reply, then the line
+    paths("same_chip_pairs"), dump("same_chip_pairs"), gen(3, 1), paths("sf_to_sf"), dump("sf_to_sf"), gen(5, 1), OFF]);
+  const [link, seen] = linked(port, Object.assign({}, FASTW, { WATCH_POLL_MS: 5000 }));
+  await link.connect();
+  const t = Date.now();
+  link.run();
+  while (seen.readings.length < 2 && Date.now() - t < 2000) await sleep(5);
+  await link.close();
+  assert.deepEqual(seen.readings.map((r) => r.gen), [3, 5]);                   // not after WATCH_POLL_MS
+  assert.equal(port.written.filter((w) => w === ":gen\n").length, 4);          // connect, the first round, a confirm each reading
+});
+
+test("disconnect: off once when nothing is out, and not at all over a query that is out", async () => {
+  const still = made([N, VER, gen(3, 1), ACK, gen(3, 1), paths("same_chip_pairs"), dump("same_chip_pairs"), gen(3, 1), OFF]);
+  const [link, seen] = linked(still, Object.assign({}, FASTW, { WATCH_POLL_MS: 5000 }));
+  await link.connect();
+  link.run();
+  while (seen.readings.length < 1) await sleep(5);                             // idle: nothing out for 5 s
+  await link.close();
+  assert.equal(still.written.filter((w) => w === ":watch:routing:off\n").length, 1);
+  assert.deepEqual([still.written.at(-1), still.closed, still.most], [":watch:routing:off\n", true, 1]);
+  const out = made([N, VER, gen(3, 1), ACK, gen(3, 1), { sent: ":paths\n", got: null }, OFF]);   // :paths is never answered
+  const [link2] = linked(out, FASTW);
+  await link2.connect();
+  const running = link2.run();
+  while (!out.written.includes(":paths\n")) await sleep(2);
+  await sleep(20);
+  await link2.close();
+  await running;
+  assert.deepEqual(out.written, ["N", ":ver\n", ":gen\n", ":watch:routing:on\n", ":gen\n", ":paths\n"]);
+  assert.deepEqual([out.closed, out.most], [true, 1]);
+});
+
 (async () => {
   for (const [name, fn] of tests) {
     try { await fn(); } catch (e) { console.log("FAIL " + name + "\n" + (e.stack || e)); process.exitCode = 1; }

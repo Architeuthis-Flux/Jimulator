@@ -364,9 +364,10 @@ class Server(unittest.TestCase):
         # save trace is a button: a keyboard reaches it, and its click makes the file whatever the browser does with an href
         self.assertIn('<button id="link-trace" type="button" class="quiet"', page)
         self.assertIn("URL.revokeObjectURL", js)
-        for anchor in ('id="connect"', 'id="link-sends"', "Nothing is sent to any other port", ":watch:routing:on"):
+        for anchor in ('id="connect"', 'id="link-sends"', "Nothing is sent to any other port", ":watch:routing:on",
+                       "every three seconds while a watching board is still", "Five are questions and the two :watch lines"):
             self.assertIn(anchor, page)
-        for never in ("b (its routing report)", "Couldn't find a path", "All five are questions"):
+        for never in ("b (its routing report)", "Couldn't find a path", "All five are questions", "Six are questions"):
             self.assertNotIn(never, page)
         css = self.c.get("/lab.css", token=None).body
         rules = [body for head, body in re.findall(r"([^{}]*)\{([^{}]*)\}", css) if re.search(r"link-(closed|opened)", head)]

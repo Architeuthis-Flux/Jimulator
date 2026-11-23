@@ -438,8 +438,9 @@ class BoardLink {
       this.how = this.watching ? "the board says when its routing changes" : "asking every half second: this firmware has no :watch";
       this.say("live", this.how + "." + this.lastRead());
       while (!this.closing && !this.stopping) {
-        let g = this.told ? { n: this.told.n, idle: true } : await this.askGen();      // a changed{} line stands in for :gen
-        this.told = null;
+        const told = this.told;                            // taken before :gen is asked: a line that comes while it is out
+        this.told = null;                                  // stays, and starts the next round
+        let g = told ? { n: told.n, idle: true } : await this.askGen();      // a changed{} line stands in for :gen
         if (g.refused) return await this.tooOld();
         while (g.idle && (g.n !== shown || this.rereading)) {
           const b = await this.ask(":paths\n", (t) => (refusedVerb(t) === "paths" ? { refused: true } : reportOf(t)));
