@@ -8,6 +8,7 @@ KiCad sheet backdrop (10 MB); the sheet tab says so.
 """
 import json
 import os
+import shutil
 import time
 from pathlib import Path
 
@@ -45,11 +46,25 @@ def _shown_name(name):
 
 
 def write(path, variant_spec, baseline_spec=None, classes=("dense", "real", "stress", "beyond", "edge"),
-          arrangement_name="v5"):
+          arrangement_name="v5", backdrop=None):
     """Runs the battery on an arrangement the firmware's router can route and
     writes the file; returns its size in bytes. The page is drawn on that
     arrangement's copper and lists no other, and carries the ranking kept for
-    the variant on it when there is one ("rank", else None)."""
+    the variant on it when there is one ("rank", else None).
+
+    With `backdrop` (a file name) the page has the KiCad sheet too: its data
+    travels in the page ("sheet"), and the built backdrop is copied beside the
+    page under that name, for the page to fetch when the sheet tab is opened.
+    ValueError when the name is not a plain file name or the sheet is not built."""
+    sheet_data = None
+    if backdrop is not None:
+        if not backdrop or Path(backdrop).name != backdrop:
+            raise ValueError("the backdrop is a file name beside the page, not %r" % backdrop)
+        built = server.SHEET_DIR / "backdrop.svg"
+        overlay = server.SHEET_DIR / "overlay.json"
+        if not (built.is_file() and overlay.is_file()):
+            raise ValueError("the KiCad sheet has not been built: python3 tools/routing_lab/lab.py sheet")
+        sheet_data = json.loads(overlay.read_text())
     case_list = lab.battery(list(classes))
     a = arrangement.load(arrangement_name)
     v = variants.resolve(variant_spec)
@@ -62,12 +77,15 @@ def write(path, variant_spec, baseline_spec=None, classes=("dense", "real", "str
     for which in (run["variant"], run["baseline"]):
         if which:
             which["name"] = _shown_name(which["name"])
-    info = dict(server.info(), sheet=False, variants=[], solver=False, fabric=fabric_view.layout(a),
+    info = dict(server.info(), sheet=sheet_data is not None, variants=[], solver=False, fabric=fabric_view.layout(a),
                 nodes=server.nodes_of(a), arrangements=[server.arrangement_row(a)])
     ranking = server.ranking_on_file(v, a)
     if ranking:
         ranking["variant"] = run["variant"]         # the same router (it is found by its hash), under the name the page shows
     html = page({"info": info, "run": run, "when": time.strftime("%Y-%m-%d"), "rank": ranking,
+                 "sheet": sheet_data, "backdrop": backdrop,
                  "cases": {r["case"]: {"result": r, "paint": ceiling.painted(r, a)} for r in results}})
+    if backdrop:
+        shutil.copyfile(server.SHEET_DIR / "backdrop.svg", Path(path).parent / backdrop)
     Path(path).write_text(html, encoding="utf-8")
     return len(html.encode())

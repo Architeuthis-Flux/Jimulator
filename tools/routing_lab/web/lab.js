@@ -1312,9 +1312,18 @@ function sheetCurve(c) {
   return "M" + a[0] + " " + a[1] + "C" + deep + " " + a[1] + " " + deep + " " + b[1] + " " + b[0] + " " + b[1];
 }
 
+// The backdrop is 10 MB: it is fetched when the sheet tab is first opened, not with the page.
+function loadBackdrop() {
+  const image = document.querySelector("#sheet-svg image");
+  if (image && !image.getAttribute("href")) image.setAttribute("href", sheet.backdrop);
+}
+
 async function drawSheetBase() {
-  let why = "The KiCad sheet is not part of an exported page.";
-  if (!STATIC) {
+  // an exported page carries the sheet's data when it was exported with its backdrop beside it
+  let why = "This exported page was made without the KiCad sheet (lab.py export --backdrop NAME carries it).";
+  sheet.backdrop = STATIC ? STATIC.backdrop : "sheet/backdrop.svg";
+  if (STATIC) sheet.data = STATIC.sheet || null;
+  else {
     why = "The KiCad sheet has not been built. Build it once with:\n\n    python3 tools/routing_lab/lab.py sheet"
       + "\n\nand reload. The fabric view needs nothing.";
     if (state.info.sheet) {
@@ -1328,7 +1337,7 @@ async function drawSheetBase() {
   const s = sheet.data;
   const view = svg("svg", { id: "sheet-svg", preserveAspectRatio: "xMidYMid meet" });
   sheet.live = svg("g", {});
-  view.append(svg("image", { href: "sheet/backdrop.svg", x: 0, y: 0, width: s.size[0], height: s.size[1],
+  view.append(svg("image", { x: 0, y: 0, width: s.size[0], height: s.size[1],
     class: s.theme ? null : "light" }), sheet.live);
   $("sheet").replaceChildren(view);
   const bodies = Object.values(s.bodies);                    // a double-click fits the crossbar blocks
@@ -1840,6 +1849,7 @@ function showTab(name) {
   }
   $("fabric").hidden = name === "sheet";           // the ranking is drawn on the fabric too
   $("sheet").hidden = name !== "sheet";
+  if (name === "sheet") loadBackdrop();
   $("case").hidden = name === "ranking";
   $("ranking").hidden = name !== "ranking";
   document.querySelector("main").classList.toggle("ranking", name === "ranking");      // its table is wider than a case's

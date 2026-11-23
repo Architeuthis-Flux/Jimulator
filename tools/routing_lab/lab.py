@@ -305,7 +305,8 @@ def cmd_sheet(args):
 
 def cmd_export(args):
     import export
-    size = export.write(args.out, args.variant, args.baseline, [c for c in args.classes.split(",") if c], args.arrangement)
+    size = export.write(args.out, args.variant, args.baseline, [c for c in args.classes.split(",") if c], args.arrangement,
+                        args.backdrop)
     print("%s: %.1f MB, one file, opens without the server" % (args.out, size / 1e6))
     return 0
 
@@ -673,6 +674,8 @@ def main(argv):
     exp.add_argument("--classes", default="dense,real,stress,beyond,edge", help="comma list of: " + ", ".join(CLASSES))
     exp.add_argument("--arrangement", default="v5", help="the copper to route on, one the firmware's router can route "
                      "(see `arrangement list`); the ranking kept for it travels too")
+    exp.add_argument("--backdrop", metavar="NAME", help="carry the KiCad sheet too: its backdrop (10 MB) is written beside "
+                     "the page under this file name and fetched when the sheet tab is opened")
     exp.set_defaults(fn=cmd_export)
     sub.add_parser("clean", help="delete the caches under build/ (results, variant trees, binaries)") \
         .set_defaults(fn=cmd_clean)

@@ -120,6 +120,34 @@ class Export(unittest.TestCase):
             self.assertEqual(lab.main(["export", str(out), "--classes", "real", "--arrangement", "v6_feed_off"]), 0)
         self.assertEqual(carried(out)["run"]["arrangement"]["name"], "v6_feed_off")
 
+    def test_the_kicad_sheet_travels_beside_the_page_when_asked_for(self):
+        built = self.tmp / "sheet"
+        built.mkdir()
+        (built / "overlay.json").write_text(json.dumps({"size": [10, 20], "bodies": {}, "theme": None}))
+        (built / "backdrop.svg").write_text("<svg xmlns='http://www.w3.org/2000/svg'/>")
+        out = self.tmp / "site" / "run.html"
+        out.parent.mkdir()
+        with mock.patch.object(server, "SHEET_DIR", built), mock.patch.object(rank, "DIR", self.tmp / "rank"):
+            export.write(out, "worktree", classes=("real",), backdrop="sheet-r7.svg")
+            data = carried(out)
+            self.assertIs(data["info"]["sheet"], True)
+            self.assertEqual(data["sheet"]["size"], [10, 20])              # what /api/sheet answers
+            self.assertEqual(data["backdrop"], "sheet-r7.svg")             # fetched from beside the page, by this name
+            self.assertEqual((out.parent / "sheet-r7.svg").read_text(), (built / "backdrop.svg").read_text())
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(lab.main(["export", str(out), "--classes", "real", "--backdrop", "r7.svg"]), 0)
+            self.assertTrue((out.parent / "r7.svg").is_file())
+            for bad in ("../up.svg", "a/b.svg", ""):                       # a file name beside the page, nothing else
+                with self.assertRaises(ValueError):
+                    export.write(out, "worktree", classes=("real",), backdrop=bad)
+        with mock.patch.object(server, "SHEET_DIR", self.tmp / "not-built"), self.assertRaises(ValueError) as e:
+            export.write(out, "worktree", classes=("real",), backdrop="sheet-r7.svg")
+        self.assertIn("lab.py sheet", str(e.exception))                    # not built: says how to build it
+        js = (server.WEB_DIR / "lab.js").read_text()
+        self.assertIn("STATIC.sheet", js)
+        self.assertIn("STATIC.backdrop", js)
+        self.assertIn("function loadBackdrop", js)                         # 10 MB: fetched when the tab is first opened
+
     def test_the_exported_page_shows_the_arrangement_and_the_ranking_it_carries(self):
         js = (server.WEB_DIR / "lab.js").read_text()
         self.assertIn("state.arrangement = STATIC.run.arrangement.name", js)       # drawn on the copper it ran on
