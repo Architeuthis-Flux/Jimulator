@@ -29,10 +29,10 @@ That is most of what working on V6 arrangements from the web would need.
 (the lab does this in the tab) and checks the answer itself, so the service
 needs none of the lab but one file:
 
-- `POST /solve` with the JSON `tools/routing_lab/solver/solve.py` reads on
+- `POST /solve` with the JSON `Routing/solver/solve.py` reads on
   stdin: the question, the rule (`firmware` or `copper`), a time limit in
   seconds and whether the fewest crosspoints are wanted. It answers with the
-  JSON `solve.py` prints. `ceiling.ask` (`tools/routing_lab/ceiling.py`) is
+  JSON `solve.py` prints. `ceiling.ask` (`Routing/ceiling.py`) is
   the caller to copy: it runs `solve.py` as a subprocess with a timeout of
   the limit plus 30 s.
 - Python 3 and `ortools==9.15.6755`, the version the lab pins. Nothing else.
@@ -64,7 +64,7 @@ gets a key.
 
 ## 2. Trying a changed router from the web
 
-The local lab compiles any `src/` tree and routes with it. The web page can
+The local lab compiles any `JumperlOS/src/` tree and routes with it. The web page can
 only use routers already built. Two ways to get more of them there:
 
 - **No server (recommended).** Build on the Mac and publish: `lab.py web`
@@ -76,9 +76,9 @@ only use routers already built. Two ways to get more of them there:
 
 ## What the other chat needs from this repo
 
-- `tools/routing_lab/solver/solve.py` (150 lines) and `ceiling.ask` in
-  `tools/routing_lab/ceiling.py` (the protocol and the timeout).
-- `tools/routing_lab/README.md`, "Ceilings", for what the answers mean.
-- Design piece 6 in `CodeDocs/DESIGN_ROUTING_LAB.md` for how the page asks.
+- `Routing/solver/solve.py` (150 lines) and `ceiling.ask` in
+  `Routing/ceiling.py` (the protocol and the timeout).
+- `Routing/README.md`, "Ceilings", for what the answers mean.
+- Design piece 6 in `Routing/docs/DESIGN_ROUTING_LAB.md` for how the page asks.
 
 Nothing is set up, and no address or key exists yet.

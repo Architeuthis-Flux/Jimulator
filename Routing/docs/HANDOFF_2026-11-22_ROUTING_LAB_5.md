@@ -13,11 +13,11 @@ written by the chat that built plan 4. Line numbers are for commit 263225a.
 ## What the next chat produces
 
 1. **A design for phase 5**, approved by Kevin before any plan. Every piece
-   so far is a section of `CodeDocs/DESIGN_ROUTING_LAB.md`. There is no
+   so far is a section of `Routing/docs/DESIGN_ROUTING_LAB.md`. There is no
    precedent for a fifth: its status line says "All four pieces are built",
    its goals stop at G6, and "Build order" says four plans. A fifth piece
    amends all three. Whether Kevin wants that or a new design doc is his call.
-2. **`CodeDocs/PLAN_ROUTING_LAB_5_<NAME>.md`**, once the design is approved.
+2. **`Routing/docs/PLAN_ROUTING_LAB_5_<NAME>.md`**, once the design is approved.
    Kevin approved the design once (2026-11-17). Plans 1 and 2 followed it
    without a separate ask; for plans 3 and 4 he said "Write plan 3" and "Write
    plan 4". Before each build he chose how it is built ("Build it here" for
@@ -25,47 +25,44 @@ written by the chat that built plan 4. Line numbers are for commit 263225a.
 
 ## Before touching anything
 
-- **The main checkout is not yours.** `~/Documents/GitHub/JumperlOS` is on
-  `main` (263225a, or a later commit adding only this doc) and holds
-  someone else's uncommitted firmware work under `src/`, `scripts/`, `lib/`,
-  `modules/`, `data/` and `test/`, plus `.github/workflows/release.yml`
-  modified and `.pio/build/jumperless_v5/firmware.uf2` deleted. Never edit,
-  stage, commit, stash or check out over any of it.
-- **This doc may not be on `main` yet.** If your worktree lacks it, it is
-  untracked at `~/Documents/GitHub/JumperlOS/CodeDocs/HANDOFF_2026-11-22_ROUTING_LAB_5.md`.
-  Copy it into your worktree; do not move it.
-- **Work in a new worktree off `main`.** In the main checkout the lab's
-  default variant (`--variant worktree`) is that uncommitted `src/` (variant
-  hash `fa617e94…`), not the router every finding is about. A clean worktree
-  off `main` hashes to `9524e1cf…` while its `src/` and the lab's `harness/`
-  are as at 263225a: the router behind the findings (`git diff 5374d38
-  263225a -- src` is empty). The test suite also resolves
-  `worktree` and writes into `build/`, so in the main checkout it would build
-  and test the uncommitted `src/`.
-- **A lab server may still run on port 8765**, started from the main
-  checkout by the plan-4 chat. It serves the uncommitted `src/` as "worktree"
-  and has no ranking. Start your own on another port.
-- **The plan-4 worktree is kept for its `build/` only.**
-  `.claude/worktrees/routing-lab-4`, branch `routing-lab-plan-4` at 263225a,
-  already merged. Ask Kevin before removing it.
+*This section was rewritten on 2026-11-23, when the lab moved out of JumperlOS. The rest of the doc was written
+before the move; its paths were brought up to date, its line numbers were not.*
+
+- **The lab lives in its own repository now:** `~/Documents/GitHub/Jimulator`, the lab in `Routing/`, branch
+  `main`. It was moved there with its history on 2026-11-23 and taken out of JumperlOS (local `main` there is back
+  at `origin/main`, and the `routing-lab-*` branches and worktree are gone). Work here, on a branch. Nothing of
+  this phase goes into JumperlOS.
+- **The firmware is the `JumperlOS` submodule**, pinned at `5374d38`. `--variant worktree` there hashes to
+  `9524e1cf...`: the router behind every finding. `Routing/README.md` ("The firmware checkout") says how to point
+  the lab at another checkout; do not do that for anything a finding rests on.
+- **Kevin's own JumperlOS checkout is not yours.** `~/Documents/GitHub/JumperlOS` holds someone else's uncommitted
+  firmware work. Never edit, stage, commit, stash or check out over any of it, and do not commit there.
+- **`V6_CROSSBAR_MATRIX.md` is JumperlOS's document**, at `CodeDocs/V6_CROSSBAR_MATRIX.md` in that repository
+  (the submodule checks out only `src/` and `test/hil/`, so read it with
+  `git -C JumperlOS show HEAD:CodeDocs/V6_CROSSBAR_MATRIX.md`). The paragraph the lab once added to it is in
+  `Routing/docs/jumperlos-side-changes.patch`.
+- **What was measured is in `Routing/build/rank/`**, which is not committed. Do not clean `build/`.
+- **Line numbers below are for the lab as it was at JumperlOS commit 263225a**, which is commit `35579d4` here. The page
+  and the tests have changed since: an `example` class, a crossbars view, views in panels of their own, the
+  ranking in the case panel, 367 tests. `Routing/docs/README.md` has the table of old paths.
 
 ## Read in this order
 
 1. This doc.
-2. `CodeDocs/V6_CROSSBAR_MATRIX.md` (280 lines): the chokepoints (section 2),
+2. `CodeDocs/V6_CROSSBAR_MATRIX.md` (JumperlOS's; see above) (280 lines): the chokepoints (section 2),
    the proposals (P1 to P5 in section 3, A1 to A4 in section 4, R1 to R5 in
    section 5, the expansion port in section 6) and what the firmware's router
    would need to route a changed fabric (section 7). Its second paragraph,
    added 2026-11-22, sums up findings 12, 14 and 15 and points to the README
    for 11 to 16; the rest dates from 2026-09-03.
-3. `tools/routing_lab/README.md`: "Arrangements" (line 382), "The lane
+3. `Routing/README.md`: "Arrangements" (line 382), "The lane
    ranking" (473), "What it does not check" (571), "Findings so far" (612;
    the V6 ones, 11 to 16, from 687).
-4. `CodeDocs/DESIGN_ROUTING_LAB.md`: "Piece 4" and "Piece 4 as built" (273 to
+4. `Routing/docs/DESIGN_ROUTING_LAB.md`: "Piece 4" and "Piece 4 as built" (273 to
    359), "Learned building piece 1" (403).
-5. `CodeDocs/PLAN_ROUTING_LAB_4_ARRANGEMENTS.md`: the model for the plan's
+5. `Routing/docs/PLAN_ROUTING_LAB_4_ARRANGEMENTS.md`: the model for the plan's
    form, and its "Not in this plan" and "After this plan" (717 to 728).
-6. Code, in `tools/routing_lab/`: `arrangement.py`, `rank.py`, `score.py`,
+6. Code, in `Routing/`: `arrangement.py`, `rank.py`, `score.py`,
    then `ceiling.py` (`graph`, `problem`, `ask`, `verdict`), `runner.py`
    (`taken_pins`, `run_battery`) and `lab.py` (`cmd_arrangement`,
    `cmd_score`, `cmd_rank`).
@@ -90,8 +87,8 @@ written by the chat that built plan 4. Line numbers are for commit 263225a.
 - 2026-11-22: he picked "V6 arrangement choices" for phase 5, the option the
   plan-4 chat marked as its recommendation; the words quoted at the top are
   that chat's, not his. He did not pick a V5 router pass (fixing findings 1,
-  2, 5 to 7 and 16, which edits `src/`), a router that reads any
-  arrangement from the board descriptor (V6 doc section 7, also `src/`), or
+  2, 5 to 7 and 16, which edits `JumperlOS/src/`), a router that reads any
+  arrangement from the board descriptor (V6 doc section 7, also `JumperlOS/src/`), or
   leaving the phase open.
 - From the design (2026-11-17), still binding: usage data, such as how often
   people use a special node, is out of scope; a routing battery cannot
@@ -103,11 +100,11 @@ written by the chat that built plan 4. Line numbers are for commit 263225a.
   64bca37 to 263225a after the plan's own commit (6b018cf), merged by fast
   forward on 2026-11-22. Nothing is pushed. A later commit that adds only
   this doc changes nothing below.
-- **Tests:** `python3 -m unittest discover -s tools/routing_lab/tests -t
-  tools/routing_lab`, 349 tests, passed on 2026-11-22 in 45 s with the
+- **Tests:** `python3 -m unittest discover -s Routing/tests -t
+  Routing`, 349 tests, passed on 2026-11-22 in 45 s with the
   solver installed (24 skip without it).
-- **What was measured is kept only in the plan-4 worktree**, under
-  `.claude/worktrees/routing-lab-4/tools/routing_lab/build/rank/`:
+- **What was measured is kept only in the lab's `build/`**, under
+  `Routing/build/rank/`:
   - `9524e1cf…_v6_feed_off.json`: the firmware's router and the exact solver,
     on `v6_feed_off`. The router's part covers 256 cases of dense, real,
     typical, stress and edge (baseline 2,987 primaries, 245 fully routed,
@@ -118,18 +115,19 @@ written by the chat that built plan 4. Line numbers are for commit 263225a.
   - Both predate the ranking file's `"fabric"` digest, so `rank.same_copper`
     matches them by its older rule: same feed, V5's nodes, the same wires on
     the same pins.
-  - To use them in a new worktree off `main`, copy both files with `cp -p`
-    into its `tools/routing_lab/build/rank/`. A file is named `<variant
-    hash>_<arrangement>.json`, and the hash is the same there. (Inferred from
-    `rank.path` and the variant hash; not tried.) The page dates a ranking by
-    its file's time, so a plain `cp` shows the day of the copy.
-  - The same worktree's `build/ceiling/` (243 files, about 1 MB) holds the
+  - Both files came with the lab when it moved (2026-11-23) and are found
+    as before: a file is named `<variant hash>_<arrangement>.json`, and the
+    hash did not change. In another clone of the repository, copy them with
+    `cp -p` into its `Routing/build/rank/` (the page dates a ranking by its
+    file's time).
+  - `Routing/build/ceiling/` (243 files, about 1 MB) holds the
     exact solver's cached answers, finding 12's score among them. Each is
     named by the question and the bytes of `solver/solve.py`, so copying the
     folder saves asking again while `solve.py` is unchanged. It does not
     replace `solver-setup`.
-- **`build/` is per checkout and ignored by git.** A new worktree needs
-  `python3 tools/routing_lab/lab.py solver-setup` before any solver command
+- **`build/` is per checkout and ignored by git.** Kevin's has the solver
+  already; another clone needs
+  `python3 Routing/lab.py solver-setup` before any solver command
   (OR-tools 9.15.6755 into `build/solver-venv`; needs the network once).
   Without it, `ceiling`, `arrangement score` and `rank --needed` print the
   setup hint and exit 1.
@@ -138,7 +136,7 @@ written by the chat that built plan 4. Line numbers are for commit 263225a.
 
 ### An arrangement file
 
-`tools/routing_lab/arrangements/<name>.json` is V5 plus what differs
+`Routing/arrangements/<name>.json` is V5 plus what differs
 (`arrangement.py`). Any key not listed here is an error:
 
 | Key | What it does |
@@ -367,7 +365,7 @@ answered by either column". That is this phase.
   others.
 - **The router's cache follows the lab's own files.** A cached result's key
   includes a stamp of `runner.py`, `copper.py`, `ceiling.py`,
-  `test/hil/routing_check.py` and `fabric_v5.py` (`runner.py:250`). Editing
+  `JumperlOS/test/hil/routing_check.py` and `fabric_v5.py` (`runner.py:250`). Editing
   any of them makes every cached router result unusable. Results are keyed by
   the pins blocked, not the arrangement's name, so a set and a saved file of
   the same copper share them.
@@ -470,8 +468,8 @@ He leaves during long runs, so ask everything at the start.
    nothing heavy beside them.
 10. **How the plan is built:** subagent-driven or inline, and whether to use
     workflows.
-11. **The plan-4 worktree:** whether to remove it once its two ranking files
-    (and its `build/ceiling/`) are copied.
+11. *(Settled 2026-11-23: the plan-4 worktree is gone; its `build/`, with
+    the two ranking files and `build/ceiling/`, is `Routing/build/` now.)*
 12. **Which path rule the V6 numbers use:** the firmware's four crosspoints a
     path, as today; six, as V6 doc section 7 proposes; or the copper rule as
     a bound. "Not needed" under four holds for any looser rule; "needed"
@@ -550,7 +548,7 @@ Still true at 263225a:
   implement, run all tests, check in the browser for page work, commit with
   the exact message. The last task is "Documents" (README, design, the V6
   doc).
-- **Tests:** `tools/routing_lab/tests/test_<module>.py`, methods named as
+- **Tests:** `Routing/tests/test_<module>.py`, methods named as
   plain sentences, solver tests behind
   `@unittest.skipUnless(ceiling.solver_installed(), NEEDS_SOLVER)`.
 - **Commits:** the exact subject the task's commit step gives (`Routing lab:
@@ -571,8 +569,8 @@ Still true at 263225a:
 
 ## Standing constraints
 
-- Nothing under `src/` is edited. `test/hil/` is read only. Nothing under
-  `tools/routing_lab/harness/` is edited (the board check is recorded for the
+- Nothing under `JumperlOS/src/` is edited. `JumperlOS/test/hil/` is read only. Nothing under
+  `Routing/harness/` is edited (the board check is recorded for the
   harness's hash).
 - Never push. Never touch `.github/workflows/release.yml`. Stage files by
   name; never commit `.pio/**/firmware.uf2`. No attribution lines in commit
@@ -580,29 +578,29 @@ Still true at 263225a:
 - The lab imports only the standard library; `ortools` only in
   `solver/solve.py`.
 - Flashing a board needs Kevin's go-ahead each time.
-- Never touch the main checkout's uncommitted work (above).
+- Never touch Kevin's own JumperlOS checkout or its uncommitted work (above).
 
 ## Commands
 
-From the new worktree's root:
+From the repository's root:
 
 ```bash
-python3 tools/routing_lab/lab.py solver-setup
+python3 Routing/lab.py solver-setup
 ```
 
 ```bash
-python3 -m unittest discover -s tools/routing_lab/tests -t tools/routing_lab
+python3 -m unittest discover -s Routing/tests -t Routing
 ```
 
 ```bash
-python3 tools/routing_lab/lab.py arrangement list
+python3 Routing/lab.py arrangement list
 ```
 
-About ten minutes the first time in a new worktree (plan 4's estimate);
+About ten minutes the first time in a fresh clone (plan 4's estimate);
 `--against v5` is the default:
 
 ```bash
-python3 tools/routing_lab/lab.py arrangement score v6_rails_on_chips --grow 2
+python3 Routing/lab.py arrangement score v6_rails_on_chips --grow 2
 ```
 
 About 45 minutes on a fresh `build/` (about three for the router's part,
@@ -611,11 +609,11 @@ copied plan-4 file already holds its answer, and a finished run sets that
 file aside:
 
 ```bash
-python3 tools/routing_lab/lab.py rank --needed
+python3 Routing/lab.py rank --needed
 ```
 
 The page, at `http://127.0.0.1:8770/`; it runs until stopped:
 
 ```bash
-python3 tools/routing_lab/lab.py serve --port 8770 --no-open
+python3 Routing/lab.py serve --port 8770 --no-open
 ```

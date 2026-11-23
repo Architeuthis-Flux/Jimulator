@@ -1,7 +1,7 @@
 # Routing lab: design
 
 Written 2026-11-17, approved the same day. Its four pieces are built
-(`tools/routing_lab/`; its README says how to use them): 1, 2 and 3 on
+(`Routing/`; its README says how to use them): 1, 2 and 3 on
 2026-11-21, and piece 4 on 2026-11-22 from `PLAN_ROUTING_LAB_4_ARRANGEMENTS.md`.
 Two more were added on 2026-11-22 and are not built: piece 5 (V6 arrangement
 choices, not designed yet) and piece 6 (the lab on the web, designed below,
@@ -53,7 +53,7 @@ and the HIL suite: 21 dense cases, seconds each, pass or fail. Kevin wants to:
   (Reversed by Kevin on 2026-11-22: see piece 6.)
 - The OG router. It has `test/test_routing_og`.
 - Changing the router. Findings feed a later router pass. Nothing under
-  `src/` is edited by this project.
+  `JumperlOS/src/` is edited by this project.
 - Routing on a V6 fabric with the firmware router (it has V5 literals; see
   `V6_CROSSBAR_MATRIX.md` section 7). The fabric is data, so the ceiling
   search can take a V6 fabric later.
@@ -82,14 +82,14 @@ Kevin described outcomes and left the tooling to me, so 1 is my call.
 
 ## Where it lives
 
-`tools/routing_lab/` in JumperlOS, on a branch off `main` (`main` holds the
+`Routing/` in JumperlOS, on a branch off `main` (`main` holds the
 newest router; `dev` has nothing newer). My call: the harness compiles
 firmware sources and shares the HIL fabric model and checker, so it belongs
 with the firmware. The earlier split (frontend in Jumperlessim) is not
 followed because the page is one file tied to this server's JSON.
 
 ```
-tools/routing_lab/
+Routing/
   lab.py            CLI and server
   harness/          lab_harness.cpp, host stubs
   cases/            battery, one file per case, grouped by class
@@ -102,7 +102,7 @@ tools/routing_lab/
 
 **Harness.** One native program per variant. It links the real
 `NetsToChipConnections.cpp`, `MatrixState.cpp`, `NetManager.cpp`,
-`RouteSafety.cpp`, `InfraPaths.cpp` and `src/boards/*.cpp`. A syntax-only
+`RouteSafety.cpp`, `InfraPaths.cpp` and `JumperlOS/src/boards/*.cpp`. A syntax-only
 spike against the stubs in `test/test_routing_og/stubs` (2026-11-17) left:
 the router 5 errors, `MatrixState.cpp` 1, `NetManager.cpp` 51 over 24 names,
 `InfraPaths.cpp` 25 over 14 names; `RouteSafety.cpp` and the board files
@@ -137,13 +137,13 @@ link, and the link will ask for more. Rules:
   state that survives a rebuild.
 - `--block <wire,...>` claims wires for a phantom net before routing (piece 4).
 
-**Variants.** A variant is a complete `src/` tree: a base plus overrides.
+**Variants.** A variant is a complete `JumperlOS/src/` tree: a base plus overrides.
 Sources: the working tree (re-run on save), a git ref, or files dropped on the
-page. Any file under `src/` may be overridden, since the fabric tables are in
-`src/boards/v5/board_v5.cpp`. Each variant is cached by content hash.
+page. Any file under `JumperlOS/src/` may be overridden, since the fabric tables are in
+`JumperlOS/src/boards/v5/board_v5.cpp`. Each variant is cached by content hash.
 
 **Trust boundary.** The server compiles and runs what it is given, so it binds
-to 127.0.0.1 only, accepts uploads only to paths under `src/`, and rejects
+to 127.0.0.1 only, accepts uploads only to paths under `JumperlOS/src/`, and rejects
 path traversal.
 
 **Battery.** Each case: name, class, bridges with optional per-bridge `dup`,
@@ -160,8 +160,8 @@ Python and repeats one loader rule by name: a per-bridge count equal to
 
 | class | source |
 |---|---|
-| dense | the cases in `test/hil/test_routing_dense.py`, moved to a module both import |
-| real | `test/hil/*.yaml` snapshots, plus anything dropped in `cases/real/` |
+| dense | the cases in `JumperlOS/test/hil/test_routing_dense.py`, moved to a module both import |
+| real | `JumperlOS/test/hil/*.yaml` snapshots, plus anything dropped in `cases/real/` |
 | typical | seeded generator: rails and GND on several rows, an IC across the gap, GPIO, ADC, DAC, Nano pins, UART |
 | fuzz | seeded random netlists, a few thousand |
 | stress | one-chip floods, every chip pair, K and L exhaustion, every Nano pin, one very large net, maximum duplicates |
@@ -516,7 +516,7 @@ Throwaway prototypes, for sizing.
   answers and says so. The first time it asks the solver for everything
   (minutes to an hour); after that the answers are on file. The build script
   for the browser is not under `harness/`, whose hash is what the board check
-  vouches for. The theme is what `slopswap/.tools/routing_lab_dress.py` does
+  vouches for. The theme is what `slopswap/.Routing_dress.py` does
   to stage 1's pages (the site's stylesheet linked, the lab's colours pointed
   at it, a title, a description and a breadcrumb, and a refusal to write a
   page that holds the home path), given as a file so the local page keeps its
@@ -579,7 +579,7 @@ says what each would take.
 - The docs page itself.
 - Keeping anything between visits (a netlist drawn, a run). A reload starts
   from the published run.
-- Anything under `src/`, and anything under `tools/routing_lab/harness/`.
+- Anything under `JumperlOS/src/`, and anything under `Routing/harness/`.
 
 ### How we know it works
 
@@ -613,7 +613,7 @@ says what each would take.
   checks fail on `kevin_fixture_2026_09_02`. At `main` they pass.
 - A blocked wire never appears in any path.
 - The five dense cases with a taps proof report every tap reachable at `main`.
-- `test/hil/slot3_snapshot_2026-08-26.yaml` imports with its GPIO bridges
+- `JumperlOS/test/hil/slot3_snapshot_2026-08-26.yaml` imports with its GPIO bridges
   single, as the board leaves them.
 - Two crosspoints in series read twice the setting; two such paths in
   parallel read once the setting.
@@ -644,7 +644,7 @@ Four plans, each usable when it lands: (1) harness, battery, judge, CLI;
   the bench. The lab is usable before it, with the banner.
 - For the ranking: whether V6 keeps the probe feed on the crossbar.
   (Answered 2026-11-22: it does not.)
-- Any real netlists beyond the two YAML snapshots in `test/hil/`.
+- Any real netlists beyond the two YAML snapshots in `JumperlOS/test/hil/`.
 
 ## Learned building piece 1
 

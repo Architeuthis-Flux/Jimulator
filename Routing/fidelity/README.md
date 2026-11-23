@@ -25,9 +25,10 @@ The board was rebooted by the upload, not by pulling its power.
   capture, because every case pastes a state of its own that leaves it off.
 - Let the board boot normally. Boot runs `oled.init()`, which sets
   `top_oled.enabled` in RAM, and the harness assumes exactly that.
-- `JumperlOS/test/hil/test_routing_dense.py` imports its cases from
-  `JumperlOS/test/hil/routing_cases.py`. In that form it has run on a V5 (2026-11-21,
-  78 checks, pass).
+- The capture of 2026-11-21 was taken with a `test_routing_dense.py` that imported its
+  cases from a shared `routing_cases.py` (now `Routing/routing_cases.py`); in that form it
+  ran on a V5 (78 checks, pass). That change was not pushed to JumperlOS, whose own
+  `test/hil/test_routing_dense.py` carries the same cases inline.
 
 ## Taking a capture (one bench run)
 
@@ -94,3 +95,33 @@ to chase, not to waive.
 
 Sense-tap routes are not part of the comparison: the suite's captures do not
 hold the `i!` report.
+
+## Checked against a board
+
+On 2026-11-21 a V5 was flashed with this tree's firmware (commit 0621e4f,
+whose `src/` is main's 5374d38) and ran the HIL dense suite with captures on
+(`fidelity/board_0621e4f44e23/`; the suite passed, 78 checks). The harness
+routes all 21 cases as the board did: every path row, every chip-status
+claim, every closed crosspoint.
+
+The first comparison failed, on one thing. A board that has booted has run
+`oled.init()` (`top_oled.connect_on_boot` defaults to 1), and that sets
+`top_oled.enabled` in RAM whether or not a panel answers, while
+`config.txt` can still say 0. From then on the probe feed's GPIO scan skips
+the OLED's GPIO 7 and 8, so with DAC0 outside the probe window the feed sits
+on GPIO 6. The harness had booted with the OLED off and put it on GPIO 8.
+It now boots as the board does. No routed count and no finding below
+changed with it.
+
+A second, smaller check came from a report pasted on 2026-11-22 (ten bridges
+made by hand, eight duplicates). Routing the same bridges, the lab closes the
+same crosspoints as that board in 51 of 52 places. The one that differs is
+the probe feed's end: GPIO 8 on that board, GPIO 6 in the lab. So that board
+had the top OLED off when it routed, and the harness always assumes it on.
+Where a board's feed sits on GPIO 7 or 8, expect that one difference.
+
+The pass is recorded for the harness as it is (`verified.json` holds its
+hash). Change anything under `harness/` and `lab.py run` says "not verified
+against a board" again until `lab.py fidelity <capture>` is re-run, which
+needs no board while the capture's commit still describes the router.
+`fidelity/README.md` has the bench procedure for a new capture.
