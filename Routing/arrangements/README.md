@@ -36,8 +36,8 @@ repeated on two pins or more is not caught, nor is one unlike any name (`3O`
 for `30`).
 
 Two ship. `v6_feed_off` is V5's copper with the probe feed off the fabric.
-`v6_rails_on_chips` is the worked example, P1 + P2 of
-`Routing/docs/V6_CROSSBAR_MATRIX.md`: the feed off, and on every breadboard chip
+`v6_rails_on_chips` is the worked example, P1 + P2 of JumperlOS's
+`CodeDocs/V6_CROSSBAR_MATRIX.md`: the feed off, and on every breadboard chip
 the second lane of three doubled pairs given to TOP_RAIL, BOTTOM_RAIL and
 GND. Its file is the feed line and 24 pins:
 

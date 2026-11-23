@@ -87,5 +87,5 @@
  ],
  "must_route": false,
  "taps_required": false,
- "notes": "A saved board\nA real session, saved from a board on 2026-09-07: 13 jumpers among rows, GPIO, ADCs, a Nano pin and the rails, plus the probe's own connection, which the firmware adds."
+ "notes": "A saved board\nA real session, saved from a board on 2026-09-07: 13 jumpers among rows, GPIO, ADCs, a Nano pin and the rails. On a V5 the firmware adds one more of its own, the probe's connection."
 }

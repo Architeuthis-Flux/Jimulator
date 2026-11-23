@@ -62,7 +62,7 @@ test/hil/test_routing_dense.py   modified: imports them
 
 ### Task 0: Worktree
 
-- [ ] **Step 1:** From `/Users/kevinsanto/Documents/GitHub/JumperlOS`, create the worktree with the superpowers:using-git-worktrees skill: branch `routing-lab` from `main`.
+- [ ] **Step 1:** From `~/Documents/GitHub/JumperlOS`, create the worktree with the superpowers:using-git-worktrees skill: branch `routing-lab` from `main`.
 - [ ] **Step 2:** Move the two untracked documents from the main checkout into the worktree, same paths: `CodeDocs/DESIGN_ROUTING_LAB.md` and `CodeDocs/PLAN_ROUTING_LAB_1_HARNESS.md`. They are committed with Task 1.
 - [ ] **Step 3:** Run `test/test_routing_og/run.sh` in the worktree. Expected: `regress: 0 failing`. This is the baseline before anything is added.
 
