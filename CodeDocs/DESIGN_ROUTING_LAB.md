@@ -1,8 +1,11 @@
 # Routing lab: design
 
-Written 2026-11-17, approved the same day. All four pieces are built
+Written 2026-11-17, approved the same day. Its four pieces are built
 (`tools/routing_lab/`; its README says how to use them): 1, 2 and 3 on
 2026-11-21, and piece 4 on 2026-11-22 from `PLAN_ROUTING_LAB_4_ARRANGEMENTS.md`.
+Two more were added on 2026-11-22 and are not built: piece 5 (V6 arrangement
+choices, not designed yet) and piece 6 (the lab on the web, designed below,
+waiting for Kevin's approval).
 Piece 4's section below was widened that day, and "Piece 4 as built" under
 it says where the build differs from the text. "Learned building piece 1" at
 the end changes what the later pieces must do. Piece 3 as built leaves out one thing the text below puts in it: the
@@ -47,6 +50,7 @@ and the HIL suite: 21 dense cases, seconds each, pass or fail. Kevin wants to:
 
 - A firmware simulator (LEDs, OLED, timing). Jumperlessim covers that.
 - A public hosted site. A read-only HTML export of results is the share path.
+  (Reversed by Kevin on 2026-11-22: see piece 6.)
 - The OG router. It has `test/test_routing_og`.
 - Changing the router. Findings feed a later router pass. Nothing under
   `src/` is edited by this project.
@@ -358,6 +362,194 @@ Built as above, with these differences:
 
 What it measured is in the README's "Findings so far", 11 to 16.
 
+## Piece 5: V6 arrangement choices
+
+Not designed yet. Kevin chose it on 2026-11-22 as the phase after piece 4:
+scoring the V6 proposals and sets of wires taken away together.
+`HANDOFF_2026-11-22_ROUTING_LAB_5.md` is what a chat needs to design it.
+
+## Piece 6: the lab on the web
+
+Asked for by Kevin on 2026-11-22: "let's continue implementing this and
+getting it to run on the web and publish it to slopswap and then eventually
+when it's all sorted out, we can add it as a page to the jumperless docs
+(which will just be more the existing V5 routing visualizer for users'
+curiosity and less geared toward designing v6". Of three scopes put to him
+(look only; route in the page; also compare routers) he chose "2, and put 1
+up first". Stage 1 is up: `slopswap.org/routing-lab/`, two exported pages.
+This piece is the second scope.
+
+It reverses two things above: "a public hosted site" under "Not in scope",
+and approach 2 under "Approaches considered". What was held against
+WebAssembly in the browser, and what answers it now:
+
+- *New C++ still needs a local compile.* Still true. The web page routes with
+  routers built on the Mac and published with it. Trying an edited router
+  stays in the local lab.
+- *The judge is written twice.* It is not: the lab's own Python runs in the
+  tab (measured below).
+- *Fuzz and lane-removal runs are slow in a tab.* Measured: about 17 ms a
+  case, so the 256 cases of a ranking's battery take about 5 s and the 2,000
+  fuzz cases about 35 s. A whole ranking (94 batteries) would be 7 minutes;
+  rankings are published, not made in the tab.
+
+**Why.** So the lab opens from a link, on any machine and on a phone, with
+nothing running on Kevin's Mac. The same bundle, cut down to V5, later
+becomes a page of the Jumperless docs for the curious.
+
+### Approaches considered for the web
+
+1. **Published pages only** (stage 1). Nothing is live: no clicking nodes
+   together, no run without some wires. It is what `export` already made.
+2. **The router as WebAssembly, the lab's Python in the tab under Pyodide
+   (chosen).** One judge, one copper search, one drawing: the files the local
+   lab runs, unchanged. The cost is the Python runtime, about 6 MB to fetch
+   compressed, once.
+3. **The router as WebAssembly, the judge and the rest rewritten in
+   JavaScript.** Light to load. But about 2,500 lines of Python would exist
+   twice and have to be kept the same by a test over the whole battery, and
+   the design's first failure is "a score that is about the harness and not
+   the firmware".
+4. **A server that runs the lab.** It compiles and runs what it is sent,
+   which is why the local server answers only to 127.0.0.1. Not for a public
+   site. A server is needed only for the exact solver on demand; see "What
+   needs a server".
+
+Kevin picked the scope and left the how to me, so 2 is my call.
+
+### Measured before designing it (2026-11-22, router at 5374d38)
+
+Throwaway prototypes, for sizing.
+
+- **The router compiles to WebAssembly unchanged**, with emsdk 6.0.9 and the
+  flags of `harness/build.sh` less the sanitizers: 205 KB (73 KB compressed),
+  5 s to build. Its output is the native harness's, byte for byte, on all
+  2,259 cases of the battery.
+- **It runs as a stand-alone program with a host of eight functions**
+  (arguments, read, write, seek, close, exit, and two no-ops), one fresh
+  instance per case, synchronously: 1.3 ms a case, and the same output on the
+  259 cases of dense, real, stress, beyond, edge and typical. The text must be
+  read as `subprocess` text mode reads it: `\r\n` and `\r` become `\n` (the
+  `b` report has both).
+- **The lab's Python runs under Pyodide as it is** (Pyodide 314.0.8, Python
+  3.14.2; the lab imports only the standard library). Those 259 cases judged
+  and painted: 4.2 s against 2.4 s under the Mac's Python, 16 ms a case, and
+  the JSON is identical (11.7 MB). The slowest case is 450 ms
+  (`one_net_forty_nodes`).
+- **Pyodide is five files**: 9.6 MB, 2.5 MB, 1.25 MB and two small ones;
+  about 6.3 MB compressed. It started in a second under Node. A phone was not
+  measured.
+- **Stage 1's pages** are 3 MB each (56 and 59 cases, their ranking) and 0.3
+  MB over the wire.
+
+### What it is
+
+- **One page, three places it gets its answers.** The page asks everything
+  through `api(path, body)`. Today that is the local server, or the data an
+  exported page carries. The third is an engine in the tab. The page's code
+  stays one.
+- **The engine is the lab.** A Web Worker holds Pyodide, the lab's Python
+  files as they are, and the routers. It answers the paths `server.py`
+  answers, with the same JSON, by running the same functions: the API's
+  methods move out of the HTTP handler into a class with no HTTP in it, which
+  both the handler and the engine call. Nothing that judges, searches copper
+  or lays out the drawing is written a second time.
+- **One fresh router instance per case**, as the one-process rule says. The
+  seam is `runner.run_harness`: in the tab it starts the WebAssembly program
+  with the case on its stdin where the local lab starts a process. A battery
+  runs one case after another.
+- **Routers are published, not built in the tab.** `lab.py web` builds each
+  router it is given (a git ref, or the working tree) for the browser and
+  lists it under the hash its native build has, so a ranking and a published
+  run find their router. The Router and Baseline boxes pick from that list.
+  Dropping source files is not offered on the web; the page says the local
+  lab does that.
+- **The trust gate.** A router is listed only if its WebAssembly build prints
+  what its native build prints, byte for byte, for every case of the battery;
+  `lab.py web` checks it and refuses otherwise. And a test asks the engine and
+  the server the same things over the battery and wants the same JSON. The
+  board check still stands behind the native harness alone; the page says
+  which router it is and that the copy in the tab was checked against it.
+- **What runs live.** Run, on any arrangement the firmware's router can
+  route; a baseline; two nodes clicked together, and "start from the case
+  shown"; wires taken away and "Run without these"; a board's `b` output
+  pasted or dropped; compare; resistance; missed paths and spare copies.
+- **What is published data.** Everything from the exact solver. The rankings
+  on file travel as they are. So do the solver's answers on file, under the
+  keys the lab keeps them by: "ask the solver" in the tab gives the published
+  answer when that question was asked on the Mac, and otherwise says it was
+  not. An arrangement only the solver can route shows what was published for
+  it; nodes clicked on it are not routed, and the page says why. "Rank now" is
+  not offered. My calls.
+- **It opens at once.** The page first shows a published run, as stage 1's
+  pages do, and can be read straight away. The engine is fetched when
+  something live is first asked for, and the page says how far along it is.
+  After that it comes from the browser's cache.
+- **A case that never comes back.** The engine is one worker. If a case has
+  not answered in 20 s the page ends the worker, reports the case as a
+  timeout as the local lab does, starts another and goes on with the rest.
+- **The bundle is one flat folder** of files that name each other by relative
+  path, with nothing fetched from another site (slopswap's rules, and the
+  docs' later): the page, the worker's script, Pyodide's files, the lab's
+  Python as one zip, a `.wasm` for each router, a list of the routers, and
+  the published runs, rankings and solver answers as JSON.
+- **One command makes it.** `lab.py web OUT --variant REF ... [--theme FILE]`
+  writes the folder. `lab.py web-setup` fetches the pinned Pyodide once, as
+  `solver-setup` fetches OR-tools; emsdk must be installed. The build script
+  for the browser is not under `harness/`, whose hash is what the board check
+  vouches for. The theme file is head tags and CSS laid over the lab's own
+  (for slopswap: the Jumperless stylesheet and the lab's colours pointed at
+  it), so the local page keeps its look. Publishing is copying the folder
+  into `slopswap/routing-lab/` and pushing; the live page becomes that
+  folder's `index.html` and stage 1's two pages are removed. My calls.
+- **On a phone** it is the one-column page of stage 1, and a tap on a node
+  picks it up as a click does. Checked at 375 px before it is published.
+- **The KiCad sheet** is fetched only when its tab is opened (10 MB, 1.4 MB
+  compressed). The r7 project is in the public JumperlessV5 repository. My
+  call.
+- **The docs page, later.** The same bundle with a switch that leaves out the
+  arrangement picker, the Ranking tab and anything said about V6, in a flat
+  folder of its own as `docs/pixelmap/` is. Not designed further here.
+
+### What needs a server
+
+Nothing in this piece. Two things would, if Kevin wants them on the web: the
+exact solver on demand (routing nodes clicked on copper only the solver can
+route, and any question not asked on the Mac first), and trying a changed
+router without building it on the Mac. `HANDOFF_2026-11-22_ROUTING_LAB_HOSTING.md`
+says what each would take.
+
+### Not in this piece
+
+- The exact solver in the tab, and compiling a router in the tab.
+- Making a ranking in the tab.
+- The docs page itself.
+- Keeping anything between visits (a netlist drawn, a run). A reload starts
+  from the published run.
+- Anything under `src/`, and anything under `tools/routing_lab/harness/`.
+
+### How we know it works
+
+- The gate above: every listed router's WebAssembly build against its native
+  build over the whole battery, and the engine's JSON against the server's.
+- In a browser, from the published folder, with the network panel showing no
+  request to another site: the page opens on the published run; two nodes
+  clicked on `v5` are routed and drawn; the same on `v6_feed_off` has no feed
+  bridge; a dense case's wires taken away and run; a `b` report pasted; the
+  Ranking tab shows the published ranking; `v6_rails_on_chips` shows its
+  published answers and says why a click is not routed.
+- The same at 375 px.
+- The local lab's tests and its page behave as before.
+
+### Left to the builder
+
+- How the worker and the page talk, and how progress is shown.
+- How the Python and the published data are packed, and whether the browser
+  keeps the engine's cache of results for the tab only.
+- How `lab.py web` finds emsdk and Pyodide, and what it says without them
+  (the tests that need them skip, saying why, as the solver's do).
+- The names of the files in the folder.
+
 ## How we know it works
 
 - At `main`, every must-route dense case routes and the judge is clean.
@@ -381,7 +573,8 @@ The two historical checks hold only if those commits build against the stubs.
 
 Four plans, each usable when it lands: (1) harness, battery, judge, CLI;
 (2) server and page, both views, resistance; (3) ceilings and edge cases;
-(4) lane ranking.
+(4) lane ranking. Added on 2026-11-22: (5) V6 arrangement choices, and
+(6) the lab on the web. Neither waits for the other.
 
 ## Left to the builder
 
