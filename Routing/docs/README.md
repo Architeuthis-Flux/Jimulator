@@ -3,7 +3,7 @@
 | File | What it is |
 |---|---|
 | `FINDINGS.md` | What the lab has measured so far, each finding with its date, arrangement, engine and probe feed |
-| `DESIGN_ROUTING_LAB.md` | The design, piece by piece. Pieces 1 to 4 are built. Piece 5 (V6 arrangement choices) is not designed. Piece 6 (the lab running in the browser tab, no server) is designed and waits for approval. Piece 7 (a live board) is built and tested on recorded traces, on the local server; the bench check on a board is still to come |
+| `DESIGN_ROUTING_LAB.md` | The design, piece by piece. Pieces 1 to 4 are built. Piece 5 (V6 arrangement choices) is not designed. Piece 6 (the lab running in the browser tab, no server) is designed and waits for approval. Piece 7 (a live board) is built and tested on a built trace (made-up `N` and `:gen` answers), on the local server; the bench check on a board is still to come |
 | `PLAN_ROUTING_LAB_1_HARNESS.md` to `PLAN_ROUTING_LAB_4_ARRANGEMENTS.md` | The four implementation plans, as carried out |
 | `PLAN_ROUTING_LAB_7_LIVE_BOARD.md` | The plan for piece 7: connect to a Jumperless from the browser and show its routing live. Built through its page; the bench sitting and the firmware's release are still to come |
 | `NOTES_2026-11-23_FIRMWARE_PORT7_AND_TAPS.md` | The firmware reading piece 7 rests on: what asking for the routing report costs on a board, the probe's connection, and how the voltage scan's taps share copper with the user's routing |

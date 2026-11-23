@@ -5,8 +5,8 @@ Written 2026-11-17, approved the same day. Its four pieces are built
 2026-11-21, and piece 4 on 2026-11-22 from `PLAN_ROUTING_LAB_4_ARRANGEMENTS.md`.
 Two more were added on 2026-11-22 and are not built: piece 5 (V6 arrangement
 choices, not designed yet) and piece 6 (the lab on the web, designed below,
-waiting for Kevin's approval). Piece 7 (a live board) was designed and then built on 2026-11-23, on recorded traces
-and the local server; see "Piece 7 as built" under it.
+waiting for Kevin's approval). Piece 7 (a live board) was designed and then built on 2026-11-23, on a trace built from the board captures
+of 2026-11-21 and the local server; see "Piece 7 as built" under it.
 Piece 4's section below was widened that day, and "Piece 4 as built" under
 it says where the build differs from the text. "Learned building piece 1" at
 the end changes what the later pieces must do. Piece 3 as built leaves out one thing the text below puts in it: the
@@ -608,7 +608,7 @@ says what each would take.
 
 *Written 2026-11-23, after Kevin answered the draft plan's six questions. The plan is
 `PLAN_ROUTING_LAB_7_LIVE_BOARD.md`; the firmware reading behind this section is
-`NOTES_2026-11-23_FIRMWARE_PORT7_AND_TAPS.md` (by reading, on no board). Built since, on recorded traces: see "Piece 7 as built" below.*
+`NOTES_2026-11-23_FIRMWARE_PORT7_AND_TAPS.md` (by reading, on no board). Built since, on a built trace (no port 7 exchange recorded from a board): see "Piece 7 as built" below.*
 
 Kevin's ask (2026-11-23): "connect to a jumperless from the browser and show a live updating view of the
 routing on a real jumperless".
@@ -673,7 +673,7 @@ the board.
 
 ### How we know piece 7 works
 
-A fake port that replays recorded traces drives the page's port code under `node` and the whole page in a browser
+A fake port that replays traces drives the page's port code under `node` and the whole page in a browser
 (`serve --replay`). The bench sitting records a real trace, which becomes a fixture. On the bench: Kevin's
 terminal on the main port stays silent while the page is connected and the board is still; a change by probe, by
 terminal and by slot shows on the page within a second of the board going idle; a bridge that cannot route is
@@ -684,7 +684,7 @@ shown as not routed with one line on his terminal, when it fails, and none after
 In JumperlOS, on a branch in a worktree of its own (never Kevin's main checkout, which holds someone else's
 uncommitted work), built for both targets, the bench suite run, and not pushed without Kevin's word. This
 repository's submodule moves to that commit only once it is on GitHub. Until then the page's side is built and
-tested against traces.
+tested against a built trace.
 
 ### Asked of the firmware, and not in this piece
 
@@ -696,7 +696,8 @@ tested against traces.
 
 ### Piece 7 as built (2026-11-23)
 
-Status: built and tested on recorded traces, on the local server (`lab.py serve`). The bench check on a real
+Status: built and tested on a trace built from the board captures of 2026-11-21, with made-up `N` and `:gen`
+answers, on the local server (`lab.py serve`). No port 7 exchange has been recorded from a board yet. The bench check on a real
 board has not been made, so nothing here is known of a board's own behaviour, and there are no bench findings. The
 firmware's three calls are on a branch of JumperlOS (`port7-routing-reads`, commit `f963e4c`, in a worktree), not
 released and not on GitHub, so no released firmware answers them. The submodule is not moved to it, and
@@ -708,13 +709,14 @@ build says more or says otherwise:
 
 - `:gen` is asked once more right after the dump, and a reading counts only when both answers say idle with the same
   number.
-- **read again** reads the report and the dump whatever the counter says.
+- **read again** reads the report and the dump whatever the counter says, when the board is idle.
 - A reply counts as begun only once the board has echoed the query. A stray line is neither an answer nor a reason
   to ask again. A reply that begins and stops for three seconds is thrown away and asked once more. A board that
   does not answer is waited for with no limit, and only Disconnect ends that.
 - The wait between polls is not cut short by anything the board sends.
 - Only the timings can be overridden. The speed, the buffer and the five things sent are fixed.
-- What changed is ringed in all three views in the colour of a change (not red). A redraw keeps the zoom, a docked
+- What changed is marked in all three views: a closed crosspoint is ringed in the colour of a change (not red), and an
+  opened one is grey (a small ring in the fabric, a dashed curve on the sheet, an outline in the crossbars). A redraw keeps the zoom, a docked
   view and the lit net, by its number: a board that renumbers its nets has another net lit.
 - Running the battery while linked keeps the battery on screen. The status line then says the board changed, and a
   click on that brings the board's case back.

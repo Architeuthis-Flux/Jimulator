@@ -159,7 +159,7 @@ A pair given twice is one bridge, merged as the firmware's loader merges it.
   the fabric tab does not depend on it.
 - **A live board between its rebuilds.** The page reads a board's routing
   when its counter has moved and the board is idle, not during a rebuild. A
-  crosspoint closed and opened again between two polls is not seen.
+  crosspoint closed and opened again between two polls is not shown as a change.
 - **FakeGPIO's writes in the dump.** Whether the firmware's writes to the chips
   through FakeGPIO are kept out of a live board's crossbar dump is not known.
 - **Net voltages.** A live board's nets are shown without voltages.

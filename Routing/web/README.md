@@ -246,7 +246,9 @@ as the case `live_board`, in every view, judged as a pasted report is. When the
 board's routing changes the page reads it again and redraws it. The page only
 reads: it never routes, clears or loads anything on the board, and it never
 sends `b`, which prints on the board's own terminal. Built and tested on
-recorded traces, on the local server; it has not yet been tried on a board.
+a trace built from the board captures of 2026-11-21, with made-up `N` and
+`:gen` answers, on the local server. No port 7 exchange has been recorded from
+a board yet, and it has not been tried on one.
 
 - **The port.** The board shows four USB serial ports, and they look alike.
   The page reads the fourth, the machine backchannel ("port 7"). Pick the
@@ -287,15 +289,16 @@ recorded traces, on the local server; it has not yet been tried on a board.
   page asks `:paths` and `:crossbar`, one query at a time, then asks `:gen`
   once more. A reading counts only when both answers say idle with the same
   number; otherwise the page tries again. **read again** reads the report and
-  the dump whatever the counter says.
+  the dump whatever the counter says, when the board is idle.
 - **Sent equals planned is checked on every reading.** The dump is the chips'
   own state and goes to the judge with the report, so what was sent is
   compared with the path table each time, which a pasted `b` report cannot do
   without a dump.
 - **What changed.** From the second reading on, the crosspoints closed since
-  the reading before are ringed and those opened are drawn hollow and grey, in
-  the fabric, on the KiCad sheet and in the crossbars, in the colour of a
-  change (cyan), never red. The case panel counts them ("at the board's last
+  the reading before are marked in the fabric, on the KiCad sheet and in the
+  crossbars. A closed one is ringed in the colour of a change (cyan), never
+  red. An opened one is grey: a small hollow ring in the fabric, a dashed
+  curve on the sheet, an outline in the crossbars. The case panel counts them ("at the board's last
   change: 3 closed, 1 opened, 2 bridges changed") and a count shows them
   alone; a bridge whose state changed is marked in the table. A net that only
   got another number is no change. A redraw keeps the zoom, a docked view and
@@ -313,10 +316,11 @@ recorded traces, on the local server; it has not yet been tried on a board.
 - **Save trace** is a button. It downloads every byte sent and received since
   Connect as JSON Lines, one exchange a line (`port7_DATE_TIME.jsonl`).
 - **`serve --replay TRACE`.** `python3 Routing/lab.py serve --replay FILE`
-  makes Connect read a recorded trace through a fake port in place of a
+  makes Connect read a trace through a fake port in place of a
   board, with no port opened and no Web Serial needed. It is for the tests and
   the browser check, not for visitors. `tests/fixtures/port7_built.jsonl` is
-  a trace built from four captures.
+  a trace built, not recorded, from four captures (its `N` and `:gen` answers
+  are made up).
 - **What it is not.** V5 only: an OG's report is refused with the lab's usual
   message. One board at a time, since every V5 has the same serial identity.
   It reads routing: no LEDs, OLED or voltages (that is Jumperlessim's
