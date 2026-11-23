@@ -170,6 +170,19 @@ class Export(unittest.TestCase):
         self.assertEqual((rows[0]["cls"], rows[0]["about"].split("\n")[0]), ("example", "One jumper"))
         self.assertEqual([r["cls"] for r in rows].count("example"), len(lab.battery(["example"])))
 
+    def test_a_click_on_a_case_shows_the_case_in_every_view(self):
+        # With the ranking open the fabric wears its tint and not the case. A view in a panel of its own (the
+        # crossbars beside the fabric) then followed a clicked case while the fabric did not: a click on a case
+        # leaves the ranking, so that every view shows what was clicked.
+        js = (server.WEB_DIR / "lab.js").read_text()
+        opener = js[js.index("function openCase("):]
+        opener = opener[:opener.index("\n}\n")]
+        self.assertIn('if (ranking()) showSide("case")', opener)
+        self.assertEqual(js.count("openCase(row.case)"), 3)                # a row of the table, an example, and its Enter key
+        self.assertNotIn("selectCase(row.case)", js)
+        # a tab dragged out to a panel swallows the click that ends the drag, and no later one
+        self.assertRegex(js, r"setTimeout\(\(\) => \{ delete handle\.dataset\.dragged; \}")
+
     def test_the_sheet_follows_a_wire_past_its_op_amp(self):
         js = (server.WEB_DIR / "lab.js").read_text()
         css = (server.WEB_DIR / "lab.css").read_text()
