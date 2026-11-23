@@ -108,7 +108,7 @@ and tints the fabric to match. It is there for designing the next board more tha
 The web page shows runs made ahead of time. On your own machine the page can also route what you draw:
 
 ```bash
-git clone --recurse-submodules <url of this repository>
+git clone --recurse-submodules https://github.com/Architeuthis-Flux/Jimulator.git
 cd Jimulator
 python3 Routing/lab.py serve
 ```
