@@ -731,6 +731,146 @@ GitHub and released.
 Writing to the board. Two boards. The OG. A stand-in for Web Serial. The board's LEDs, OLED and voltages (that is
 Jumperlessim's viewer). The published page, until piece 6.
 
+## Piece 8: told, not asked, and the firmware's fixes
+
+*Written 2026-11-23. The plan is `PLAN_ROUTING_LAB_8_WATCH_AND_FIRMWARE.md`. Nothing here is built. The firmware was read
+in the worktree `JumperlOS-port7` at `44b1ba9`; the router numbers below were measured in the lab on scratch variants of
+the pinned router (`5374d38` with files replaced), on no board.*
+
+Kevin's ask (2026-11-23): "How does it poll for updates to the routing on port 7? maybe we need a command that says 'send
+me a message when [thing, in this case routing] changes', if it doesn't exist, add it and make sure it's documented in
+both the docs and skill. And do the firmware fixes and we can test on real hardware later".
+
+### What it is
+
+Today the page asks `:gen` twice a second and the board never speaks first about routing. Piece 8 adds a command that
+makes the board say when its routing has changed, has the page use it, and builds the five fixes piece 7 left with the
+firmware. All of it is built and proved as far as a host can prove it. The bench sitting comes after and is not part of
+the build.
+
+### The watch command
+
+`:watch:<topic>:on` and `:watch:<topic>:off`, on port 7. One topic exists: `routing`. Every line the board can send:
+
+| Asked | Answered (after the echo of the line, as for every verb) |
+|---|---|
+| `:watch` | `{"watches":{"routing":"off"}}` (or `"on"`) |
+| `:watch:routing` | `{"watch":"routing","state":"off","gen":<n>}`: the state, nothing changed |
+| `:watch:routing:on` | `{"watch":"routing","state":"on","gen":<n>}` |
+| `:watch:routing:off` | `{"watch":"routing","state":"off","gen":<n>}` |
+| `:watch:<other>`, with or without a state | `{"error":"unknown_topic","topic":"<other>","topics":["routing"]}` |
+| `:watch:routing:<other word>` | `{"error":"watch_usage","fmt":":watch:<topic>:on\|off","topics":["routing"]}` |
+| nothing (the watch is on) | `changed{routing,<n>}` |
+
+- `<n>` is `routingGeneration`, the number `:gen` gives. `:on` marks that number as told, also when the watch was on.
+- **When `changed{routing,<n>}` is sent.** At the end of a pass of the port's service, after every inquiry that was
+  waiting has been answered: when the watch is on, the generation is not the one last told, the board is idle (the test
+  `:gen` reports, `core1req::allIdle()`), and the port's buffer can take the whole line. Then the line is written and
+  `<n>` is marked as told. So a reader can ask `:paths` and `:crossbar` at once; several rebuilds before the board goes
+  idle give one line with the latest number; the line is never inside a reply and never between an echo and its reply.
+  A line the buffer cannot take is not written and is tried again at the next pass.
+- **What turns it off.** `:off`, a reboot (it is off at boot), and a fall of port 7's DTR line, which is the host closing
+  the port where the host had raised DTR. `:oled:stream` and `:padgate` do not do the last: they stay on until turned
+  off (`Ser3Backchannel.cpp:801-849`, `oled.cpp:4035`). The watch differs because the next program on the port did not
+  ask for its lines. The line is read with `tud_cdc_n_get_line_state`, not `USBSer3.dtr()`, which the `ignore_dtr`
+  setting fakes. A host that never raises DTR keeps its watch until `:off`. Not established: that Chrome raises DTR on
+  open and drops it on close. Nothing depends on it: a line nobody reads is dropped, not waited on.
+- **`:stop`, `:repeat`, `:every`.** `:stop` cancels a capture and leaves a watch as it is, as it leaves the OLED stream.
+  `:repeat` and `.` run the last inquiry again, so after `:watch:routing:on` they acknowledge again. `:every` holds the
+  port's service for the whole capture, so no `changed{}` line is written during one; it comes after `cap_end`.
+  `:every` with a watch verb runs it each sample, as it does `:oled:stream:on` today. None of the three is changed.
+- **Old firmware** answers `{"error":"unknown_verb","verb":"watch:routing:on"}`.
+- The mechanism takes a topic name. Only `routing` is built.
+
+### How the page uses it
+
+- After `N`, `:ver` and `:gen`, as today, the page sends `:watch:routing:on`. Acknowledged: it stops the half-second
+  poll. An error line in answer (older firmware): it polls every half second as piece 7 does, and says so.
+- While the watch is on and the last answer said idle at the generation shown, the page asks nothing but `:gen` every
+  3 s. That is only to notice a board gone silent and a line that was lost. Three seconds: a still board gets 20
+  questions a minute where it got 120, a lost line costs at most 3 s, and silence is said within 4.5 s (3 s, and the
+  1.5 s the page already waits before saying "waiting").
+- A `changed{routing,n}` line ends that wait: the page asks `:paths`, then `:crossbar`, then `:gen`, and the reading
+  counts only when that `:gen` says idle at `n`, as today. If it does not, the round goes on from that answer.
+- The line is found by its whole shape on a line of its own, in everything the port receives, whatever else is out.
+  It is never the answer to a query, and no reply is taken for it. After a round the page waits at least 100 ms.
+- On Disconnect the page sends `:watch:routing:off` and waits at most 300 ms for the answer, then closes. With a query
+  still unanswered it closes without sending, so "one query unanswered at a time" holds.
+- **Seven things, and no other byte:** `N`, `:ver`, `:gen`, `:paths`, `:crossbar`, `:watch:routing:on`,
+  `:watch:routing:off`. The page's "what the page sends" paragraph, its tests and its README change with the list.
+- In a trace, bytes that arrive unasked and end in a `changed{}` line are a line of their own with `"sent": null`,
+  and the fake port sends such a line by itself. Bytes that arrive unasked while a query is out stay in its `got`.
+
+### The firmware's fixes, and the bound on each
+
+- **F1. `:paths` waits out a sense tap.** It copies the router's ledger (288 bytes) the way `:crossbar` copies the
+  crosspoints (wait for the second core, copy, look at `core2busy`, four tries) and prints Chip Status from the copy.
+  A tap's net 59 that still shows after that is a claim that outlived its tap, which is worth seeing; the lab's reading
+  of 59 as free stays. Bound: `printChipStatus` gains an optional second parameter in both router copies; without it
+  the function prints what it printed. The OG's copy needs the parameter because the header is shared.
+- **F2. `b` and `n` asked on port 7 print nothing on port 1 and mark nothing.** The lines are not produced for a
+  port 7 asker. `couldntFindPath` prints and marks in one loop and has an OG copy that differs, so sending its lines to
+  the asker would mean splitting the router's function twice; and the failures are already in what `b` prints (a row
+  of -1 in the Paths table). The change is in the two handlers, which both targets share: when the asker is port 7
+  they skip `couldntFindPath` and print with colours off. On the main terminal `b` and `n` are untouched.
+- **F3. Port 7 is answered in probe mode and the menus.** The call in the main loop stays where it is. A new service in
+  the set the modal loops keep alive answers the port only while `probeActive`, `inClickMenu` or `inPadMenu` is set and
+  the main loop's call has not run for 50 ms. There it answers `N`, `:nets`, `:ver`, `:gen`, `:paths`, `:crossbar`,
+  `:xbar`, `:watch…` and `:stop`, and refuses everything else, `:every`, `:bench` and the long reads among it, with
+  `{"error":"busy","reason":"modal",…}`. Bounds: one flag keeps either entry from running inside the other; a `:` line
+  is waited for 25 ms there, not 2 s; the tap wait is skipped there, because the scan does not tap in those modes (a
+  guide's one-shot tap can, during a menu, and is not guarded); the service runs at most every 5 ms; only a V5 has it. What can go wrong: a `:paths` reply is about 4 kB written between two probe ticks,
+  and a host that holds the port open and stops reading stalls the probe as it stalls the main loop today.
+- **F4. The probe's feed falls back.** When a rebuild leaves the feed's pair with no crosspoint and another candidate
+  is free of claims, one more rebuild is asked for; its evaluation leaves the failed candidate out and takes the next.
+  The failed candidate stays out until a user bridge is removed (only that frees copper) or the board reboots, so the
+  feed cannot flip back and forth: at most one extra rebuild for each removal. A forced candidate is never left out,
+  and when nothing else is viable the failed one is kept, as today. It helps a board set GPIO-first whose GPIO feed
+  cannot route while DAC 0 can. It does not help the board capture `k_rows_overflow_metric`: there DAC 0 is the
+  user's and every K row is taken, so no candidate routes. The OG has no feed and no change.
+- **F5. The tap reserve only while the scan is on.** The three tests that deny a stacked copy the last K row, the last
+  tap-capable bounce chip, the last lane into I, J, K or L and the last hub lane into K ask
+  `measurement.net_currents` first. A change to that setting asks for a rebuild, so turning the scan on gives the
+  taps their copper back. Bounds: with the scan on, which is the default, routing is unchanged. With it off, the guide
+  checks' one-shot taps, which run with the scan off, can find no route and fail `noroute`; a tap never shares copper
+  with another net. The OG router has no reserve and no change.
+
+### How it is proved without a board
+
+- Both targets build (`jumperless_v5`, `jumperless_og`), and `test/test_routing_og/run.sh` passes after each fix.
+- **F5, measured:** on all 2273 cases of the eight classes, routed twice each, the changed router with the scan on gives
+  the pinned router's report and crosspoints, byte for byte. With the scan off (a variant whose `config.h` default is
+  0; the harness has no knob for it) 594 cases gain stacked copies, 22 lose one (typical 6, fuzz 16), none loses a
+  primary, and three of the five dense cases that are proofs of taps fail their proof, which is what the setting means.
+- **F4, measured** (one variant with every router-side edit of F1, F4 and F5): it gives the pinned router's results on
+  all 2273 cases; the fallback fires in none, because in the three whose feed is unrouted DAC 0 is the user's. The stress case `gnd_two_rows_every_chip` with the
+  feed GPIO-first, sent three times to one harness process: 16 of 17 primaries, then 17 of 17 with the feed on DAC 0,
+  then the same again. On the pinned router it is 16 of 17 three times. This is a lab test and not a battery case: the
+  runner judges the first rebuild and calls a different second one a problem.
+- The harness is not edited. It does not run `Commands.cpp`, so the extra rebuild itself and the rebuild on a changed
+  setting are seen only at the bench.
+- **W and F3:** the rules (what `:watch…` asks, when a line is due, what a modal context answers) are in one header
+  with no Arduino in it, checked by a host program, `test/test_ser3_rules`. The page's node tests run a fake port that
+  sends `changed{}` lines: after a reply in one chunk, split across chunks, during a query, and never.
+- **F1, F2:** no host test; the firmware has no host build of the port or the command handlers. They build, the lab
+  shows `printChipStatus` prints what it printed, and their bench checks are written.
+
+### What waits for the bench
+
+Written into `test/hil/test_port7_reads.py` and the plan's checklist, and run by nobody yet: every line of the watch
+on a board; that a line follows a change within a pass of the board going idle; DTR on open and close from Chrome and
+from pyserial; port 1 silent while `b` and `n` are asked on port 7; Chip Status free of 59 over 100 readings with the
+scan on; port 7 answered in probe mode and in each menu, and the probe's tick gap (`X`) with and without the page
+connected; the feed falling back on a board set GPIO-first, with one extra rebuild and no more; copies and taps with
+the scan off, and after it is turned on again.
+
+### Not in piece 8
+
+A `:taps` list of planned taps: a feature, not a fix. Topics other than `routing`. The GPIO candidate trying its next
+pin when its pin does not route. Any change under `Routing/harness/`, so the lab's own rebuild does not yet retry as
+the board's does and has no knob for the scan. The viewer's verbs (`:leds`, `:oled`, `:gpio`) in probe mode. A push,
+a release, a flash, the submodule's move, and publishing the documentation site.
+
 ## How we know it works
 
 - At `main`, every must-route dense case routes and the judge is clean.
@@ -756,7 +896,9 @@ Four plans, each usable when it lands: (1) harness, battery, judge, CLI;
 (2) server and page, both views, resistance; (3) ceilings and edge cases;
 (4) lane ranking. Added on 2026-11-22: (5) V6 arrangement choices, and
 (6) the lab on the web. Neither waits for the other. Added on 2026-11-23:
-(7) a live board, which needs calls added to the firmware first.
+(7) a live board, which needs calls added to the firmware first. Also on 2026-11-23: (8) a watch command so the board
+says when its routing changed, and the firmware fixes piece 7 listed; it builds on (7) and waits for the same bench
+sitting.
 
 ## Left to the builder
 
