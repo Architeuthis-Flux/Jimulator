@@ -101,6 +101,17 @@ click a case.
   across the tabs. The wheel (or a pinch) zooms about the pointer, by as
   much as you scroll, so a trackpad and a wheel feel the same; drag pans;
   double-click fits. Hover a wire for its pins and claims.
+- **Hands.** A click answers. On a wire it says what the wire is and
+  carries, under the tabs, and lights its net, or the wire itself when it
+  carries none. On a crosspoint, a chip, a bridge's row (its two ends are
+  ringed), a net, or a problem or note that names a net, a pin, a wire or
+  nodes, it shows that in the drawing. The same click again, a click on the
+  empty drawing, or Escape lets go. The arrow keys move through the battery;
+  Right goes to the case's bridges and nets and Left back; on the Ranking tab
+  they move through the lanes. A column head sorts the cases of each class
+  by it. The drawing's edges drag to resize the side panels (and its lower
+  edge, in the one-column page, its height); a double-click puts an edge
+  back, and the browser keeps the sizes. **fit** shows the whole drawing.
 - **A board's own output.** Drop a file holding what a Jumperless prints for
   `b`, or copy it out of a terminal and paste it anywhere on the page. It is
   judged by the same checker and shown as a run of its own, class `board`,

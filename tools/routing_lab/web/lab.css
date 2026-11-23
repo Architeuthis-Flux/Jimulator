@@ -11,8 +11,9 @@
 [hidden] { display: none !important; }
 html, body { height: 100%; margin: 0; background: var(--bg); color: var(--ink);
   font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
-main { display: grid; grid-template-columns: 490px minmax(0, 1fr) 450px; height: 100vh; }
-main.ranking { grid-template-columns: 490px minmax(0, 1fr) 520px; }
+/* the side panels' widths are the page's to set: the drawing's edges drag (lab.js, installGrips) */
+main { display: grid; grid-template-columns: var(--left-w, 490px) minmax(0, 1fr) var(--right-w, 450px); height: 100vh; }
+main.ranking { grid-template-columns: var(--left-w, 490px) minmax(0, 1fr) var(--rank-w, 520px); }
 section { min-height: 0; overflow: auto; }
 h1 { font-size: 15px; margin: 0 0 8px; font-weight: 600; }
 h2 { font-size: 12px; margin: 14px 0 4px; color: var(--dim); font-weight: 600; text-transform: uppercase; letter-spacing: .06em; }
@@ -187,15 +188,43 @@ ul.notes li { color: var(--dim); }
 details pre, pre.report { background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 6px; overflow: auto;
   max-height: 420px; font-size: 11px; }
 
+/* the drawing's edges drag: the side panels' widths, and in one column the drawing's height */
+.grip { position: absolute; z-index: 6; touch-action: none; }
+.grip.left, .grip.right { top: 0; bottom: 0; width: 7px; cursor: col-resize; }
+.grip.left { left: 0; }
+.grip.right { right: 0; }
+.grip.under { display: none; left: 0; right: 0; bottom: 0; height: 14px; cursor: row-resize; }
+.grip.under::after { content: ""; position: absolute; left: 50%; top: 5px; width: 44px; height: 4px; margin-left: -22px;
+  border-radius: 2px; background: var(--dim); opacity: .7; }
+.grip:hover, .grip.on { background: var(--sel); }
+/* what was clicked, in words: a phone has no pointer to hover with */
+#said { display: flex; gap: 8px; align-items: flex-start; padding: 5px 10px; border-bottom: 1px solid var(--line);
+  background: var(--panel); white-space: pre-wrap; max-height: 7.5em; overflow: auto; font-size: 12px; }
+#said span { flex: 1; min-width: 0; }
+#said button { padding: 0 6px; }
+/* what a click lights: a wire by itself, a bridge's two ends, a pin a problem names. In the ink colour, never red. */
+.wire.pick:not(.short) { stroke: var(--ink); stroke-width: 3.2; filter: drop-shadow(0 0 2.5px #fff); }
+.pad.end > circle:first-child { stroke: var(--ink); stroke-width: 2.5; }
+.spot { fill: none; stroke: var(--ink); stroke-width: 2; filter: drop-shadow(0 0 2.5px #fff); pointer-events: none; }
+.chip { cursor: pointer; }
+.battery th { cursor: pointer; }
+.battery th.on { color: var(--ink); }
+.bridges tr { cursor: pointer; }
+.bridges tr.on td { background: var(--hover); }
+.bridges tr.at td { background: var(--sel); }
+ul.problems li.names, ul.notes li.names { cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px; }
+
 /* a screen too narrow for three columns (a phone, a small window): they become one page. The drawing comes first and keeps its place at the top
    while the rest scrolls under it: the battery (capped, scrolling inside itself), then the case or the ranking. */
 @media (max-width: 1200px) {
   html, body { height: auto; }
   main, main.ranking { display: flex; flex-direction: column; height: auto; }
   section { overflow: visible; }
-  #centre { order: 1; height: 56vh; position: sticky; top: 0; z-index: 4; background: var(--bg); border-bottom: 1px solid var(--line); }
+  #centre { order: 1; height: var(--view-h, 56vh); position: sticky; top: 0; z-index: 4; background: var(--bg); border-bottom: 1px solid var(--line); }
   #left { order: 2; max-height: 40vh; overflow: auto; border-right: 0; border-bottom: 1px solid var(--line); }
   #case, #ranking { order: 3; border-left: 0; overflow-x: auto; }
+  .grip.left, .grip.right { display: none; }
+  .grip.under { display: block; }
   #tabs { flex-wrap: nowrap; overflow-x: auto; }
   #tabs button { flex: none; }
   #ranking tr.case { scroll-margin-top: 60vh; }    /* clear of the drawing, which stays on top */

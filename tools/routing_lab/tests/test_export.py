@@ -168,6 +168,29 @@ class Export(unittest.TestCase):
         self.assertIn("svg.picking .wire.heat:not(.take)", css)        # the others step back
         self.assertNotIn("stroke-dasharray: 2 3", css)                 # a picked wire is no longer dashed
 
+    def test_the_page_answers_to_hands(self):
+        js = (server.WEB_DIR / "lab.js").read_text()
+        css = (server.WEB_DIR / "lab.css").read_text()
+        html = (server.WEB_DIR / "index.html").read_text()
+        # the drawing's edges drag: the side panels' widths, and in one column the drawing's height; the browser keeps them
+        for size in ("--left-w", "--right-w", "--rank-w", "--view-h"):
+            self.assertIn(size, css)
+            self.assertIn(size, js)
+        self.assertIn("function installGrips", js)
+        self.assertIn('"lab.sizes"', js)
+        # the arrow keys move through the list last used, and Escape lets go
+        self.assertIn("function installKeys", js)
+        for key in ("ArrowDown", "ArrowUp", "Home", "End", "Escape"):
+            self.assertIn(key, js)
+        # a click says what was clicked (a phone has no hover) and lights it: a wire with no net, a chip, a problem's net
+        self.assertIn('id="said"', html)
+        for function in ("function say(", "function touchWire(", "function named(", "function point(", "function letGo("):
+            self.assertIn(function, js)
+        self.assertIn('id="fit"', html)                                # the drawing back to whole, without a double-click
+        self.assertIn("state.sort", js)                                # the battery sorts by a column, as the ranking does
+        self.assertIn(".wire.pick", css)
+        self.assertIn(".bridges tr.at", css)
+
     def test_the_page_fits_a_phone_and_its_drawing_takes_fingers(self):
         js = (server.WEB_DIR / "lab.js").read_text()
         css = (server.WEB_DIR / "lab.css").read_text()
