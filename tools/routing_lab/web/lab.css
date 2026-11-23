@@ -1,44 +1,123 @@
 /* SPDX-License-Identifier: MIT */
-/* Routing lab page. Red means a problem and nothing else is red. */
+/* Routing lab page. Red means a problem and nothing else is red.
+   The look: Jumperless's own greys (never black), its rainbow and its pink, on panels shaped as a ship's console
+   is: cut corners, name plates, narrow capital labels, thin lines. The pink is the magenta, which stays clear of
+   the red. A site that has the Jumperless stylesheet sets the --jl-* names; without it the values here stand. */
 :root {
-  --bg: #16171f; --panel: #1d1f2b; --line: #2f3347; --ink: #d5d9ee; --dim: #8a90ad;
-  --wire: #3d4360; --chip: #20222e; --problem: #ff5252; --better: #7bd88f; --worse: #ffab70; --changed: #9ab4ff;
+  --bg: var(--jl-bg, #27272b); --panel: var(--jl-surface, #323238); --panel-2: var(--jl-surface-2, #3d3d44);
+  --line: var(--jl-line, #4b4b54); --ink: var(--jl-fg, #f3f3f5); --dim: var(--jl-muted, #aaaab5);
+  --accent: var(--jl-accent-3, #fc0289); --focus: var(--jl-accent-2, #00fced);
+  --r1: var(--jl-r1, #f03060); --r2: var(--jl-r2, #f12fbf); --r3: var(--jl-r3, #c728f8); --r4: var(--jl-r4, #7647f2);
+  --r5: var(--jl-r5, #5174ed); --r6: var(--jl-r6, #50beeb); --r7: var(--jl-r7, #68f4d7); --r8: var(--jl-r8, #70f899);
+  --r9: var(--jl-r9, #7af85c); --r10: var(--jl-r10, #c0f848); --r11: var(--jl-r11, #e8cb40); --r12: var(--jl-r12, #e86828);
+  --rainbow: linear-gradient(90deg, var(--r1), var(--r2), var(--r3), var(--r4), var(--r5), var(--r6), var(--r7), var(--r8),
+    var(--r9), var(--r10), var(--r11), var(--r12));
+  --wire: #64646f; --chip: #2d2d32; --problem: #ff4d3d; --better: var(--r8); --worse: var(--r11); --changed: var(--focus);
   /* grounds: a class row, a row under the pointer, the row or net picked, a button that is on, a pad, the tip */
-  --head: #252839; --hover: #24273a; --sel: #2f3654; --btn: #2b3350; --pad: #343a55; --tip: #0f1017;
+  --head: var(--panel-2); --hover: #39393f; --sel: #4d3a47; --btn: var(--panel-2); --pad: #5a5a65; --tip: var(--panel-2);
+  --label: "Archivo Narrow", "Arial Narrow", "Helvetica Neue", Arial, sans-serif;      /* capital labels */
+  --display: Michroma, "Eurostile Extended", "Avenir Next", "Helvetica Neue", Arial, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --cut: 8px;                                       /* the corner cut off a panel's furniture */
   font-size: 13px;
 }
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
-html, body { height: 100%; margin: 0; background: var(--bg); color: var(--ink);
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
-/* the side panels' widths are the page's to set: the drawing's edges drag (lab.js, installGrips) */
-main { display: grid; grid-template-columns: var(--left-w, 490px) minmax(0, 1fr) var(--right-w, 450px); height: 100vh; }
-main.ranking { grid-template-columns: var(--left-w, 490px) minmax(0, 1fr) var(--rank-w, 520px); }
-section { min-height: 0; overflow: auto; }
-h1 { font-size: 15px; margin: 0 0 8px; font-weight: 600; }
-h2 { font-size: 12px; margin: 14px 0 4px; color: var(--dim); font-weight: 600; text-transform: uppercase; letter-spacing: .06em; }
-button, input, select { font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 3px 7px; }
-button { cursor: pointer; }
-button:hover { border-color: var(--dim); }
+html, body { height: 100%; margin: 0; background: var(--bg); color: var(--ink); font-family: var(--mono);
+  font-variant-numeric: tabular-nums; scrollbar-color: var(--line) transparent; scrollbar-width: thin; }
+h1 { font-family: var(--display); font-size: 14px; margin: 0 0 8px; font-weight: 400; letter-spacing: .02em; }
+/* a heading inside a panel: a small plate on a rule, each the next colour of the rainbow */
+h2 { display: flex; align-items: center; gap: 8px; font-family: var(--label); font-size: 12px; margin: 14px 0 5px; color: var(--ink);
+  font-weight: 600; text-transform: uppercase; letter-spacing: .09em; }
+h2::before { content: ""; flex: none; width: 9px; height: 9px; background: var(--c, var(--accent));
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 45% 100%, 0 55%); }
+h2::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+.body > h2:nth-of-type(6n+1) { --c: var(--r1); } .body > h2:nth-of-type(6n+2) { --c: var(--r3); }
+.body > h2:nth-of-type(6n+3) { --c: var(--r7); } .body > h2:nth-of-type(6n+4) { --c: var(--r8); }
+.body > h2:nth-of-type(6n+5) { --c: var(--r10); } .body > h2:nth-of-type(6n+6) { --c: var(--r11); }
+h2.trouble { color: var(--problem); --c: var(--problem); }
+h2.trouble::after { height: 5px; background: repeating-linear-gradient(135deg, var(--problem) 0 5px, transparent 5px 10px); opacity: .7; }
+button, input, select { font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--line); border-radius: 0; padding: 3px 7px; }
+/* a button is a plate with one corner cut; under the pointer it lights, pressed it turns over */
+button { cursor: pointer; font-family: var(--label); font-weight: 600; text-transform: uppercase; letter-spacing: .07em; font-size: 12px;
+  padding: 3px 12px 3px 9px; border: 0; background: var(--btn); color: var(--ink);
+  clip-path: polygon(0 0, 100% 0, 100% calc(100% - var(--cut)), calc(100% - var(--cut)) 100%, 0 100%); }
+button:hover { background: var(--line); }
+button:active { background: var(--ink); color: var(--bg); }
+button.on, button[aria-pressed="true"] { background: var(--accent); color: var(--bg); }
 button:disabled { opacity: .45; cursor: default; }
+input:hover, select:hover { border-color: var(--dim); }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+button:focus-visible { outline: 0; box-shadow: inset 0 0 0 2px var(--focus); }      /* a cut corner would clip an outline */
 .hint { color: var(--dim); }
+@media (prefers-reduced-motion: no-preference) {
+  button, input, select, .battery tr.case td, .net, .split, .key, .plate { transition: background-color .12s, color .12s, border-color .12s, opacity .12s; }
+}
+
+/* ---------------------------------------------------------------- the panels
+   Three panels in rows and stacks (lab.js, buildLayout). Each has a bar with its plate: the plate drags the panel
+   onto a side of another, the lines between panels size them, and a panel folds to its bar. */
+main { display: flex; height: 100vh; }
+.vrow, .vcol { display: flex; flex: 1 1 0; min-width: 0; min-height: 0; }
+.vcol { flex-direction: column; }
+.panel { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--panel); }
+.panel > .body { flex: 1 1 0; min-height: 0; overflow: auto; padding: 10px; scrollbar-color: var(--line) transparent; scrollbar-width: thin; }
+.panel.shut > .body { display: none; }
+.panel.moving { opacity: .4; }
+#panel-tests { --c: var(--r2); } #centre { --c: var(--r7); } #panel-case { --c: var(--r10); }
+.bar { flex: none; display: flex; align-items: center; gap: 8px; min-height: 26px; padding-right: 6px; background: var(--bg);
+  border-bottom: 1px solid var(--line); box-shadow: inset 0 -2px 0 -1px var(--c, var(--line)); }
+/* the name plate: the panel's number on its colour, its name beside it, the far corner cut */
+.plate { flex: none; display: inline-flex; align-items: center; gap: 7px; align-self: stretch; padding: 0 16px 0 0; cursor: grab;
+  touch-action: none; user-select: none; -webkit-user-select: none; font-family: var(--label); font-weight: 600; font-size: 12px;
+  text-transform: uppercase; letter-spacing: .12em; color: var(--ink); background: var(--panel-2);
+  clip-path: polygon(0 0, 100% 0, calc(100% - 11px) 100%, 0 100%); }
+.plate b { align-self: stretch; display: inline-flex; align-items: center; padding: 0 7px 0 8px; font-family: var(--display); font-weight: 400;
+  font-size: 10px; letter-spacing: 0; color: var(--bg); background: var(--c, var(--accent)); }
+.plate:hover { background: var(--line); }
+.bar-note { flex: 1; min-width: 0; color: var(--dim); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fold { flex: none; width: 22px; height: 18px; padding: 0; clip-path: none; background: none; color: var(--dim); font-family: var(--mono); font-size: 14px; line-height: 1; }
+.fold::before { content: "\2212"; }
+.panel.shut .fold::before { content: "+"; }
+.fold:hover { background: none; color: var(--ink); }
+/* a shut panel in a row stands on end */
+.vrow > .panel.shut > .bar { flex: 1; flex-direction: column; writing-mode: vertical-rl; padding: 0 0 6px; border-bottom: 0;
+  box-shadow: inset -2px 0 0 -1px var(--c, var(--line)); }
+.vrow > .panel.shut .plate { padding: 0 0 16px; clip-path: polygon(0 0, 100% 0, 100% calc(100% - 11px), 0 100%); }
+.vrow > .panel.shut .plate b { padding: 8px 0 7px; }
+.vrow > .panel.shut .bar-note { flex: 1; }
+/* the line between two panels: drag it */
+.split { flex: 0 0 5px; position: relative; z-index: 5; background: var(--bg); touch-action: none; }
+.split.ew { cursor: col-resize; border-left: 1px solid var(--line); border-right: 1px solid var(--line); }
+.split.ns { cursor: row-resize; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.split::after { content: ""; position: absolute; inset: 0; margin: auto; background: var(--dim); opacity: .55; }
+.split.ew::after { width: 1px; height: 28px; box-shadow: none; }
+.split.ns::after { height: 1px; width: 28px; }
+.split:hover, .split.on, .split:focus-visible { background: var(--accent); outline: 0; }
+.split:hover::after, .split.on::after { background: var(--bg); opacity: 1; }
+.dropbar { position: fixed; z-index: 30; background: var(--accent); pointer-events: none; box-shadow: 0 0 0 1px var(--bg); }
+body.paneldrag, body.paneldrag * { cursor: grabbing !important; user-select: none; -webkit-user-select: none; }
+body.sizing, body.sizing * { user-select: none; -webkit-user-select: none; }
 
 /* left: controls and battery */
-#left { padding: 10px; border-right: 1px solid var(--line); background: var(--panel); }
 #controls label { display: grid; grid-template-columns: 92px 1fr; align-items: center; gap: 6px; margin-bottom: 5px; }
 #arrangement-bad div, #run-why { margin: 0 0 5px; line-height: 1.35; }
 #controls label.inline { display: inline-flex; gap: 6px; margin: 0 0 0 10px; color: var(--dim); }
 #controls label.inline.first { margin-left: 0; }
 #classes .count { color: var(--dim); font-size: 11px; }
-#showing { margin: 8px 0 2px; color: var(--dim); line-height: 1.35; }
-#showing b { color: var(--ink); font-weight: 600; }
+/* what is shown, as a console says it: a label, then the thing */
+#showing { margin: 8px 0 4px; color: var(--ink); line-height: 1.5; }
+#showing b { display: inline-block; min-width: 58px; color: var(--dim); font-family: var(--label); font-weight: 600; font-size: 11px;
+  text-transform: uppercase; letter-spacing: .1em; }
+#showing .does { margin-left: 8px; }
 .battery tr.note td { color: var(--dim); text-align: left; padding-left: 18px; }
 #case .about { color: var(--dim); margin: 4px 0; }
 #controls #ohms { width: 62px; }
 #classes { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 6px 0; }
 #classes label { display: inline-flex; grid-template-columns: none; gap: 4px; margin: 0; }
 .row { display: flex; align-items: center; margin: 6px 0; }
-#run { background: var(--btn); padding: 4px 16px; }
+#run { background: var(--accent); color: var(--bg); padding: 4px 22px 4px 14px; }
+#run:hover { background: var(--ink); }
 #verified, #exported, #drop-hint { color: var(--dim); margin: 6px 0 0; }
 #drop-hint b { color: var(--ink); font-weight: 600; }
 #build-error { border: 1px solid var(--problem); border-radius: 4px; padding: 6px 8px; margin: 8px 0; color: var(--problem); }
@@ -50,9 +129,14 @@ button:disabled { opacity: .45; cursor: default; }
 
 table.battery { border-collapse: collapse; width: 100%; }
 .battery th, .battery td { padding: 2px 4px; text-align: right; white-space: nowrap; font-size: 12px; }
-.battery th { color: var(--dim); font-weight: 400; position: sticky; top: 0; background: var(--panel); }
+.battery th { color: var(--dim); font-family: var(--label); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .08em;
+  position: sticky; top: 0; z-index: 1; background: var(--panel); border-bottom: 1px solid var(--line); }
 .battery td:first-child, .battery th:first-child { text-align: left; max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
 .battery tr.class { background: var(--head); cursor: pointer; font-weight: 600; }
+.battery tr.class td:first-child { box-shadow: inset 3px 0 0 var(--c, var(--dim)); padding-left: 9px; font-family: var(--label); text-transform: uppercase;
+  letter-spacing: .08em; }
+.battery tr.case td:first-child { padding-left: 9px; }
+.battery tr.case.on td:first-child { box-shadow: inset 3px 0 0 var(--accent); color: var(--ink); }
 .battery tr.class td:first-child::before { content: "\25BE  "; color: var(--dim); }
 .battery tr.class.closed td:first-child::before { content: "\25B8  "; }
 .battery tr.case { cursor: pointer; }
@@ -66,11 +150,15 @@ table.battery { border-collapse: collapse; width: 100%; }
 
 /* centre: the views */
 #centre { display: flex; flex-direction: column; overflow: hidden; position: relative; }
-#tabs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 10px; border-bottom: 1px solid var(--line); }
-#tabs button.on { background: var(--btn); }
+#tabs { flex-wrap: wrap; gap: 5px 6px; padding: 0 8px 0 0; }
+#tabs > button { margin: 4px 0; }
+#tabs .plate { align-self: stretch; min-height: 26px; }
+#centre.panel { background: var(--bg); }
 #view-title { margin-left: 10px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
-#legend { width: 100%; display: flex; flex-wrap: wrap; gap: 4px 16px; color: var(--dim); font-size: 12px; }
-.key { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+#legend { width: 100%; display: flex; flex-wrap: wrap; gap: 2px 4px; padding: 0 0 4px 8px; color: var(--dim); font-size: 11.5px; }
+.key { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; padding: 1px 7px; cursor: pointer; border: 1px solid transparent; }
+.key:hover { color: var(--ink); border-color: var(--line); }
+.key.on { color: var(--ink); border-color: var(--accent); background: var(--sel); }
 .key i { display: inline-block; }
 .key .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ink); }
 .key .dot.hollow { background: none; border: 2px solid var(--ink); }
@@ -89,6 +177,8 @@ table.battery { border-collapse: collapse; width: 100%; }
 .chip text { fill: var(--dim); font-size: 16px; font-weight: 600; }
 .wire { fill: none; stroke: var(--wire); stroke-width: 1; }
 .wire.live { stroke-width: 2.2; }
+.wire.under:not(.heat) { stroke: var(--ink); }
+.wire.under { stroke-width: 3; }
 .wire.short { stroke: var(--problem) !important; stroke-width: 3.5; }
 .hit { fill: none; stroke: transparent; stroke-width: 7; pointer-events: stroke; }
 .pad circle { fill: var(--pad); stroke: var(--bg); stroke-width: 1; }
@@ -146,7 +236,6 @@ body.dropping #left { outline: 2px dashed var(--changed); outline-offset: -4px; 
 .bridges .was { color: var(--dim); }
 
 /* right: the case */
-#case, #ranking { padding: 10px; border-left: 1px solid var(--line); background: var(--panel); }
 #ranking .hint { line-height: 1.35; margin: 4px 0; }
 #ranking .ask { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 8px 0; }
 #ranking th { cursor: pointer; }
@@ -162,15 +251,23 @@ body.dropping #left { outline: 2px dashed var(--changed); outline-offset: -4px; 
 .pad.from > circle:first-child { stroke: var(--ink); stroke-width: 2.5; }
 #arrangement-json pre { color: var(--ink); max-height: 160px; overflow: auto; margin: 4px 0; user-select: all; }
 #case h1 { word-break: break-all; }
-.status { display: inline-block; padding: 1px 7px; border-radius: 9px; border: 1px solid var(--line); }
-.status.problems, .status.crash, .status.timeout { color: var(--problem); border-color: var(--problem); }
-.counts { color: var(--dim); margin: 6px 0; }
-.net { display: flex; gap: 6px; align-items: baseline; cursor: pointer; padding: 1px 3px; border-radius: 3px; }
+.status { display: inline-block; padding: 1px 12px 1px 8px; border: 1px solid var(--line); font-family: var(--label); font-weight: 600; text-transform: uppercase;
+  letter-spacing: .08em; font-size: 12px; cursor: pointer;
+  clip-path: polygon(0 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%); }
+.status.ok, .status.clean { color: var(--better); border-color: var(--better); }
+.status.problems, .status.crash, .status.timeout { color: var(--bg); background: var(--problem); border-color: var(--problem); }
+.counts { color: var(--dim); margin: 6px 0; line-height: 1.5; }
+/* words that answer a click: dotted under, pink under the pointer */
+.does { color: var(--ink); cursor: pointer; border-bottom: 1px dotted var(--dim); }
+.does:hover, .does.on { color: var(--accent); border-color: var(--accent); }
+.net { display: flex; gap: 6px; align-items: baseline; cursor: pointer; padding: 1px 3px; }
+.net.on { box-shadow: inset 3px 0 0 var(--accent); }
 .net:hover, .net.on { background: var(--sel); }
-.swatch { width: 10px; height: 10px; border-radius: 2px; flex: none; align-self: center; }
+.swatch { width: 10px; height: 10px; flex: none; align-self: center; clip-path: polygon(0 0, 100% 0, 100% 60%, 60% 100%, 0 100%); }
 table.bridges { border-collapse: collapse; width: 100%; }
 .bridges td, .bridges th { padding: 1px 4px; text-align: right; white-space: nowrap; font-size: 12px; }
-.bridges th { color: var(--dim); font-weight: 400; }
+.bridges th { color: var(--dim); font-family: var(--label); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .08em;
+  border-bottom: 1px solid var(--line); }
 .bridges td:first-child, .bridges th:first-child { text-align: left; }
 .bridges tr.no td { color: var(--dim); }
 .bridges .state { color: var(--dim); font-size: 11px; padding-left: 15px; white-space: normal; }
@@ -185,14 +282,13 @@ table.bridges { border-collapse: collapse; width: 100%; }
 ul.problems, ul.notes { margin: 0; padding-left: 16px; }
 ul.problems li { color: var(--problem); }
 ul.notes li { color: var(--dim); }
-details pre, pre.report { background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 6px; overflow: auto;
+summary { cursor: pointer; font-family: var(--label); font-weight: 600; text-transform: uppercase; letter-spacing: .09em; font-size: 12px; margin-top: 12px; }
+summary:hover { color: var(--accent); }
+details pre, pre.report { background: var(--bg); border: 1px solid var(--line); padding: 6px; overflow: auto;
   max-height: 420px; font-size: 11px; }
 
 /* the drawing's edges drag: the side panels' widths, and in one column the drawing's height */
 .grip { position: absolute; z-index: 6; touch-action: none; }
-.grip.left, .grip.right { top: 0; bottom: 0; width: 7px; cursor: col-resize; }
-.grip.left { left: 0; }
-.grip.right { right: 0; }
 .grip.under { display: none; left: 0; right: 0; bottom: 0; height: 14px; cursor: row-resize; }
 .grip.under::after { content: ""; position: absolute; left: 50%; top: 5px; width: 44px; height: 4px; margin-left: -22px;
   border-radius: 2px; background: var(--dim); opacity: .7; }
@@ -200,9 +296,28 @@ details pre, pre.report { background: var(--bg); border: 1px solid var(--line); 
 /* what was clicked, in words: a phone has no pointer to hover with */
 #said { position: absolute; left: 10px; bottom: 18px; z-index: 5; display: flex; gap: 8px; align-items: flex-start;
   max-width: min(460px, calc(100% - 20px)); max-height: 40%; overflow: auto; padding: 6px 8px 6px 10px;
-  border: 1px solid var(--line); border-radius: 4px; background: var(--tip); white-space: pre-wrap; font-size: 12px; }   /* it lies over the drawing's corner and moves nothing */
+  border: 1px solid var(--line); border-left: 3px solid var(--accent); background: var(--tip); white-space: pre-wrap; font-size: 12px;
+  clip-path: polygon(0 0, calc(100% - var(--cut)) 0, 100% var(--cut), 100% 100%, 0 100%); }   /* it lies over the drawing's corner and moves nothing */
 #said span { flex: 1; min-width: 0; }
-#said button { padding: 0 6px; }
+#said button { padding: 0 6px; clip-path: none; background: none; color: var(--dim); }
+#said button:hover { color: var(--ink); }
+/* the view's own readout, in its lower right corner: how far in the drawing is, and what the case closes */
+#hud { position: absolute; right: 10px; bottom: 18px; z-index: 4; pointer-events: none; color: var(--dim); font-family: var(--label);
+  font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .1em; text-align: right; }
+#hud b { color: var(--ink); font-family: var(--mono); font-weight: 500; letter-spacing: 0; }
+/* corner marks on the view, as on a console's screen */
+.view { position: relative; }
+.view::before, .view::after { content: ""; position: absolute; width: 14px; height: 14px; pointer-events: none; z-index: 3; opacity: .7; }
+.view::before { left: 6px; top: 6px; border-left: 1px solid var(--dim); border-top: 1px solid var(--dim); }
+.view::after { right: 6px; bottom: 6px; border-right: 1px solid var(--dim); border-bottom: 1px solid var(--dim); }
+/* a kind picked in the legend: the rest of the routing steps back */
+svg[data-only] .wire.live, svg[data-only] .xp, svg[data-only] .pad.live, svg[data-only] .held, svg[data-only] .mismatch,
+svg[data-only] .ghost, svg[data-only] .want, svg[data-only] .s-wire, svg[data-only] .s-tag, svg[data-only] .s-curve,
+svg[data-only] .s-ring, svg[data-only] .s-held, svg[data-only] .s-want { opacity: .1; }
+svg[data-only="closed"] .xp:not(.dup):not(.ghost), svg[data-only="closed"] .s-curve:not(.dup):not(.ghost),
+svg[data-only="dup"] .xp.dup, svg[data-only="dup"] .s-curve.dup, svg[data-only="mismatch"] .mismatch, svg[data-only="mismatch"] .s-ring,
+svg[data-only="unrouted"] .want.failed, svg[data-only="unrouted"] .s-want.failed, svg[data-only="refused"] .want.refused,
+svg[data-only="refused"] .s-want.refused, svg[data-only="ghost"] .ghost { opacity: 1; }
 /* what a click lights: a wire by itself, a bridge's two ends, a pin a problem names. In the ink colour, never red. */
 .wire.pick:not(.short) { stroke: var(--ink); stroke-width: 3.2; filter: drop-shadow(0 0 2.5px #fff); }
 .pad.end > circle:first-child { stroke: var(--ink); stroke-width: 2.5; }
@@ -212,23 +327,37 @@ details pre, pre.report { background: var(--bg); border: 1px solid var(--line); 
 .battery th.on { color: var(--ink); }
 .bridges tr { cursor: pointer; }
 .bridges tr.on td { background: var(--hover); }
+.bridges tr:hover td { background: var(--hover); }
 .bridges tr.at td { background: var(--sel); }
+.bridges tr.at td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
 ul.problems li.names, ul.notes li.names { cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px; }
 
-/* a screen too narrow for three columns (a phone, a small window): they become one page. The drawing comes first and keeps its place at the top
-   while the rest scrolls under it: the battery (capped, scrolling inside itself), then the case or the ranking. */
+/* a screen too narrow for the panels side by side (a phone, a small window): they become one page. The view comes
+   first and keeps its place at the top while the rest scrolls under it: the tests (capped, scrolling inside
+   themselves), then the case or the ranking. The panels are not moved here; they still fold. */
 @media (max-width: 1200px) {
   html, body { height: auto; }
-  main, main.ranking { display: flex; flex-direction: column; height: auto; }
-  section { overflow: visible; }
-  #centre { order: 1; height: var(--view-h, 56vh); position: sticky; top: 0; z-index: 4; background: var(--bg); border-bottom: 1px solid var(--line); }
-  #left { order: 2; max-height: 40vh; overflow: auto; border-right: 0; border-bottom: 1px solid var(--line); }
-  #case, #ranking { order: 3; border-left: 0; overflow-x: auto; }
-  .grip.left, .grip.right { display: none; }
+  main { flex-direction: column !important; height: auto; }
+  div.vrow, div.vcol { display: contents; }
+  .split { display: none; }
+  .panel { flex: none !important; }
+  #centre { order: 1; height: var(--view-h, 56vh); position: sticky; top: 0; z-index: 4; border-bottom: 1px solid var(--line); }
+  #centre.shut { height: auto; }
+  #panel-tests { order: 2; }
+  #panel-case { order: 3; }
+  .panel > .body { flex: none; }                   /* as tall as what it holds: the page scrolls, not the panel */
+  #panel-tests > .body { max-height: 40vh; }
+  #panel-case > .body { overflow: visible; overflow-x: auto; }
+  .plate { cursor: default; }
+  .vrow > .panel.shut > .bar { flex: none; flex-direction: row; writing-mode: horizontal-tb; padding: 0 6px 0 0; border-bottom: 1px solid var(--line); }
+  .vrow > .panel.shut .plate { padding: 0 16px 0 0; clip-path: polygon(0 0, 100% 0, calc(100% - 11px) 100%, 0 100%); }
+  .vrow > .panel.shut .plate b { padding: 0 7px 0 8px; }
   .grip.under { display: block; }
   #tabs { flex-wrap: nowrap; overflow-x: auto; }
   #tabs button { flex: none; }
   #ranking tr.case { scroll-margin-top: 60vh; }    /* clear of the drawing, which stays on top */
   #legend { display: none; }                       /* the marks are named where they show, in the case's own lists */
   #tip { display: none; }                          /* there is no pointer to hang it on */
+  #hud { bottom: 20px; }
+  #said:not([hidden]) ~ #hud { display: none; }     /* one readout at a time in so little room */
 }

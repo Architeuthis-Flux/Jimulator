@@ -172,12 +172,18 @@ class Export(unittest.TestCase):
         js = (server.WEB_DIR / "lab.js").read_text()
         css = (server.WEB_DIR / "lab.css").read_text()
         html = (server.WEB_DIR / "index.html").read_text()
-        # the drawing's edges drag: the side panels' widths, and in one column the drawing's height; the browser keeps them
-        for size in ("--left-w", "--right-w", "--rank-w", "--view-h"):
-            self.assertIn(size, css)
-            self.assertIn(size, js)
-        self.assertIn("function installGrips", js)
-        self.assertIn('"lab.sizes"', js)
+        # three panels: each moves onto a side of another by its plate, the lines between them size them, a panel
+        # folds to its bar, and the browser keeps all of it; in one column the drawing's lower edge sizes it
+        for function in ("function installPanels", "function buildLayout", "function movePanel", "function splitBetween",
+                         "function resetLayout", "function keptLayout"):
+            self.assertIn(function, js)
+        self.assertIn('"lab.layout.v1"', js)
+        self.assertIn("--view-h", css)
+        self.assertIn("--view-h", js)
+        for part in ('data-panel="tests"', 'data-panel="view"', 'data-panel="case"', 'class="plate"', 'class="fold"'):
+            self.assertIn(part, html)
+        for rule in (".vrow", ".vcol", ".split", ".dropbar", ".panel.shut", ".plate"):
+            self.assertIn(rule, css)
         # the arrow keys move through the list last used, and Escape lets go
         self.assertIn("function installKeys", js)
         for key in ("ArrowDown", "ArrowUp", "Home", "End", "Escape"):
@@ -199,8 +205,32 @@ class Export(unittest.TestCase):
         self.assertIn("touch-action: none", css)                       # the drawing, not the page, takes the fingers
         self.assertIn("const zoomAbout", js)                           # the wheel and two fingers zoom the same way
         self.assertIn("fingers.size === 2", js)
-        for colour in ("#2f3654", "#2b3350", "#252839", "#24273a", "#343a55", "#0f1017"):
-            self.assertEqual(css.count(colour), 1, colour)             # each ground is named once, so a theme can swap it
+        for ground in ("--head:", "--hover:", "--sel:", "--btn:", "--pad:", "--tip:"):
+            self.assertEqual(css.count(ground), 1, ground)             # each ground is named once, so a theme can swap it
+
+    def test_the_page_looks_like_jumperless_on_a_ships_console(self):
+        js = (server.WEB_DIR / "lab.js").read_text()
+        css = (server.WEB_DIR / "lab.css").read_text()
+        html = (server.WEB_DIR / "index.html").read_text()
+        # the palette is the Jumperless one, under the names its stylesheet sets: greys and never black, the rainbow, the magenta
+        for token in ("var(--jl-bg, #27272b)", "var(--jl-surface, #323238)", "var(--jl-accent-3, #fc0289)", "var(--jl-r1, #f03060)",
+                      "var(--jl-r12, #e86828)"):
+            self.assertIn(token, css)
+        for black in ("#000;", "#000 ", "#16171f", "#0f1017"):
+            self.assertNotIn(black, css)
+        self.assertIn('"Archivo Narrow"', css)                         # narrow capital labels,
+        self.assertIn('"IBM Plex Mono"', css)                          # numbers in a mono face,
+        self.assertIn("Michroma", css)                                 # the wide face for the title and the plates' numbers
+        self.assertGreaterEqual(css.count("clip-path: polygon("), 5)   # corners are cut, not rounded
+        self.assertNotIn("border-radius: 9px", css)
+        self.assertIn("prefers-reduced-motion", css)
+        # the last things that did nothing: a legend key shows its kind alone, the counts and the status tag answer
+        self.assertEqual(html.count('data-kind="'), 6)
+        for function in ("function onlyKind(", "function renderHud(", "function keepUi(", "function keptUi("):
+            self.assertIn(function, js)
+        self.assertIn('"lab.ui.v1:"', js)                              # the page opens where it was left
+        self.assertIn('id="hud"', html)
+        self.assertIn("svg[data-only]", css)
 
     def test_clean_empties_the_caches(self):
         for name in ("results", "variants", "bin", "sheet", "ceiling", "solver-venv"):

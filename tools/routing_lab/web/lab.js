@@ -40,6 +40,7 @@ const state = {
   bridge: null,      // "n1-n2" of the bridge picked in the case panel: its row and its two ends are marked
   pickedWire: null,  // a wire clicked on the Fabric tab that carries no single net: lit by itself
   pointed: null,     // what a clicked problem or note names: {nets, wires, pins, nodes}
+  only: null,        // a kind picked in the legend ("dup", "unrouted", ...): the rest of the routing steps back
   v5nodes: null,     // V5's nodes, for the name of one the arrangement picked has dropped
   drawn: [],         // the netlist made by clicking nodes: [[node, node]]
   drawnFrom: null,   // {cls, case} whose settings it is routed with, when it started from a case of the battery
@@ -297,7 +298,9 @@ function cell(col, row) {
   return td;
 }
 
-function classRow(name, rows) {
+const CLASS_HUES = [1, 2, 3, 7, 8, 9, 10, 11];        // the rainbow's steps a class row may wear
+
+function classRow(name, rows, at) {
   const worst = (key) => {
     const values = rows.map((r) => r.metrics[key]).filter((v) => v != null);
     return values.length ? Math.max(...values) : null;
@@ -305,7 +308,8 @@ function classRow(name, rows) {
   const sum = (f) => rows.reduce((total, r) => total + f(r), 0);
   const broken = rows.filter((r) => ["problems", "crash", "timeout"].includes(r.status)).length;
   const missed = sum((r) => r.metrics.missed || 0);
-  const tr = el("tr", { class: "class" + (state.closed[name] ? " closed" : "") },
+  const tr = el("tr", { class: "class" + (state.closed[name] ? " closed" : ""), "data-cls": name,
+    style: "--c: var(--r" + CLASS_HUES[at % CLASS_HUES.length] + ")" },
     el("td", { text: name + "  (" + rows.length + ")" }),
     el("td", { text: rows.filter((r) => r.fully_routed).length + "/" + rows.length, title: "cases fully routed" }),
     el("td", { text: String(sum((r) => r.metrics.routed_duplicates)) }),
@@ -353,10 +357,18 @@ function renderShowing() {
   const classes = [];
   for (const row of run.rows) if (!classes.includes(row.cls)) classes.push(row.cls);
   box.title = RUN_CHECKS + classes.map((c) => "\n" + c + ": " + (((state.info.about || {})[c] || {}).what || "")).join("");
-  box.replaceChildren(el("b", { text: "Shown: " }), "router " + run.variant.name + " on "
-    + classes.map((c) => c + " (" + run.rows.filter((r) => r.cls === c).length + ")").join(", ") + ", "
-    + run.rows.length + " cases, each routed and judged against the schematic; " + arrangementWords(ranOn())
-    + (run.baseline ? "; compared with " + run.baseline.name : "") + ".");
+  const toClass = (c) => el("span", { class: "does", text: c + " " + run.rows.filter((r) => r.cls === c).length,
+    title: "click: go to this class in the table",
+    onclick: () => {
+      state.closed[c] = false;
+      renderBattery();
+      const row = [...document.querySelectorAll("#battery tr.class")].find((tr) => tr.dataset.cls === c);
+      if (row) row.scrollIntoView({ block: "start" });
+    } });
+  box.replaceChildren(
+    el("div", {}, el("b", { text: "router" }), run.variant.name + (run.baseline ? "   against " + run.baseline.name : "")),
+    el("div", {}, el("b", { text: "copper" }), arrangementWords(ranOn())),
+    el("div", {}, el("b", { text: "cases" }), String(run.rows.length), classes.map(toClass)));
 }
 
 function renderBattery() {
@@ -382,7 +394,7 @@ function renderBattery() {
   for (const name of classes) {
     const rows = state.run.rows.filter((r) => r.cls === name);
     if (!(name in state.closed)) state.closed[name] = rows.length > 60;    // long classes start folded
-    table.append(classRow(name, rows));
+    table.append(classRow(name, rows, classes.indexOf(name)));
     if (state.closed[name]) continue;
     let listed = 0;
     const column = state.sort && COLUMNS[state.sort.col];
@@ -404,6 +416,9 @@ function renderBattery() {
     }
   }
   box.append(table);
+  const dirty = state.run.rows.filter(unclean).length;
+  $("tests-note").textContent = count(state.run.rows.length, "case") + (dirty ? ", " + dirty + " not clean" : ", all clean");
+  keepUi();
 }
 
 // ---------------------------------------------------------------- running
@@ -699,6 +714,7 @@ async function selectCase(name) {
   renderCase();
   renderDrawn();                                   // "start from the case shown" goes with what is shown
   redraw();
+  keepUi();
 }
 
 // Both views of the selected case. The fabric is drawn against a second routing of the same case when there is
@@ -780,6 +796,47 @@ function say(text) {
   box.hidden = !text;
   box.replaceChildren(el("span", { text: text || "" }),
     el("button", { type: "button", text: "×", title: "close", onclick: () => say("") }));
+}
+
+// A kind of mark shown alone (a legend key, or a count in the case panel): the rest of the routing steps back. The
+// same kind again, or Escape, shows everything.
+const KIND_WORDS = { closed: "closed crosspoints of first paths", dup: "crosspoints of duplicate paths", xp: "closed crosspoints",
+  mismatch: "claims that do not match the copper", unrouted: "ends of bridges the router failed",
+  refused: "ends of bridges the firmware said no to", ghost: "free in the copper: missed paths, or the spare copies asked for" };
+
+function onlyKind(kind) {
+  state.only = kind && state.only !== kind ? kind : null;
+  for (const view of document.querySelectorAll(".view svg")) {
+    if (state.only) view.dataset.only = state.only;
+    else delete view.dataset.only;
+  }
+  for (const key of document.querySelectorAll("#legend .key[data-kind]")) key.classList.toggle("on", key.dataset.kind === state.only);
+  say(state.only ? "shown alone: " + KIND_WORDS[state.only] + "\n(the same again, or Escape, shows everything)" : "");
+}
+
+// The view's own readout, in its lower right corner: how far in it is, and what the case shown closes.
+function renderHud() {
+  const view = document.querySelector(state.tab === "sheet" ? "#sheet-svg" : "#fabric-svg");
+  const paint = state.tab === "ranking" ? null : shownPaint();
+  const parts = [];
+  if (view && view.dataset.zoom) parts.push(["zoom", view.dataset.zoom + "%"]);
+  if (paint) parts.push(["xp", paint.crosspoints.length], ["nets", Object.keys(paint.nets || {}).length], ["bridges", paint.bridges.length]);
+  $("hud").replaceChildren(...parts.flatMap(([label, value], i) => [(i ? "   " : "") + label + " ", el("b", { text: String(value) })]));
+}
+
+// Where the page was left (the tab, the case, the table's order and what is folded), kept by the browser for
+// this page and put back when it opens.
+const UI_KEY = "lab.ui.v1:" + location.pathname;
+
+function keptUi() {
+  try { return JSON.parse(localStorage.getItem(UI_KEY) || "{}") || {}; } catch (e) { return {}; }
+}
+
+function keepUi() {
+  try {
+    localStorage.setItem(UI_KEY, JSON.stringify({ tab: state.tab, selected: state.selected, sort: state.sort, closed: state.closed,
+      unclean: $("filter-unclean").checked }));
+  } catch (e) { /* a private window */ }
 }
 
 // Let go of everything a click lit.
@@ -913,26 +970,38 @@ function renderCase() {
         + count(solved.bridges.filter((b) => b.state === "routed").length, "bridge") + "; probe feed " + (ranOn().feed ? "on" : "off")
         + " the fabric. The netlist is the firmware's, from the run on " + ranOn().name + "." }));
   } else {
-    box.append(el("div", {}, el("span", { class: "status " + result.status, text: result.status }),
+    box.append(el("div", {}, el("span", { class: "status " + result.status, text: result.status,
+      title: "click: what the judge found",
+      onclick: () => {
+        const trouble = box.querySelector("h2.trouble");
+        if (trouble) trouble.scrollIntoView({ block: "start" });
+        say(result.status + ": " + (paint.problems.length ? count(paint.problems.length, "problem") + ", listed under PROBLEMS"
+          : "the judge found nothing wrong with this routing"));
+      } }),
       // what kind of case this is: a board's own routing, one the bench suite requires to route, or one that is scored
       el("span", { class: "hint", text: "  " + result.cls + " · "
         + (result.cls === "board" ? "as a board routed it" : result.must_route ? "must route" : "scored") })));
     if (result.about) box.append(el("div", { class: "about", text: result.about }));
     if (["crash", "timeout"].includes(result.status)) {
-      box.append(el("h2", { text: "what the harness said" }),
+      box.append(el("h2", { text: "what the harness said", class: "trouble" }),
         el("ul", { class: "problems" }, result.problems.map((p) => el("li", { text: p }))),
         el("pre", { class: "report", text: result.stderr || "(nothing on stderr)" }));
       return;
     }
-    box.append(el("div", { class: "counts",
-      text: m.routed_primaries + " of " + (m.primaries - (m.refused || 0)) + " primaries routed, "
-        + m.routed_duplicates + " copies, " + m.crosspoints + " crosspoints"
-        + (m.taps == null ? "" : ", " + (m.taps - m.taps_dead.length) + " of " + m.taps + " taps reachable")
-        + (m.repeat_same === false ? ", ROUTES DIFFER ON A SECOND REBUILD" : "") }));
+    const does = (text, tip, act) => el("span", { class: "does", text: text, title: "click: " + tip, onclick: act });
+    const tapNote = paint.notes.find((n) => n.startsWith("no sense-tap route for"));
+    box.append(el("div", { class: "counts" },
+      m.routed_primaries + " of " + (m.primaries - (m.refused || 0)) + " primaries routed, ",
+      does(m.routed_duplicates + " copies", "show the duplicate paths alone", () => onlyKind("dup")), ", ",
+      does(m.crosspoints + " crosspoints", "show the crosspoints alone", () => onlyKind("xp")),
+      m.taps == null ? null : ", ",
+      m.taps == null ? null : does((m.taps - m.taps_dead.length) + " of " + m.taps + " taps reachable", "ring the nodes with no sense-tap route",
+        () => (tapNote ? point(named(tapNote), tapNote) : say("every scanned node has a sense-tap route"))),
+      m.repeat_same === false ? ", ROUTES DIFFER ON A SECOND REBUILD" : null));
   }
 
   if (paint.problems.length) {
-    box.append(el("h2", { text: "problems" }),
+    box.append(el("h2", { text: "problems", class: "trouble" }),
       el("ul", { class: "problems" }, paint.problems.map(lineItem)));
   }
 
@@ -980,6 +1049,7 @@ function renderCase() {
   }
   box.append(el("details", {}, el("summary", { text: solved ? "b report of the run on " + ranOn().name : "b report" }),
     el("pre", { text: result.b })));
+  $("case-note").textContent = state.tab === "ranking" ? $("case-note").textContent : result.case;
   applyIsolation();
 }
 
@@ -1097,7 +1167,11 @@ const ZOOM_PER_PIXEL = 0.002;      // doublings of the zoom for one pixel of scr
 // full: the box a double-click returns to; widest: how far out the wheel may go
 function panZoom(view, full, widest = full[2] * 1.5) {
   let box = full.slice();
-  const apply = () => view.setAttribute("viewBox", box.join(" "));
+  const apply = () => {
+    view.setAttribute("viewBox", box.join(" "));
+    view.dataset.zoom = String(Math.round(100 * full[2] / box[2]));
+    renderHud();
+  };
   const scale = () => {
     const r = view.getBoundingClientRect();
     return Math.max(box[2] / r.width, box[3] / r.height);       // user units per pixel ("meet")
@@ -1255,6 +1329,8 @@ function drawFabricBase() {
     const path = svg("path", { class: "wire", d: w.d });
     const hit = svg("path", { class: "hit", d: w.d });
     hover(hit, () => wireTip(name));
+    hit.addEventListener("pointerenter", () => path.classList.add("under"));
+    hit.addEventListener("pointerleave", () => path.classList.remove("under"));
     hit.addEventListener("click", () => {
       if (state.tab === "ranking") {
         toggleTakeAway(name);
@@ -1395,13 +1471,14 @@ function drawFabric(paint, base, who) {
       const pad = known && fabric.pads[known.wire];
       if (!pad) continue;
       const centre = pad.firstChild;
-      pad.append(svg("circle", { class: "want", cx: centre.getAttribute("cx"), cy: centre.getAttribute("cy"), r: 7,
+      pad.append(svg("circle", { class: "want " + (failed(b) ? "failed" : "refused"), cx: centre.getAttribute("cx"), cy: centre.getAttribute("cy"), r: 7,
         stroke: failed(b) ? netColour(b.net) : GREY }));
     }
   }
   if (base) drawCompare(paint, base, who);
   drawGhost();
   applyIsolation();
+  renderHud();
 }
 
 // ---------------------------------------------------------------- dashed paths: what the copper had, or still has
@@ -1570,7 +1647,7 @@ function drawSheet(paint) {
         points = paint.wires[known.wire].pins.map((pin) => s.pins[pin.chip + "." + pin.axis + pin.pin]).filter(Boolean);
       }
       for (const p of points) {
-        marks.append(svg("circle", { class: "s-want", cx: p[0], cy: p[1], r: 2.4,
+        marks.append(svg("circle", { class: "s-want " + (failed(b) ? "failed" : "refused"), cx: p[0], cy: p[1], r: 2.4,
           stroke: failed(b) ? netColour(b.net) : GREY }));
       }
     }
@@ -2007,7 +2084,7 @@ function showTab(name) {
   if (name === "sheet") loadBackdrop();
   $("case").hidden = name === "ranking";
   $("ranking").hidden = name !== "ranking";
-  document.querySelector("main").classList.toggle("ranking", name === "ranking");      // its table is wider than a case's
+  $("case-plate").textContent = name === "ranking" ? "Ranking" : "Case";
   renderArrangement();                             // the sheet's note belongs to the sheet tab
   if (name === "ranking") {
     renderRanking();
@@ -2015,67 +2092,296 @@ function showTab(name) {
   }
   if (state.current || name === "ranking") redraw();
   else drawHeat();                                 // nothing routed is shown: only the tint, if any, is taken off
+  $("case-note").textContent = name === "ranking" ? state.arrangement : (state.selected || "");
+  renderHud();
+  keepUi();
 }
 
-// ---------------------------------------------------------------- the panels' sizes
+// ---------------------------------------------------------------- the panels: where they are, how big, what is shut
 
-// The drawing's edges drag. Its left and right edges set the side panels' widths; in the one-column page its lower
-// edge sets its height. A double-click puts an edge back. The browser keeps the sizes (when it keeps anything).
-const SIZES = {                                    // the CSS variable, and the least and the most (px, or a share of the page)
-  left: ["--left-w", 260, 0.6], right: ["--right-w", 260, 0.6], rank: ["--rank-w", 300, 0.7], under: ["--view-h", 0.2, 0.8],
-};
+// The page is three panels: the tests, the view and the case. They sit in a tree of rows and stacks. Drag a panel
+// by its plate onto a side of another and it goes there; drag the line between two to size them; a panel's fold
+// button shuts it to its bar. A double-click on a plate puts all of it back. The browser keeps the tree, the sizes
+// and what is shut (when it keeps anything). In the one-column page (a phone) the panels keep one order, the view
+// first, and only the view's height drags.
+const PANELS = ["tests", "view", "case"];
+const LAYOUT0 = { d: "r", k: ["tests", "view", "case"] };          // d: "r" a row, "c" a stack; k: panels and trees
+const SIZE0 = { tests: [490, 320], case: [450, 320] };             // a panel's own width in a row, height in a stack
+const LAYOUT_KEY = "lab.layout.v1";
+const layout = { tree: LAYOUT0, size: {}, shut: [] };
 
-function keptSizes() {
-  try { return JSON.parse(localStorage.getItem("lab.sizes") || "{}") || {}; } catch (e) { return {}; }
+const leaves = (t) => (typeof t === "string" ? [t] : t.k.flatMap(leaves));
+const wide = () => window.matchMedia("(min-width: 1201px)").matches;
+const panelOf = (name) => document.querySelector('.panel[data-panel="' + name + '"]');
+
+// A tree with nothing spare in it: no row or stack of one, no row straight inside a row.
+function layNorm(t) {
+  if (typeof t === "string") return t;
+  let kids = [];
+  for (let c of t.k) {
+    c = layNorm(c);
+    if (c === null) continue;
+    if (typeof c !== "string" && c.d === t.d) kids = kids.concat(c.k);
+    else kids.push(c);
+  }
+  return !kids.length ? null : kids.length === 1 ? kids[0] : { d: t.d, k: kids };
 }
 
-function keepSize(key, px) {
+function layWithout(t, v) {
+  if (typeof t === "string") return t === v ? null : t;
+  return { d: t.d, k: t.k.map((c) => layWithout(c, v)).filter((c) => c !== null) };
+}
+
+// v beside (left, right) or above or below (top, bottom) the panel `target`
+function layPut(t, target, v, side) {
+  const want = side === "left" || side === "right" ? "r" : "c";
+  const first = side === "left" || side === "top";
+  if (t === target) return { d: want, k: first ? [v, t] : [t, v] };
+  if (typeof t === "string") return t;
+  const kids = [];
+  for (const c of t.k) {
+    if (c !== target) kids.push(layPut(c, target, v, side));
+    else if (t.d === want) kids.push(...(first ? [v, c] : [c, v]));
+    else kids.push({ d: want, k: first ? [v, c] : [c, v] });
+  }
+  return { d: t.d, k: kids };
+}
+
+function soundTree(t) {
+  if (typeof t === "string") return PANELS.includes(t);
+  return Boolean(t) && (t.d === "r" || t.d === "c") && Array.isArray(t.k) && t.k.length > 0 && t.k.every(soundTree);
+}
+
+function keptLayout() {
   try {
-    const all = keptSizes();
-    if (px == null) delete all[key];
-    else all[key] = px;
-    localStorage.setItem("lab.sizes", JSON.stringify(all));
-  } catch (e) { /* a private window: the size lasts for the visit */ }
+    const kept = JSON.parse(localStorage.getItem(LAYOUT_KEY) || "null");
+    if (!kept || !soundTree(kept.tree) || leaves(kept.tree).slice().sort().join() !== PANELS.slice().sort().join()) return null;
+    const size = {};
+    for (const [key, px] of Object.entries(kept.size || {})) if (Number.isFinite(px) && px > 0) size[key] = px;
+    return { tree: kept.tree, size: size, shut: (Array.isArray(kept.shut) ? kept.shut : []).filter((n) => n === "tests" || n === "case") };
+  } catch (e) { return null; }
 }
 
-function installGrips() {
-  const main = document.querySelector("main");
-  for (const [key, px] of Object.entries(keptSizes())) {
-    if (SIZES[key] && Number.isFinite(px)) main.style.setProperty(SIZES[key][0], px + "px");
+function keepLayout() {
+  try { localStorage.setItem(LAYOUT_KEY, JSON.stringify(layout)); } catch (e) { /* a private window: it lasts for the visit */ }
+}
+
+const sizeKey = (c, d) => leaves(c).slice().sort().join("+") + ":" + d;
+const sizeOf = (c, d) => layout.size[sizeKey(c, d)] || (typeof c === "string" && SIZE0[c] ? SIZE0[c][d === "r" ? 0 : 1] : d === "r" ? 460 : 320);
+// the child of a row or a stack that takes what the others leave: the one holding the view, else the last one open
+function flexibleOf(t) {
+  const open = (c) => !(typeof c === "string" && layout.shut.includes(c));
+  const view = t.k.findIndex((c) => leaves(c).includes("view"));
+  if (view >= 0) return view;
+  for (let i = t.k.length - 1; i >= 0; i--) if (open(t.k[i])) return i;
+  return t.k.length - 1;
+}
+
+function applySizes() {
+  const walk = (t, box) => {
+    const kids = [...box.children].filter((n) => !n.classList.contains("split"));
+    const flexible = flexibleOf(t);
+    t.k.forEach((c, i) => {
+      const shut = typeof c === "string" && layout.shut.includes(c);
+      kids[i].style.flex = shut ? "0 0 auto" : i === flexible ? "1 1 0" : "0 0 " + sizeOf(c, t.d) + "px";
+      if (typeof c !== "string") walk(c, kids[i]);
+    });
+  };
+  walk(layout.tree, document.querySelector("main"));
+  for (const name of PANELS) {
+    const shut = layout.shut.includes(name);
+    panelOf(name).classList.toggle("shut", shut);
+    const fold = panelOf(name).querySelector(".fold");
+    if (fold) fold.setAttribute("aria-expanded", String(!shut));
   }
-  for (const side of ["left", "right", "under"]) {
-    const grip = el("div", { class: "grip " + side, title: "drag to resize; double-click to put it back" });
-    const which = () => (side === "right" && state.tab === "ranking" ? "rank" : side);
-    grip.addEventListener("pointerdown", (event) => {
-      event.preventDefault();                      // no text is selected by the drag
-      grip.classList.add("on");
-      const key = which();
-      const [name, least, most] = SIZES[key];
+  document.querySelector("main").style.setProperty("--view-h", layout.size.under ? layout.size.under + "px" : "");
+  if (!layout.size.under) document.querySelector("main").style.removeProperty("--view-h");
+}
+
+// The line between child i-1 and child i of a row or a stack: drag it to size them, double-click to put it back,
+// and with the keyboard the arrows move it.
+function splitBetween(t, i) {
+  const bar = el("div", { class: "split " + (t.d === "r" ? "ew" : "ns"), role: "separator", tabindex: "0",
+    title: "drag to size the panels; double-click to put it back" });
+  const sized = () => (i - 1 !== flexibleOf(t) ? i - 1 : i);      // the one of the two that has a size of its own
+  const nodeOf = (n) => [...bar.parentNode.children].filter((x) => !x.classList.contains("split"))[n];
+  const span = (node) => (t.d === "r" ? node.getBoundingClientRect().width : node.getBoundingClientRect().height);
+  const set = (which, px) => {
+    const most = span(bar.parentNode) - 160;
+    layout.size[sizeKey(t.k[which], t.d)] = Math.round(Math.max(150, Math.min(most, px)));
+    applySizes();
+  };
+  bar.addEventListener("pointerdown", (event) => {
+    event.preventDefault();
+    const which = sized();
+    const from = t.d === "r" ? event.clientX : event.clientY;
+    const was = span(nodeOf(which));
+    const sign = which === i - 1 ? 1 : -1;
+    bar.classList.add("on");
+    document.body.classList.add("sizing");
+    const move = (e) => set(which, was + sign * ((t.d === "r" ? e.clientX : e.clientY) - from));
+    const done = () => {
+      bar.classList.remove("on");
+      document.body.classList.remove("sizing");
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", done);
+      window.removeEventListener("pointercancel", done);
+      keepLayout();
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", done);
+    window.addEventListener("pointercancel", done);
+  });
+  bar.addEventListener("dblclick", () => { delete layout.size[sizeKey(t.k[sized()], t.d)]; applySizes(); keepLayout(); });
+  bar.addEventListener("keydown", (event) => {
+    const step = { ArrowLeft: -24, ArrowUp: -24, ArrowRight: 24, ArrowDown: 24 }[event.key];
+    if (!step) return;
+    event.preventDefault();
+    event.stopPropagation();                       // the arrows are the line's here, not a list's
+    const which = sized();
+    set(which, span(nodeOf(which)) + (which === i - 1 ? step : -step));
+    keepLayout();
+  });
+  return bar;
+}
+
+// The tree as nested boxes in <main>, the three panels moved into their places (they are never made again).
+function buildLayout() {
+  const root = document.querySelector("main");
+  const panels = {};
+  for (const name of PANELS) panels[name] = panelOf(name);
+  for (const name of PANELS) panels[name].remove();
+  root.replaceChildren();
+  const make = (t, box) => {
+    box.classList.add(t.d === "r" ? "vrow" : "vcol");
+    box.classList.remove(t.d === "r" ? "vcol" : "vrow");
+    t.k.forEach((c, i) => {
+      if (i) box.append(splitBetween(t, i));
+      box.append(typeof c === "string" ? panels[c] : make(c, el("div", {})));
+    });
+    return box;
+  };
+  make(layout.tree, root);
+  applySizes();
+}
+
+function movePanel(v, target, side) {
+  let t = layNorm(layPut(layNorm(layWithout(layout.tree, v)) || target, target, v, side));
+  if (typeof t === "string") t = { d: "r", k: [t] };
+  layout.tree = t;
+  buildLayout();
+  keepLayout();
+}
+
+function resetLayout() {
+  layout.tree = LAYOUT0;
+  layout.size = {};
+  layout.shut = [];
+  buildLayout();
+  keepLayout();
+}
+
+function installPanels() {
+  const kept = keptLayout();
+  if (kept) Object.assign(layout, kept);
+  buildLayout();
+  let line = null;                                 // where the panel being dragged would go
+  const hide = () => { if (line) line.remove(); line = null; };
+  const place = (x, y, skip) => {                  // the panel nearest the pointer, and the side of it the pointer is at
+    let best = null;
+    for (const name of PANELS) {
+      if (name === skip) continue;
+      const r = panelOf(name).getBoundingClientRect();
+      const ox = x < r.left ? r.left - x : x > r.right ? x - r.right : 0;
+      const oy = y < r.top ? r.top - y : y > r.bottom ? y - r.bottom : 0;
+      const far = Math.hypot(ox, oy);
+      if (best && far >= best.far) continue;
+      const fx = (x - (r.left + r.right) / 2) / Math.max(1, r.width);
+      const fy = (y - (r.top + r.bottom) / 2) / Math.max(1, r.height);
+      best = { v: name, r: r, far: far, side: Math.abs(fx) >= Math.abs(fy) ? (fx < 0 ? "left" : "right") : (fy < 0 ? "top" : "bottom") };
+    }
+    return best;
+  };
+  const show = (to) => {
+    if (!line) { line = el("div", { class: "dropbar" }); document.body.append(line); }
+    const r = to.r;
+    const across = to.side === "left" || to.side === "right";
+    line.style.left = (to.side === "right" ? r.right - 4 : r.left) + "px";
+    line.style.top = (to.side === "bottom" ? r.bottom - 4 : r.top) + "px";
+    line.style.width = (across ? 4 : r.width) + "px";
+    line.style.height = (across ? r.height : 4) + "px";
+  };
+  for (const name of PANELS) {
+    const panel = panelOf(name);
+    const plate = panel.querySelector(".plate");
+    plate.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0 || !wide()) return;
+      const from = [event.clientX, event.clientY];
+      let on = false;
+      let to = null;
       const move = (e) => {
-        const box = main.getBoundingClientRect();
-        const whole = side === "under" ? window.innerHeight : box.width;
-        const asked = side === "left" ? e.clientX - box.left : side === "right" ? box.right - e.clientX
-          : e.clientY - $("centre").getBoundingClientRect().top;
-        const px = Math.round(Math.max(least < 1 ? least * whole : least, Math.min(most * whole, asked)));
-        main.style.setProperty(name, px + "px");
-        keepSize(key, px);
+        if (!on) {
+          if (Math.abs(e.clientX - from[0]) + Math.abs(e.clientY - from[1]) < 6) return;
+          on = true;
+          panel.classList.add("moving");
+          document.body.classList.add("paneldrag");
+        }
+        to = place(e.clientX, e.clientY, name);
+        if (to) show(to);
       };
-      const done = () => {                         // on the window: the pointer leaves the thin grip as soon as it moves
-        grip.classList.remove("on");
+      const end = (done) => {
         window.removeEventListener("pointermove", move);
-        window.removeEventListener("pointerup", done);
-        window.removeEventListener("pointercancel", done);
+        window.removeEventListener("pointerup", up);
+        window.removeEventListener("pointercancel", cancel);
+        window.removeEventListener("keydown", key, true);
+        hide();
+        panel.classList.remove("moving");
+        document.body.classList.remove("paneldrag");
+        if (done && on && to) movePanel(name, to.v, to.side);
       };
+      const up = () => end(true);
+      const cancel = () => end(false);
+      const key = (e) => { if (e.key === "Escape") { e.stopPropagation(); end(false); } };
       window.addEventListener("pointermove", move);
-      window.addEventListener("pointerup", done);
-      window.addEventListener("pointercancel", done);
+      window.addEventListener("pointerup", up);
+      window.addEventListener("pointercancel", cancel);
+      window.addEventListener("keydown", key, true);
     });
-    grip.addEventListener("dblclick", () => {
-      main.style.removeProperty(SIZES[which()][0]);
-      keepSize(which(), null);
-    });
-    $("centre").append(grip);
+    plate.addEventListener("dblclick", resetLayout);
+    const fold = panel.querySelector(".fold");
+    if (fold) {
+      fold.addEventListener("click", () => {
+        const at = layout.shut.indexOf(name);
+        if (at >= 0) layout.shut.splice(at, 1);
+        else layout.shut.push(name);
+        applySizes();
+        keepLayout();
+      });
+    }
   }
+  // the one-column page: the view's lower edge drags its height
+  const grip = el("div", { class: "grip under", title: "drag to size the drawing; double-click to put it back" });
+  grip.addEventListener("pointerdown", (event) => {
+    event.preventDefault();
+    grip.classList.add("on");
+    const move = (e) => {
+      const asked = e.clientY - $("centre").getBoundingClientRect().top;
+      layout.size.under = Math.round(Math.max(0.2 * window.innerHeight, Math.min(0.8 * window.innerHeight, asked)));
+      applySizes();
+    };
+    const done = () => {
+      grip.classList.remove("on");
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", done);
+      window.removeEventListener("pointercancel", done);
+      keepLayout();
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", done);
+    window.addEventListener("pointercancel", done);
+  });
+  grip.addEventListener("dblclick", () => { delete layout.size.under; applySizes(); keepLayout(); });
+  $("centre").append(grip);
 }
 
 // ---------------------------------------------------------------- the arrow keys
@@ -2123,6 +2429,7 @@ function installKeys() {
         drawHeat();
         say("");
       } else letGo();
+      if (state.only) onlyKind(null);
       return;
     }
     if (event.key === "ArrowRight" || event.key === "ArrowLeft") {
@@ -2174,8 +2481,12 @@ async function start() {
     }
   });
 
-  installGrips();
+  installPanels();
   installKeys();
+  for (const key of document.querySelectorAll("#legend .key[data-kind]")) {
+    key.addEventListener("click", () => onlyKind(key.dataset.kind));
+    key.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onlyKind(key.dataset.kind); } });
+  }
   $("fit").addEventListener("click", () => {
     const view = document.querySelector(state.tab === "sheet" ? "#sheet-svg" : "#fabric-svg");
     if (view) view.dispatchEvent(new Event("fit"));
@@ -2223,10 +2534,16 @@ async function start() {
     $("variant").value = STATIC.run.variant.name;
     if (STATIC.run.baseline) $("baseline").value = STATIC.run.baseline.name;
     state.run = STATIC.run;
+    const kept = keptUi();                         // where this page was left
+    if (kept.sort && COLUMNS[kept.sort.col]) state.sort = { col: kept.sort.col, down: Boolean(kept.sort.down) };
+    if (kept.closed && typeof kept.closed === "object") Object.assign(state.closed, kept.closed);
+    $("filter-unclean").checked = Boolean(kept.unclean);
     renderRegressions();
     renderBattery();
-    const first = state.run.rows.find(unclean) || state.run.rows[0];
+    const first = state.run.rows.find((r) => r.case === kept.selected) || state.run.rows.find(unclean) || state.run.rows[0];
     if (first) await selectCase(first.case);
+    const tab = document.querySelector('#tabs button[data-tab="' + (kept.tab === "sheet" || kept.tab === "ranking" ? kept.tab : "fabric") + '"]');
+    if (tab && !tab.hidden && tab.dataset.tab !== "fabric") showTab(tab.dataset.tab);
   }
 }
 

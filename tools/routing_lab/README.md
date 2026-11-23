@@ -102,16 +102,28 @@ click a case.
   much as you scroll, so a trackpad and a wheel feel the same; drag pans;
   double-click fits. Hover a wire for its pins and claims.
 - **Hands.** A click answers. On a wire it says what the wire is and
-  carries, under the tabs, and lights its net, or the wire itself when it
-  carries none. On a crosspoint, a chip, a bridge's row (its two ends are
-  ringed), a net, or a problem or note that names a net, a pin, a wire or
-  nodes, it shows that in the drawing. The same click again, a click on the
-  empty drawing, or Escape lets go. The arrow keys move through the battery;
-  Right goes to the case's bridges and nets and Left back; on the Ranking tab
-  they move through the lanes. A column head sorts the cases of each class
-  by it. The drawing's edges drag to resize the side panels (and its lower
-  edge, in the one-column page, its height); a double-click puts an edge
-  back, and the browser keeps the sizes. **fit** shows the whole drawing.
+  carries, in a readout over the drawing's corner, and lights its net, or
+  the wire itself when it carries none. On a crosspoint, a chip, a bridge's
+  row (its two ends are ringed), a net, or a problem or note that names a
+  net, a pin, a wire or nodes, it shows that in the drawing. A key of the
+  legend, or a count in the case panel, shows that kind of mark alone. The
+  same click again, a click on the empty drawing, or Escape lets go. The
+  arrow keys move through the tests; Right goes to the case's bridges and
+  nets and Left back; on the Ranking tab they move through the lanes. A
+  column head sorts the cases of each class by it. **fit** shows the whole
+  drawing, and the view's corner says how far in it is.
+- **Panels.** The page is three panels: the tests, the view and the case.
+  Drag a panel by its name plate onto a side of another and it goes there;
+  drag the line between two to size them; the button on a panel's bar folds
+  it to the bar. A double-click on a plate puts all of it back. The browser
+  keeps the arrangement, the sizes and what is folded, and for each page
+  the tab, the case and the table's order it was left on. On a narrow
+  screen the panels are one column, the view on top, and only fold.
+- **The look.** Jumperless's greys, rainbow and magenta, on panels cut like
+  a ship's console: name plates, cut corners, narrow capital labels. Red
+  still means a problem and nothing else. The fonts (Archivo Narrow, IBM
+  Plex Mono, Michroma) are used where a site has them; the lab's own page
+  falls back to the system's.
 - **A board's own output.** Drop a file holding what a Jumperless prints for
   `b`, or copy it out of a terminal and paste it anywhere on the page. It is
   judged by the same checker and shown as a run of its own, class `board`,

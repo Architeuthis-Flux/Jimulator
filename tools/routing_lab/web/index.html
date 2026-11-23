@@ -9,7 +9,14 @@
 </head>
 <body>
 <main>
-  <section id="left">
+  <!-- Three panels. The page puts them in rows and stacks and keeps where they were left (lab.js, buildLayout). -->
+  <section class="panel" id="panel-tests" data-panel="tests">
+    <header class="bar">
+      <span class="plate" title="drag onto a side of another panel to move this one there; double-click to put the panels back"><b>01</b> Tests</span>
+      <span class="bar-note" id="tests-note"></span>
+      <button type="button" class="fold" title="fold this panel away, or open it" aria-expanded="true"></button>
+    </header>
+    <div class="body" id="left">
     <h1>Routing lab</h1>
     <form id="controls">
       <label>Router <input id="variant" list="variant-list" value="worktree" spellcheck="false" autocomplete="off"></label>
@@ -42,10 +49,12 @@
       <span id="busy" hidden>running...</span>
     </div>
     <div id="battery"></div>
+    </div>
   </section>
 
-  <section id="centre">
-    <nav id="tabs">
+  <section class="panel" id="centre" data-panel="view">
+    <nav id="tabs" class="bar">
+      <span class="plate" title="drag onto a side of another panel to move this one there; double-click to put the panels back"><b>02</b> View</span>
       <button type="button" data-tab="fabric" class="on">Fabric</button>
       <button type="button" data-tab="sheet">KiCad sheet</button>
       <button type="button" data-tab="ranking" title="What the firmware's router loses without each lane, bounce row and hub lane, and whether any netlist is proved to need it">Ranking</button>
@@ -53,25 +62,33 @@
       <span id="view-title"></span>
       <label id="compare-box" hidden title="copper only this router closes is outlined; copper only the baseline closes is dashed grey"><input id="compare" type="checkbox"> compare with baseline</label>
       <span id="legend">
-        <span class="key" title="on the KiCad sheet: a curve inside the chip, from the X pin to the Y pin"><i class="dot"></i> closed</span>
-        <span class="key" title="on the KiCad sheet: a dashed curve"><i class="dot hollow"></i> duplicate path</span>
-        <span class="key"><i class="ring"></i> claim does not match copper</span>
-        <span class="key"><i class="dash"></i> unrouted</span>
-        <span class="key"><i class="dash grey"></i> firmware said no</span>
-        <span class="key" title="dashed in the net's colour: the path the free copper had for a bridge the router failed, or, after a click in the spare column, the copies the free copper still allows for that bridge"><i class="dot hollow dashed"></i> free in copper</span>
+        <span class="key" data-kind="closed" role="button" tabindex="0" title="on the KiCad sheet: a curve inside the chip, from the X pin to the Y pin"><i class="dot"></i> closed</span>
+        <span class="key" data-kind="dup" role="button" tabindex="0" title="on the KiCad sheet: a dashed curve"><i class="dot hollow"></i> duplicate path</span>
+        <span class="key" data-kind="mismatch" role="button" tabindex="0"><i class="ring"></i> claim does not match copper</span>
+        <span class="key" data-kind="unrouted" role="button" tabindex="0"><i class="dash"></i> unrouted</span>
+        <span class="key" data-kind="refused" role="button" tabindex="0"><i class="dash grey"></i> firmware said no</span>
+        <span class="key" data-kind="ghost" role="button" tabindex="0" title="dashed in the net's colour: the path the free copper had for a bridge the router failed, or, after a click in the spare column, the copies the free copper still allows for that bridge"><i class="dot hollow dashed"></i> free in copper</span>
         <span class="key" id="key-taken" hidden title="this arrangement has no copper on the pin"><i class="cross">&times;</i> pin taken away</span>
         <span class="key" id="key-changed" hidden title="this arrangement has the pin on another wire than V5 has"><i class="ring thin"></i> pin not as V5</span>
       </span>
     </nav>
     <div id="sheet-note" hidden></div>
     <div id="said" hidden></div>
+    <div id="hud"></div>
     <div id="fabric" class="view"></div>
     <div id="sheet" class="view" hidden></div>
     <div id="tip" hidden></div>
   </section>
 
-  <section id="case"><p class="hint">Run a battery, then pick a case.</p></section>
-  <section id="ranking" hidden></section>
+  <section class="panel" id="panel-case" data-panel="case">
+    <header class="bar">
+      <span class="plate" title="drag onto a side of another panel to move this one there; double-click to put the panels back"><b>03</b> <span id="case-plate">Case</span></span>
+      <span class="bar-note" id="case-note"></span>
+      <button type="button" class="fold" title="fold this panel away, or open it" aria-expanded="true"></button>
+    </header>
+    <div class="body" id="case"><p class="hint">Run a battery, then pick a case.</p></div>
+    <div class="body" id="ranking" hidden></div>
+  </section>
 </main>
 <script src="lab.js"></script>
 </body>
