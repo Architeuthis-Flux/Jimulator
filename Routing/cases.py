@@ -8,17 +8,16 @@ the HIL dense suite (dense_cases), from firmware state documents
 import hashlib
 import json
 import re
-import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-LAB = Path(__file__).resolve().parent
-HIL = LAB.parent.parent / "test" / "hil"
-if str(HIL) not in sys.path:
-    sys.path.insert(0, str(HIL))
+import variants           # puts JumperlOS/test/hil on the path
 
-import fabric_v5          # noqa: E402  (test/hil: the schematic-derived fabric)
-import routing_cases      # noqa: E402  (test/hil: the dense cases)
+LAB = Path(__file__).resolve().parent
+HIL = variants.HIL
+
+import fabric_v5          # noqa: E402  (JumperlOS/test/hil: the schematic-derived fabric)
+import routing_cases      # noqa: E402  (the dense cases, beside this file)
 
 
 @dataclass

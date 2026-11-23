@@ -63,7 +63,7 @@ def write(path, variant_spec, baseline_spec=None, classes=("dense", "real", "str
         built = server.SHEET_DIR / "backdrop.svg"
         overlay = server.SHEET_DIR / "overlay.json"
         if not (built.is_file() and overlay.is_file()):
-            raise ValueError("the KiCad sheet has not been built: python3 tools/routing_lab/lab.py sheet")
+            raise ValueError("the KiCad sheet has not been built: python3 Routing/lab.py sheet")
         sheet_data = json.loads(overlay.read_text())
     case_list = lab.battery(list(classes))
     a = arrangement.load(arrangement_name)

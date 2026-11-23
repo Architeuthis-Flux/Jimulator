@@ -1,8 +1,9 @@
 # tests/test_harness.py
 import os, re, subprocess, sys, unittest
 LAB = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-REPO = os.path.dirname(os.path.dirname(LAB))
-sys.path.insert(0, os.path.join(REPO, "test", "hil"))
+sys.path.insert(0, LAB)
+import variants               # the firmware checkout, and its test/hil on the path
+REPO = str(variants.REPO)
 import routing_check as rc
 
 BIN = os.path.join(LAB, "build", "test", "lab_harness")

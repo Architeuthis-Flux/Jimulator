@@ -3,7 +3,7 @@
 
 An arrangement is the fabric the copper searches and the exact solver work
 on: which wire is on each chip pin, and which node is which wire. V5's is
-test/hil/fabric_v5.py. Another is a small JSON file under arrangements/ that
+JumperlOS/test/hil/fabric_v5.py. Another is a small JSON file under arrangements/ that
 says what it changes:
 
     "about"   one line of text

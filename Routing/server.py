@@ -44,7 +44,7 @@ BOARD = "board"         # what uploaded board output is held under, where a run 
 DRAWN = "drawn"         # the name and the class of the netlist made by clicking nodes on the page
 MAX_DRAWN = 200         # bridges in it, at most
 IDLE = {"what": None, "done": 0, "of": 0, "wire": None}        # /api/job when nothing long is running
-RANK_HINT = "python3 tools/routing_lab/lab.py rank --needed"
+RANK_HINT = "python3 Routing/lab.py rank --needed"
 TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
          ".css": "text/css; charset=utf-8", ".svg": "image/svg+xml", ".json": "application/json"}
 
@@ -452,7 +452,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def api_get_sheet(self, query, body):
         overlay = SHEET_DIR / "overlay.json"
         if not overlay.is_file():
-            raise Refused(404, "the KiCad sheet has not been built", hint="python3 tools/routing_lab/lab.py sheet")
+            raise Refused(404, "the KiCad sheet has not been built", hint="python3 Routing/lab.py sheet")
         return json.loads(overlay.read_text())
 
 

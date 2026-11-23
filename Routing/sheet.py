@@ -9,7 +9,7 @@ other side of its op-amp, jumper or shunt). build() also has kicad-cli plot
 the sheet as the backdrop. Both land in build/sheet/; nothing is written next
 to the schematic.
 
-Like test/hil/fabric_v5.py this is derived from the schematic, not from the
+Like JumperlOS/test/hil/fabric_v5.py this is derived from the schematic, not from the
 firmware's tables. Net names come from fabric_v5, so the two agree by
 construction on what a net is called.
 """
@@ -19,15 +19,12 @@ import math
 import re
 import shutil
 import subprocess
-import sys
 import tempfile
 from pathlib import Path
 
 import variants
 
-HIL = Path(__file__).resolve().parent.parent.parent / "test" / "hil"
-if str(HIL) not in sys.path:
-    sys.path.insert(0, str(HIL))
+HIL = variants.HIL    # JumperlOS/test/hil, which variants puts on the path
 
 import fabric_v5      # noqa: E402
 
@@ -37,7 +34,7 @@ SHEET_DIR = variants.BUILD_DIR / "sheet"
 KICAD_CLI = ("kicad-cli", "/Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli")
 PAPER = {"A0": (1189.0, 841.0), "A1": (841.0, 594.0), "A2": (594.0, 420.0), "A3": (420.0, 297.0),
          "A4": (297.0, 210.0), "A5": (210.0, 148.0)}
-HINT = "python3 tools/routing_lab/lab.py sheet [path/to/board.kicad_sch]"
+HINT = "python3 Routing/lab.py sheet [path/to/board.kicad_sch]"
 
 
 

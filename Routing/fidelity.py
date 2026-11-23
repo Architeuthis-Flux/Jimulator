@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 """Fidelity: does the harness route what a real board routed?
 
-A capture directory is what test/hil/test_routing_dense.py writes with
+A capture directory is what JumperlOS/test/hil/test_routing_dense.py writes with
 JL_ROUTING_SNAP_DIR set: <case>.b.txt and <case>.xbar.txt for every dense
 case. The harness replays the suite in the suite's order in ONE process,
 because a board does not reboot between cases and the router's GND
@@ -17,7 +17,7 @@ import cases
 import runner
 import variants
 
-HIL_TOOLS = Path(__file__).resolve().parent.parent.parent / "test" / "hil" / "tools"
+HIL_TOOLS = variants.HIL / "tools"
 if str(HIL_TOOLS) not in sys.path:
     sys.path.insert(0, str(HIL_TOOLS))
 

@@ -15,7 +15,7 @@ import rank
 import variants
 
 LAB = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-HIL = os.path.join(os.path.dirname(os.path.dirname(LAB)), "test", "hil")
+HIL = str(variants.HIL)                     # the firmware checkout's test/hil
 
 
 def run(argv):
@@ -151,7 +151,7 @@ class Cli(unittest.TestCase):
             self.assertEqual(code, 0, out)
             self.assertEqual(lab.cases.load_json(os.path.join(tmp, "real", "s3.json")).name, "s3")
 
-    @unittest.skipUnless(ceiling.solver_installed(), "the solver is not installed: python3 tools/routing_lab/lab.py solver-setup")
+    @unittest.skipUnless(ceiling.solver_installed(), "the solver is not installed: python3 Routing/lab.py solver-setup")
     def test_ceiling_prints_the_verdict_and_the_fewest(self):
         code, out = run(["ceiling", "--case", "same_chip_pairs"])
         self.assertEqual(code, 0, out)
@@ -165,7 +165,7 @@ class Cli(unittest.TestCase):
         with mock.patch.object(ceiling, "SOLVER_PYTHON", lab.Path("/nonexistent/python")):
             code, out = run(["ceiling", "--case", "same_chip_pairs"])
         self.assertEqual(code, 1, out)
-        self.assertIn("python3 tools/routing_lab/lab.py solver-setup", out)
+        self.assertIn("python3 Routing/lab.py solver-setup", out)
 
     def test_ceiling_exits_1_on_an_answer_the_lab_does_not_stand_behind(self):
         wrong = {"verdict": "unknown", "fewest_proved": False, "crosspoints": None, "router_crosspoints": 16, "closed": [],
@@ -225,7 +225,7 @@ class Cli(unittest.TestCase):
         self.assertIn("arrangement score v6_rails_on_chips", out)
         self.assertEqual(run(["run", "--classes", "dense", "--arrangement", "no_such_arrangement"])[0], 2)
 
-    @unittest.skipUnless(ceiling.solver_installed(), "the solver is not installed: python3 tools/routing_lab/lab.py solver-setup")
+    @unittest.skipUnless(ceiling.solver_installed(), "the solver is not installed: python3 Routing/lab.py solver-setup")
     def test_ceiling_on_an_arrangement_the_router_cannot_route(self):
         code, out = run(["ceiling", "--case", "rail_stacking_light", "--arrangement", "v6_rails_on_chips"])
         self.assertEqual(code, 0, out)
@@ -240,7 +240,7 @@ class Cli(unittest.TestCase):
         self.assertEqual((code, line[-2:]), (0, ["=", "10"]), out)
         self.assertNotEqual(line[1], "-")                       # here the router ran on the arrangement itself
 
-    @unittest.skipUnless(ceiling.solver_installed(), "the solver is not installed: python3 tools/routing_lab/lab.py solver-setup")
+    @unittest.skipUnless(ceiling.solver_installed(), "the solver is not installed: python3 Routing/lab.py solver-setup")
     def test_arrangement_score_asks_the_solver_on_both(self):
         code, out = run(["arrangement", "score", "v6_rails_on_chips", "--case", "rail_stacking_light"])
         self.assertEqual(code, 0, out)
@@ -294,7 +294,7 @@ class Cli(unittest.TestCase):
         with mock.patch.object(ceiling, "SOLVER_PYTHON", lab.Path("/nonexistent/python")):
             code, out = run(["arrangement", "score", "v6_feed_off"])
         self.assertEqual(code, 1, out)
-        self.assertIn("python3 tools/routing_lab/lab.py solver-setup", out)
+        self.assertIn("python3 Routing/lab.py solver-setup", out)
         # the other side is asked with the first's feed: copper with no end for the feed is refused, not scored (verification)
         with tempfile.TemporaryDirectory() as tmp:
             no_dac0 = os.path.join(tmp, "no_dac0.json")
@@ -395,7 +395,7 @@ class Cli(unittest.TestCase):
                 mock.patch.object(rank, "removal", side_effect=AssertionError("ranked before saying the solver is missing")):
             code, out = run(["rank", "--classes", "dense", "--wires", "KL", "--needed"])
         self.assertEqual(code, 1, out)
-        self.assertIn("python3 tools/routing_lab/lab.py solver-setup", out)
+        self.assertIn("python3 Routing/lab.py solver-setup", out)
 
     def test_build_prints_the_binary(self):
         code, out = run(["build"])

@@ -187,7 +187,7 @@ function renderArrangement() {
   // an arrangement made here (one without some wires) is no file: the text of one, to save under arrangements/
   $("arrangement-json").hidden = !a.json;
   $("arrangement-json").querySelector("pre").textContent = a.json || "";
-  $("arrangement-json").title = "save it as tools/routing_lab/arrangements/<a name>.json to keep it";
+  $("arrangement-json").title = "save it as Routing/arrangements/<a name>.json to keep it";
   // a file with a mistake: listed, greyed, its problems on hover; nothing else stops
   $("arrangement-bad").hidden = !broken.length;
   $("arrangement-bad").replaceChildren(...broken.map((row) => el("div", { title: row.problems.join("\n"),
@@ -743,7 +743,7 @@ function redraw() {
         + "   probe feed " + (on.feed ? "on" : "off") + " the fabric"
       : state.run.drawn && picked().engine === "solver"     // made by hand, on copper only the solver routes, not routed yet
         ? state.arrangement + ": its copper. The firmware made the netlist; routing it here is the exact solver's work"
-          + (state.info.solver ? " (ask under Ceiling)." : ", and the solver is not installed: python3 tools/routing_lab/lab.py solver-setup")
+          + (state.info.solver ? " (ask under Ceiling)." : ", and the solver is not installed: python3 Routing/lab.py solver-setup")
         : state.arrangement + ": its copper. The run shown is on " + on.name + ": pick that arrangement to see it drawn"
           + (state.info.solver ? ", or ask the solver for this case on " + state.arrangement + " (Ceiling)." : ".");
     drawSheet(null);                               // the sheet is V5's own
@@ -1155,7 +1155,7 @@ function ceilingSection() {
   const box = el("div", { id: "ceiling" }, el("h2", { text: "ceiling" }));
   if (!state.info.solver) {
     box.append(el("div", { class: "hint", text: "Whether a netlist can be routed at all is asked of an exact solver. Install it once with:" }),
-      el("pre", { text: "python3 tools/routing_lab/lab.py solver-setup" }),
+      el("pre", { text: "python3 Routing/lab.py solver-setup" }),
       el("div", { class: "hint", text: "then reload this page." }));
     return box;
   }
@@ -1679,7 +1679,7 @@ async function drawSheetBase() {
   sheet.backdrop = STATIC ? STATIC.backdrop : "sheet/backdrop.svg";
   if (STATIC) sheet.data = STATIC.sheet || null;
   else {
-    why = "The KiCad sheet has not been built. Build it once with:\n\n    python3 tools/routing_lab/lab.py sheet"
+    why = "The KiCad sheet has not been built. Build it once with:\n\n    python3 Routing/lab.py sheet"
       + "\n\nand reload. The fabric view needs nothing.";
     if (state.info.sheet) {
       try { sheet.data = await api("/api/sheet"); } catch (err) { why = err.message; }
@@ -2166,7 +2166,7 @@ function renderRanking() {
     box.append(el("div", { class: "hint", text: "Whether a wire is needed is asked of the exact solver, which takes the better "
       + "part of an hour and is not started from here" + (a.json ? ". This arrangement is no file: save its file first (left "
         + "column, under the picker) as arrangements/NAME.json, then:" : ":") }),
-      el("pre", { text: "python3 tools/routing_lab/lab.py rank --needed"
+      el("pre", { text: "python3 Routing/lab.py rank --needed"
         + (state.arrangement === "v6_feed_off" ? "" : " --arrangement " + (a.json ? "NAME" : JSON.stringify(state.arrangement))) }));
   }
   if (!r) return;

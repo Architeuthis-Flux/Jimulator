@@ -2,8 +2,8 @@
 
 Builds the firmware's own V5 router for the host, routes a battery of
 netlists with it, and judges every result against the schematic with
-`test/hil/routing_check.py`. No board needed. Design:
-`CodeDocs/DESIGN_ROUTING_LAB.md`.
+`JumperlOS/test/hil/routing_check.py`. No board needed. Design:
+`Routing/docs/DESIGN_ROUTING_LAB.md`.
 
 All four pieces of the design are built: the harness, battery, judge and
 command line; the page that draws a result on the fabric and on the board's
@@ -24,7 +24,7 @@ on which arrangement, and whether the probe feed is on the fabric:
 ## The page
 
 ```bash
-python3 tools/routing_lab/lab.py serve
+python3 Routing/lab.py serve
 ```
 
 Opens `http://127.0.0.1:8765/`. Pick a router and the classes, press Run,
@@ -71,7 +71,7 @@ click a case.
   alone; a click on its wire or on a crosspoint still does.)
 - **Fabric tab.** The crossbars as grids with every piece of copper between
   them, generated from the arrangement's tables (V5's are
-  `test/hil/fabric_v5.py`). A lit wire carries the net of its colour; a dot
+  `JumperlOS/test/hil/fabric_v5.py`). A lit wire carries the net of its colour; a dot
   is a closed crosspoint. On another arrangement than V5 a grey cross is a
   pin taken away and a thin ring a pin on another wire than V5 has it on; a
   wire of no shape V5 has (a rail on a pin of every chip) is drawn as a bus
@@ -100,7 +100,7 @@ click a case.
   schematic on 2026-11-23: eleven wires have a stage, and R88 (the probe's
   feed onto `ROUTABLE_BUFFER_IN`) is taken as fitted, as the schematic has
   it. Build the sheet once with
-  `python3 tools/routing_lab/lab.py sheet [board.kicad_sch] [--theme NAME]`
+  `python3 Routing/lab.py sheet [board.kicad_sch] [--theme NAME]`
   (needs KiCad's `kicad-cli`; the default is the V5 r7 sheet in
   `~/Documents/GitHub/JumperlessV5`), and again after a change to `BEYOND`.
 - **Marks, fabric and sheet.** Red is a problem and nothing else is red: a wire
@@ -182,8 +182,8 @@ an origin check), and builds only this checkout, git refs of it, and the
 `--tree` directories it was started with.
 
 ```bash
-python3 tools/routing_lab/lab.py export run.html --baseline main
-python3 tools/routing_lab/lab.py clean
+python3 Routing/lab.py export run.html --baseline main
+python3 Routing/lab.py clean
 ```
 
 `export` writes one battery run as a single HTML file that opens without the
@@ -237,17 +237,17 @@ if a report does not read, the message says which part did not come through.
 ## Use from the command line
 
 ```bash
-python3 tools/routing_lab/lab.py run
+python3 Routing/lab.py run
 ```
 
 Routes the `dense` and `real` classes on this checkout's router and prints a
 table. Useful forms:
 
 ```bash
-python3 tools/routing_lab/lab.py run --classes dense,real,typical,fuzz,stress,beyond,edge
-python3 tools/routing_lab/lab.py run --variant ~/Documents/GitHub/JumperlOS --baseline main
-python3 tools/routing_lab/lab.py run --classes fuzz --case fuzz_1_1
-python3 tools/routing_lab/lab.py import-state my_slot.yaml --name my_slot
+python3 Routing/lab.py run --classes dense,real,typical,fuzz,stress,beyond,edge
+python3 Routing/lab.py run --variant ~/Documents/GitHub/JumperlOS --baseline main
+python3 Routing/lab.py run --classes fuzz --case fuzz_1_1
+python3 Routing/lab.py import-state my_slot.yaml --name my_slot
 ```
 
 - `--variant` is `worktree` (the checkout `lab.py` is in), a directory that
@@ -278,7 +278,7 @@ does not change the exit status on its own.
 
 | class | what |
 |---|---|
-| dense | the 21 cases of `test/hil/test_routing_dense.py` (shared through `test/hil/routing_cases.py`) |
+| dense | the 21 cases of `JumperlOS/test/hil/test_routing_dense.py` (shared through `JumperlOS/test/hil/routing_cases.py`) |
 | real | saved board states, imported with `import-state` into `cases/real/` |
 | typical | 200 seeded circuits shaped like everyday use: an IC or two across the gap, power, ground, a few signals |
 | fuzz | 2,000 seeded random netlists |
@@ -356,9 +356,9 @@ free to move, can this netlist be routed at all, and with how few
 crosspoints?
 
 ```bash
-python3 tools/routing_lab/lab.py solver-setup      # once; needs the network
-python3 tools/routing_lab/lab.py ceiling --classes dense,real,beyond
-python3 tools/routing_lab/lab.py ceiling --case nano_dense_metric --rule copper --seconds 60
+python3 Routing/lab.py solver-setup      # once; needs the network
+python3 Routing/lab.py ceiling --classes dense,real,beyond
+python3 Routing/lab.py ceiling --case nano_dense_metric --rule copper --seconds 60
 ```
 
 `solver-setup` installs OR-tools 9.15 into `build/solver-venv`. Without it
@@ -435,7 +435,7 @@ probe feed is one) the router routes 603. "Findings so far" has the detail.
 ## Arrangements
 
 An arrangement is the crossbar copper: which wire is on each chip pin, and
-which node is which wire. V5's is `test/hil/fabric_v5.py`. Any other is a
+which node is which wire. V5's is `JumperlOS/test/hil/fabric_v5.py`. Any other is a
 small JSON file under `arrangements/` that says what it changes from V5:
 
 | key | what it says |
@@ -466,7 +466,7 @@ for `30`).
 
 Two ship. `v6_feed_off` is V5's copper with the probe feed off the fabric.
 `v6_rails_on_chips` is the worked example, P1 + P2 of
-`CodeDocs/V6_CROSSBAR_MATRIX.md`: the feed off, and on every breadboard chip
+`Routing/docs/V6_CROSSBAR_MATRIX.md`: the feed off, and on every breadboard chip
 the second lane of three doubled pairs given to TOP_RAIL, BOTTOM_RAIL and
 GND. Its file is the feed line and 24 pins:
 
@@ -476,10 +476,10 @@ GND. Its file is the feed line and 24 pins:
 ```
 
 ```bash
-python3 tools/routing_lab/lab.py arrangement list                       # each one: feed, who can answer for it
-python3 tools/routing_lab/lab.py arrangement show v6_rails_on_chips     # pin by pin; changed pins starred
-python3 tools/routing_lab/lab.py arrangement check my_idea.json         # every mistake, each with its pin or name
-python3 tools/routing_lab/lab.py arrangement score v6_rails_on_chips    # the solver, against V5, on the same netlists
+python3 Routing/lab.py arrangement list                       # each one: feed, who can answer for it
+python3 Routing/lab.py arrangement show v6_rails_on_chips     # pin by pin; changed pins starred
+python3 Routing/lab.py arrangement check my_idea.json         # every mistake, each with its pin or name
+python3 Routing/lab.py arrangement score v6_rails_on_chips    # the solver, against V5, on the same netlists
 ```
 
 To try an idea: write the file, `check` it, pick it on the page. A file with
@@ -531,9 +531,9 @@ lanes from a breadboard chip to an SF chip, the 8 bounce rows and the 6 hub
 lanes. That is 94 on V5. A node's own wire is not ranked.
 
 ```bash
-python3 tools/routing_lab/lab.py rank                    # the router's part, about three minutes
-python3 tools/routing_lab/lab.py rank --needed           # and the solver's; see below for how long
-python3 tools/routing_lab/lab.py rank --wires KL,AK --classes dense
+python3 Routing/lab.py rank                    # the router's part, about three minutes
+python3 Routing/lab.py rank --needed           # and the solver's; see below for how long
+python3 Routing/lab.py rank --wires KL,AK --classes dense
 ```
 
 It routes the battery on the arrangement (`v6_feed_off` unless
@@ -830,5 +830,5 @@ the router's `memset(-1)` idiom trips on every case).
 ## Tests
 
 ```bash
-python3 -m unittest discover -s tools/routing_lab/tests -t tools/routing_lab
+python3 -m unittest discover -s Routing/tests -t Routing
 ```

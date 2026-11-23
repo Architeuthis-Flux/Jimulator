@@ -9,7 +9,7 @@ import cases
 import runner
 import variants
 
-REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+REPO = str(variants.REPO)                   # the firmware checkout
 ROUTER = "src/routing/NetsToChipConnections.cpp"
 
 

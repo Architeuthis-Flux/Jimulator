@@ -2,9 +2,11 @@
 # SPDX-License-Identifier: MIT
 """The dense / edge-case routings, as data.
 
-Shared by test_routing_dense.py (which pastes them onto a board) and
-tools/routing_lab (which routes them on the host). Standard library only, no
-board needed to import it.
+The lab routes them on the host. They began as the cases of JumperlOS's bench
+test (JumperlOS/test/hil/test_routing_dense.py, which pastes them onto a
+board); that file carries its own copy of them, so a case changed here or
+there is changed in the other by hand. Standard library only, no board needed
+to import it.
 """
 
 # node ids (src/JumperlessDefines.h)

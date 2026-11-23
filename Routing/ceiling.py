@@ -35,7 +35,7 @@ _BOARD = []                                         # the V5 fabric's graph, bui
 ORTOOLS = "9.15.6755"
 SOLVER_PYTHON = variants.BUILD_DIR / "solver-venv" / "bin" / "python"
 SOLVE_PY = Path(__file__).resolve().parent / "solver" / "solve.py"
-SETUP = "python3 tools/routing_lab/lab.py solver-setup"
+SETUP = "python3 Routing/lab.py solver-setup"
 GRACE = 30.0                                        # seconds past its limit before the solver is given up on
 
 

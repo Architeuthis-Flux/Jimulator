@@ -17,7 +17,7 @@ import server
 import variants
 
 LAB = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-REPO = os.path.dirname(os.path.dirname(LAB))
+REPO = str(variants.REPO)                   # the firmware checkout
 DEFAULT = object()
 
 
@@ -551,7 +551,7 @@ class Server(unittest.TestCase):
         hash_ = self.c.get("/api/watch?spec=worktree").json["hash"]
         with tempfile.TemporaryDirectory() as tmp, mock.patch.object(server.rank, "DIR", server.Path(tmp)):
             missing = self.c.get("/api/rank?variant=worktree&arrangement=v6_feed_off")
-            self.assertEqual((missing.status, missing.json["hint"]), (404, "python3 tools/routing_lab/lab.py rank --needed"))
+            self.assertEqual((missing.status, missing.json["hint"]), (404, "python3 Routing/lab.py rank --needed"))
             server.rank.save(self.ranking(hash_))
             r = self.c.get("/api/rank?variant=worktree&arrangement=v6_feed_off")
             self.assertEqual(r.status, 200, r.body)

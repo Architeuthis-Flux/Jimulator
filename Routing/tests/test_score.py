@@ -13,7 +13,7 @@ import score
 import variants
 from tests.test_ceiling import dense
 
-NEEDS_SOLVER = "the solver is not installed: python3 tools/routing_lab/lab.py solver-setup"
+NEEDS_SOLVER = "the solver is not installed: python3 Routing/lab.py solver-setup"
 V = None
 
 

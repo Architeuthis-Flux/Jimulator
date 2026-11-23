@@ -520,7 +520,7 @@ def cmd_arrangement(args):
                 a = arrangement.load(name)
                 print("%-22s feed %-3s  %-17s  %s" % (name, "on" if a.feed else "off", engines(a), a.about))
             except arrangement.Bad as e:
-                print("%-22s %d problems: python3 tools/routing_lab/lab.py arrangement check %s" % (name, len(e.problems), name))
+                print("%-22s %d problems: python3 Routing/lab.py arrangement check %s" % (name, len(e.problems), name))
         return 0
     if not args.name:
         raise ValueError("arrangement %s needs a name (see: lab.py arrangement list)" % args.what)

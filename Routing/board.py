@@ -6,7 +6,7 @@ table, chip status) is judged and painted exactly as a harness run is, so the
 page can show what a board really routed. The text may be a raw serial log
 (colour codes and all) or a copy out of a terminal window, where every tab
 has become spaces; the checker's parsers want the tabs, so they are put back
-here and test/hil/routing_check.py is left as the bench suite uses it.
+here and JumperlOS/test/hil/routing_check.py is left as the bench suite uses it.
 
 The crossbar dump (`:crossbar` on port 7, "xbar{12x8:...}") is used when it
 is in the text. Without it, what was sent to the chips is taken to be what

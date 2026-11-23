@@ -2,14 +2,14 @@
 import os
 import py_compile
 import re
-import sys
 import tempfile
 import unittest
 
+import variants               # puts the firmware checkout's test/hil on the path
+
 LAB = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-REPO = os.path.dirname(os.path.dirname(LAB))
-HIL = os.path.join(REPO, "test", "hil")
-sys.path.insert(0, HIL)
+REPO = str(variants.REPO)
+HIL = str(variants.HIL)
 
 import cases
 import routing_cases
@@ -109,10 +109,10 @@ class Cases(unittest.TestCase):
         for n in names:
             self.assertEqual(cases.load_json(os.path.join(LAB, "cases", "real", n)).cls, "real")
 
-    def test_hil_suite_still_parses(self):
-        py_compile.compile(HIL + "/test_routing_dense.py", doraise=True)
-        with open(HIL + "/test_routing_dense.py") as f:
-            self.assertIn("from routing_cases import", f.read())
+    def test_the_bench_suite_is_there_and_the_dense_cases_are_the_labs_own(self):
+        py_compile.compile(HIL + "/test_routing_dense.py", doraise=True)       # the firmware checkout's bench test
+        # the cases began there; the lab carries them beside itself (the firmware's copy is its own)
+        self.assertEqual(os.path.dirname(os.path.abspath(routing_cases.__file__)), LAB)
 
 
 if __name__ == "__main__":

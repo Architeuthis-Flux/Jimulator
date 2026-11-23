@@ -3,7 +3,7 @@
 `POST https://slopswap.org/api/solve` answers the question `../solve.py`
 answers on the Mac, so the lab's page on slopswap.org can ask the solver
 things nobody asked first. It is what
-`CodeDocs/HANDOFF_2026-11-22_ROUTING_LAB_HOSTING.md` asked for, part 1.
+`Routing/docs/HANDOFF_2026-11-22_ROUTING_LAB_HOSTING.md` asked for, part 1.
 
 It solves a JSON question and nothing else. Nothing sent to it is compiled
 or run.

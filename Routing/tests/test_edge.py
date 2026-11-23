@@ -184,7 +184,7 @@ class Edge(unittest.TestCase):
         with mock.patch.object(ceiling, "SOLVER_PYTHON", Path("/nonexistent/python")):
             code, out = run(["edge", "--seed", "5", "--count", "1"])
         self.assertEqual(code, 1, out)
-        self.assertIn("python3 tools/routing_lab/lab.py solver-setup", out)
+        self.assertIn("python3 Routing/lab.py solver-setup", out)
 
     def test_committed_edge_cases_load_and_are_in_the_battery(self):
         found = lab.battery(["edge"])

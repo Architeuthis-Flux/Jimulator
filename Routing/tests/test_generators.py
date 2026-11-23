@@ -8,7 +8,7 @@ import runner
 import variants
 
 LAB = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-REPO = os.path.dirname(os.path.dirname(LAB))
+REPO = str(variants.REPO)                   # the firmware checkout
 
 
 class Generators(unittest.TestCase):

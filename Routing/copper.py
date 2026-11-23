@@ -11,12 +11,11 @@ Resistance is in units of one crosspoint: a direct two-crosspoint path is
 """
 import re
 import statistics
-import sys
 from pathlib import Path
 
-HIL = Path(__file__).resolve().parent.parent.parent / "test" / "hil"
-if str(HIL) not in sys.path:
-    sys.path.insert(0, str(HIL))
+import variants                                                         # puts JumperlOS/test/hil on the path
+
+HIL = variants.HIL
 
 import routing_check as rc                                              # noqa: E402
 from fabric_v5 import BOUNCE, CHIPS, LANES, NODE_NAME, NODE_NET, X_NET, Y_NET      # noqa: E402

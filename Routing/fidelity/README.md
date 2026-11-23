@@ -25,8 +25,8 @@ The board was rebooted by the upload, not by pulling its power.
   capture, because every case pastes a state of its own that leaves it off.
 - Let the board boot normally. Boot runs `oled.init()`, which sets
   `top_oled.enabled` in RAM, and the harness assumes exactly that.
-- `test/hil/test_routing_dense.py` imports its cases from
-  `test/hil/routing_cases.py`. In that form it has run on a V5 (2026-11-21,
+- `JumperlOS/test/hil/test_routing_dense.py` imports its cases from
+  `JumperlOS/test/hil/routing_cases.py`. In that form it has run on a V5 (2026-11-21,
   78 checks, pass).
 
 ## Taking a capture (one bench run)
@@ -60,7 +60,7 @@ The board was rebooted by the upload, not by pulling its power.
    and restores it afterwards):
 
    ```bash
-   JL_ROUTING_SNAP_DIR=tools/routing_lab/fidelity/board_<hash> python3 test/hil/test_routing_dense.py
+   JL_ROUTING_SNAP_DIR=Routing/fidelity/board_<hash> python3 JumperlOS/test/hil/test_routing_dense.py
    ```
 
    Then, before anything reboots the board, save what the terminal prints
@@ -71,7 +71,7 @@ The board was rebooted by the upload, not by pulling its power.
 5. Compare:
 
    ```bash
-   python3 tools/routing_lab/lab.py fidelity tools/routing_lab/fidelity/board_<hash>
+   python3 Routing/lab.py fidelity Routing/fidelity/board_<hash>
    ```
 
    A pass writes `verified.json` into the capture directory, naming the

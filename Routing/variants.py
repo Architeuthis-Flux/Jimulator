@@ -1,10 +1,17 @@
 # SPDX-License-Identifier: MIT
 """Variants: which firmware src/ tree the harness is built from.
 
-A variant is a complete src/ tree. It comes from this checkout ("worktree"),
-from another checkout (a directory that holds src/), from a git ref, or from
-any of those with some files replaced. Each is identified by a hash of its
-sources and of the harness, and built once into build/bin/<hash>/.
+A variant is a complete src/ tree. It comes from the firmware checkout
+("worktree"), from another checkout (a directory that holds src/), from a git
+ref of the firmware checkout, or from any of those with some files replaced.
+Each is identified by a hash of its sources and of the harness, and built
+once into build/bin/<hash>/.
+
+The firmware checkout (REPO) is JumperlOS: this repository's own submodule,
+or the checkout the JUMPERLOS environment variable names (a working copy
+whose router is being changed, say). The lab reads two things from it: the
+router's source (src/) and the bench suite's fabric and judge (JumperlOS/test/hil/,
+which importing this module puts on the path).
 """
 import hashlib
 import io
@@ -12,13 +19,20 @@ import os
 import posixpath
 import shutil
 import subprocess
+import sys
 import tarfile
 import threading
 from dataclasses import dataclass
 from pathlib import Path
 
 LAB = Path(__file__).resolve().parent
-REPO = LAB.parent.parent
+REPO = Path(os.environ.get("JUMPERLOS") or LAB.parent / "JumperlOS").expanduser().resolve()
+HIL = REPO / "test" / "hil"
+if not (REPO / "src").is_dir() or not (HIL / "fabric_v5.py").is_file():
+    raise SystemExit("The firmware is not at %s.\nFetch this repository's copy:   git submodule update --init\n"
+                     "or name a JumperlOS checkout:    JUMPERLOS=/path/to/JumperlOS python3 Routing/lab.py ..." % REPO)
+if str(HIL) not in sys.path:
+    sys.path.append(str(HIL))               # after the lab's own modules: a name both have is the lab's
 HARNESS_DIR = LAB / "harness"
 BUILD_DIR = LAB / "build"
 SOURCE_SUFFIXES = (".h", ".hpp", ".cpp")
@@ -90,7 +104,11 @@ def _git_ref_tree(spec):
     p = subprocess.run(["git", "-C", str(REPO), "rev-parse", "--verify", "--quiet", "--end-of-options",
                         spec + "^{commit}"], capture_output=True, text=True)
     if p.returncode != 0:
-        raise ValueError("not a directory holding src/ and not a git ref: %r" % spec)
+        shallow = subprocess.run(["git", "-C", str(REPO), "rev-parse", "--is-shallow-repository"],
+                                 capture_output=True, text=True).stdout.strip() == "true"
+        raise ValueError("not a directory holding src/ and not a git ref: %r%s" % (
+            spec, " (the firmware checkout at %s is shallow; for its history: git -C %s fetch --unshallow)"
+            % (REPO, REPO) if shallow else ""))
     sha = p.stdout.strip()
     dest = BUILD_DIR / "variants" / ("ref-" + sha[:12])
     with _materialize_lock:

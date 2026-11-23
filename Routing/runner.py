@@ -2,7 +2,7 @@
 """Run cases on a built harness and judge them.
 
 One case per process (the router keeps state between rebuilds, and a crash or
-a hang then costs one case). The judge is test/hil/routing_check.py, the same
+a hang then costs one case). The judge is JumperlOS/test/hil/routing_check.py, the same
 copper model the HIL suite runs against a board.
 """
 import dataclasses
@@ -12,7 +12,6 @@ import json
 import os
 import re
 import subprocess
-import sys
 import types
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -23,9 +22,7 @@ import copper
 import variants
 
 LAB = Path(__file__).resolve().parent
-HIL = LAB.parent.parent / "test" / "hil"
-if str(HIL) not in sys.path:
-    sys.path.insert(0, str(HIL))
+HIL = variants.HIL              # JumperlOS/test/hil, which variants puts on the path
 
 import fabric_v5                # noqa: E402
 import routing_check as rc      # noqa: E402
@@ -97,7 +94,7 @@ def taken_pins(arrangement):
     taken = arrangement_module.blocks(arrangement)
     if taken is None:
         raise arrangement_module.RouterCannot(
-            "the firmware's router cannot route %s: %s; ask the solver: python3 tools/routing_lab/lab.py arrangement score %s"
+            "the firmware's router cannot route %s: %s; ask the solver: python3 Routing/lab.py arrangement score %s"
             % (arrangement.name, arrangement_module.why_not_router(arrangement), arrangement.name))
     return taken
 

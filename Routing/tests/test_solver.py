@@ -20,7 +20,7 @@ import runner
 import variants
 from tests.test_ceiling import TINY, dense, tiny_paint
 
-NEEDS_SOLVER = "the solver is not installed: python3 tools/routing_lab/lab.py solver-setup"
+NEEDS_SOLVER = "the solver is not installed: python3 Routing/lab.py solver-setup"
 NEW = ROUTED_RESULT = None                          # today's harness, and a case it routes in full
 CRASHED_RESULT = {"case": "c", "cls": "x", "status": "crash", "problems": [], "notes": [], "b": ""}
 
@@ -98,7 +98,7 @@ class Asking(unittest.TestCase):                                     # Review Fo
             self.assertFalse(ceiling.solver_installed())
             with self.assertRaises(ceiling.SolverMissing) as cm:
                 ceiling.ask(PROBLEM, "copper")
-        self.assertTrue(str(cm.exception).endswith("python3 tools/routing_lab/lab.py solver-setup"))
+        self.assertTrue(str(cm.exception).endswith("python3 Routing/lab.py solver-setup"))
         self.assertIsInstance(cm.exception, ValueError)
 
     def test_an_environment_without_the_solver_in_it_is_not_installed(self):

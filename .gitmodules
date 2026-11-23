@@ -1,0 +1,3 @@
+[submodule "JumperlOS"]
+	path = JumperlOS
+	url = https://github.com/Architeuthis-Flux/JumperlOS.git
