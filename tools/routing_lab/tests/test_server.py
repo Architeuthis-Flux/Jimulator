@@ -793,6 +793,10 @@ class Server(unittest.TestCase):
         self.assertIn('showProblem("A run is in flight: wait for it, then change the netlist made by hand.")', js)
         self.assertEqual(js.count("if (added) state.drawn = state.drawn.filter((pair) => pair !== added);"), 2)
         self.assertIn("if (state.run && state.run.drawn && !state.busy) await routeDrawn();", js)
+        # close-out: a case shown with no bridges in its paint (a crash, a timeout, a case that cannot be placed) is no
+        # case to add to: a click starts a netlist of its own, and the box does not say "added to the case shown"
+        self.assertIn("function caseToAddTo()", js)
+        self.assertEqual(js.count("caseToAddTo()"), 3)                  # defined, and asked in clickNode and in renderDrawn
         self.assertEqual(subprocess.run(["node", "--check", str(server.WEB_DIR / "lab.js")]).returncode, 0)
 
     def test_watch_reports_the_tree_hash(self):

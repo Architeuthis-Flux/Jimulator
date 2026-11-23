@@ -1439,10 +1439,17 @@ function clickNode(wire) {
     return;
   }
   // on to what is on screen: while a case of a run (not a netlist made by hand) is shown, start from that case
-  if (state.current && !(state.run && state.run.drawn)) startFromShown();
+  if (caseToAddTo()) startFromShown();
+  else if (!(state.run && state.run.drawn)) forgetDrawn();          // a case with nothing routed: a netlist of its own
   const same = ([a, b]) => (a === pair[0] && b === pair[1]) || (a === pair[1] && b === pair[0]);
   if (!state.drawn.some(same)) state.drawn.push(pair);      // the firmware would merge the same pair twice
   routeDrawn(pair);
+}
+
+// Is a case of a run shown that a click adds to? Not a netlist made by hand (that is added to as it is), and not a
+// case whose paint holds no bridge (a crash, a timeout, a case that cannot be placed): there is nothing to add to.
+function caseToAddTo() {
+  return Boolean(state.current && !(state.run && state.run.drawn) && state.current.paint.bridges.some((b) => !b.infra));
 }
 
 // The netlist made by hand becomes the case shown: its bridges, and (for a case of the battery) its settings, which
@@ -1527,7 +1534,7 @@ function renderDrawn() {
   box.hidden = Boolean(STATIC);
   if (STATIC) return;
   box.replaceChildren();
-  const shown = state.current && !(state.run && state.run.drawn);
+  const shown = caseToAddTo();
   const idle = (act) => () => {                    // nothing changes the netlist while a run is out, and a press says so
     if (state.busy) showProblem("A run is in flight: wait for it, then change the netlist made by hand.");
     else act();
