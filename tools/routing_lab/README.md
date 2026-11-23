@@ -140,7 +140,12 @@ python3 tools/routing_lab/lab.py clean
 
 `export` writes one battery run as a single HTML file that opens without the
 server (table, case panel, fabric view, missed paths and spare copies; not
-the KiCad backdrop, and it cannot ask the solver). `clean` deletes the caches
+the KiCad backdrop, and it cannot ask the solver). With `--arrangement NAME`
+the run is on that arrangement, one the firmware's router can route, and the
+page is drawn on its copper. The ranking kept for the router on it travels
+too and shows on the Ranking tab; the page cannot make one or run without
+wires. On a narrow screen the page is one column, the drawing on top; one
+finger pans it and two zoom. `clean` deletes the caches
 under `build/` (results, variant trees, binaries, solver answers), which grow
 with every variant tried; the built sheet, the solver's environment and the
 rankings are kept.

@@ -398,15 +398,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
         """The ranking on file for a variant (its spec) and an arrangement, with
         when it was made, and "stale" when it is of other copper than the
         arrangement's file now has (the file was edited since)."""
-        v = self.resolve(query.get("variant", "worktree"))
-        a = self.arrangement_of(query.get("arrangement"))
-        where = rank.path(v.hash, a.name)
-        if not where.is_file():
+        found = ranking_on_file(self.resolve(query.get("variant", "worktree")), self.arrangement_of(query.get("arrangement")))
+        if found is None:
             raise Refused(404, "this router has not been ranked on this arrangement", hint=RANK_HINT)
-        doc = json.loads(where.read_text())
-        wires = {w["wire"]: [list(p) for p in w["pins"]] for w in rank.wires(a)}
-        return dict(doc, made=time.strftime("%Y-%m-%d %H:%M", time.localtime(where.stat().st_mtime)),
-                    stale=not rank.same_copper(doc, rank.fabric_of(a), a.feed, wires, rank.nodes_as_v5(a)))
+        return found
 
     def api_post_rank(self, query, body):
         """Make the router's part of a ranking now ({"variant", "arrangement",
@@ -468,6 +463,18 @@ def info(trees=()):
             "verified": lab.verified_against_a_board(), "ohms": lab.OHMS, "about": lab.about(),
             "fabric": fabric_view.layout(), "nodes": nodes_of(arrangement.V5), "arrangements": arrangements(),
             "sheet": (SHEET_DIR / "overlay.json").is_file(), "solver": ceiling.solver_installed()}
+
+
+def ranking_on_file(v, a):
+    """The ranking kept for a variant and an arrangement, as the page is told
+    it (see api_get_rank; an exported page carries the same), or None."""
+    where = rank.path(v.hash, a.name)
+    if not where.is_file():
+        return None
+    doc = json.loads(where.read_text())
+    wires = {w["wire"]: [list(p) for p in w["pins"]] for w in rank.wires(a)}
+    return dict(doc, made=time.strftime("%Y-%m-%d %H:%M", time.localtime(where.stat().st_mtime)),
+                stale=not rank.same_copper(doc, rank.fabric_of(a), a.feed, wires, rank.nodes_as_v5(a)))
 
 
 def nodes_of(a):

@@ -2,7 +2,7 @@
 """One battery run as a single HTML file that opens anywhere and asks nothing.
 
 The file is the page (index.html with lab.css and lab.js inlined) plus
-window.LAB_STATIC = {info, run, cases, when}: what the server would have
+window.LAB_STATIC = {info, run, cases, rank, when}: what the server would have
 answered. It carries no token, no path under the home directory, and not the
 KiCad sheet backdrop (10 MB); the sheet tab says so.
 """
@@ -11,7 +11,9 @@ import os
 import time
 from pathlib import Path
 
+import arrangement
 import ceiling
+import fabric_view
 import lab
 import runner
 import server
@@ -42,21 +44,30 @@ def _shown_name(name):
     return path.resolve().name if os.sep in name and path.is_dir() else name
 
 
-def write(path, variant_spec, baseline_spec=None, classes=("dense", "real", "stress", "beyond", "edge")):
-    """Runs the battery and writes the file; returns its size in bytes."""
+def write(path, variant_spec, baseline_spec=None, classes=("dense", "real", "stress", "beyond", "edge"),
+          arrangement_name="v5"):
+    """Runs the battery on an arrangement the firmware's router can route and
+    writes the file; returns its size in bytes. The page is drawn on that
+    arrangement's copper and lists no other, and carries the ranking kept for
+    the variant on it when there is one ("rank", else None)."""
     case_list = lab.battery(list(classes))
+    a = arrangement.load(arrangement_name)
     v = variants.resolve(variant_spec)
-    results = runner.run_battery(v, case_list)
+    results = runner.run_battery(v, case_list, arrangement=a)
     base_v = base = None
     if baseline_spec:
         base_v = variants.resolve(baseline_spec)
-        base = runner.run_battery(base_v, case_list)
-    run = server.run_answer(v, results, base_v, base)
+        base = runner.run_battery(base_v, case_list, arrangement=a)
+    run = server.run_answer(v, results, base_v, base, a)
     for which in (run["variant"], run["baseline"]):
         if which:
             which["name"] = _shown_name(which["name"])
-    info = dict(server.info(), sheet=False, variants=[], solver=False)
-    html = page({"info": info, "run": run, "when": time.strftime("%Y-%m-%d"),
-                 "cases": {r["case"]: {"result": r, "paint": ceiling.painted(r)} for r in results}})
+    info = dict(server.info(), sheet=False, variants=[], solver=False, fabric=fabric_view.layout(a),
+                nodes=server.nodes_of(a), arrangements=[server.arrangement_row(a)])
+    ranking = server.ranking_on_file(v, a)
+    if ranking:
+        ranking["variant"] = run["variant"]         # the same router (it is found by its hash), under the name the page shows
+    html = page({"info": info, "run": run, "when": time.strftime("%Y-%m-%d"), "rank": ranking,
+                 "cases": {r["case"]: {"result": r, "paint": ceiling.painted(r, a)} for r in results}})
     Path(path).write_text(html, encoding="utf-8")
     return len(html.encode())

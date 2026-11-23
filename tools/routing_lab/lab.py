@@ -305,7 +305,7 @@ def cmd_sheet(args):
 
 def cmd_export(args):
     import export
-    size = export.write(args.out, args.variant, args.baseline, [c for c in args.classes.split(",") if c])
+    size = export.write(args.out, args.variant, args.baseline, [c for c in args.classes.split(",") if c], args.arrangement)
     print("%s: %.1f MB, one file, opens without the server" % (args.out, size / 1e6))
     return 0
 
@@ -671,6 +671,8 @@ def main(argv):
     exp.add_argument("--variant", default="worktree")
     exp.add_argument("--baseline")
     exp.add_argument("--classes", default="dense,real,stress,beyond,edge", help="comma list of: " + ", ".join(CLASSES))
+    exp.add_argument("--arrangement", default="v5", help="the copper to route on, one the firmware's router can route "
+                     "(see `arrangement list`); the ranking kept for it travels too")
     exp.set_defaults(fn=cmd_export)
     sub.add_parser("clean", help="delete the caches under build/ (results, variant trees, binaries)") \
         .set_defaults(fn=cmd_clean)

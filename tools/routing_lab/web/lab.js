@@ -109,6 +109,7 @@ function staticApi(path) {
     const found = STATIC.cases[new URLSearchParams(query || "").get("case")];
     if (found) return found;
   }
+  if (pathname === "/api/rank" && STATIC.rank) return STATIC.rank;      // the one ranking it carries, of the run's arrangement
   const err = new Error("not part of this exported page");
   err.status = 404;
   err.data = {};
@@ -975,20 +976,47 @@ function panZoom(view, full, widest = full[2] * 1.5) {
   // The wheel zooms about the pointer, as KiCad does, and by as much as was scrolled: a trackpad sends dozens of
   // small steps a second and a wheel a few big ones, and both must come out the same. A step is in pixels, lines
   // or pages (deltaMode); a pinch arrives as a wheel event with ctrl held, in much smaller steps.
+  const zoomAbout = (point, wanted) => {           // point: {clientX, clientY}; wanted: the box's new size over its old
+    const k = Math.min(widest / box[2], Math.max(full[2] / 60 / box[2], wanted));    // stop at the limits, do not stick
+    const [x, y] = at(point);
+    box = [x - (x - box[0]) * k, y - (y - box[1]) * k, box[2] * k, box[3] * k];
+    apply();
+  };
   view.addEventListener("wheel", (event) => {
     event.preventDefault();
     const unit = event.deltaMode === 1 ? ZOOM_PER_PIXEL * 25 : event.deltaMode === 2 ? ZOOM_PER_PIXEL * 500 : ZOOM_PER_PIXEL;
-    const wanted = Math.pow(2, event.deltaY * unit * (event.ctrlKey ? 10 : 1));
-    const k = Math.min(widest / box[2], Math.max(full[2] / 60 / box[2], wanted));    // stop at the limits, do not stick
-    const [x, y] = at(event);
-    box = [x - (x - box[0]) * k, y - (y - box[1]) * k, box[2] * k, box[3] * k];
-    apply();
+    zoomAbout(event, Math.pow(2, event.deltaY * unit * (event.ctrlKey ? 10 : 1)));
   }, { passive: false });
   let drag = null;
+  // On a touch screen one finger pans, as a drag does, and two zoom about the point between them by as much as
+  // they spread or close (the page itself stays put: the view has touch-action none).
+  const fingers = new Map();                       // pointerId -> {clientX, clientY}, the fingers down on the view
+  let spread = 0;                                  // how far apart the two were at the last move
+  const apart = () => {
+    const [a, b] = [...fingers.values()];
+    return { clientX: (a.clientX + b.clientX) / 2, clientY: (a.clientY + b.clientY) / 2,
+             far: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY) };
+  };
+  const lift = (event) => { fingers.delete(event.pointerId); };
+  window.addEventListener("pointerup", lift);
+  window.addEventListener("pointercancel", lift);
   view.addEventListener("pointerdown", (event) => {
+    if (event.pointerType === "touch") fingers.set(event.pointerId, { clientX: event.clientX, clientY: event.clientY });
+    if (fingers.size === 2) {
+      drag = null;                                 // the second finger ends the pan
+      spread = apart().far;
+      return;
+    }
     drag = { x: event.clientX, y: event.clientY, box: box.slice(), moved: false };
   });
   window.addEventListener("pointermove", (event) => {
+    if (fingers.has(event.pointerId)) fingers.set(event.pointerId, { clientX: event.clientX, clientY: event.clientY });
+    if (fingers.size === 2) {
+      const now = apart();
+      if (spread > 0 && now.far > 0) zoomAbout(now, spread / now.far);
+      spread = now.far;
+      return;
+    }
     if (!drag) return;
     const dx = event.clientX - drag.x;
     const dy = event.clientY - drag.y;
@@ -1640,6 +1668,7 @@ function rankTip(name) {
 }
 
 function toggleTakeAway(name) {
+  if (STATIC) return;                              // an exported page cannot run without them
   if (!state.ranking || !state.ranking.wires.some((w) => w.wire === name)) return;      // only a wire that is ranked
   const at = state.takeAway.indexOf(name);
   if (at >= 0) state.takeAway.splice(at, 1);
@@ -1723,7 +1752,8 @@ function renderRanking() {
     box.append(el("div", { text: "No ranking of router " + baseSpec() + " on " + state.arrangement + " yet." }));
   }
   const cannot = a.engine !== "router";
-  const now = el("button", { type: "button", text: "Rank now", disabled: state.rankBusy || cannot ? "" : null,
+  // an exported page shows the ranking it carries: it cannot make one, nor run the battery without some wires
+  const now = STATIC ? null : el("button", { type: "button", text: "Rank now", disabled: state.rankBusy || cannot ? "" : null,
     title: cannot ? "the firmware's router cannot route this arrangement" : "the router's part: the ticked classes without each wire in turn, a few minutes",
     onclick: rankNow });
   const tint = el("select", { title: "what the fabric is tinted by" },
@@ -1736,7 +1766,7 @@ function renderRanking() {
     box.append(el("div", { class: "hint", text: "The files dropped on the page are not part of a ranking: it is of the Router "
       + "named, as it is on disk." }));
   }
-  if (!hasNeeded()) {
+  if (!hasNeeded() && !STATIC) {
     box.append(el("div", { class: "hint", text: "Whether a wire is needed is asked of the exact solver, which takes the better "
       + "part of an hour and is not started from here" + (a.json ? ". This arrangement is no file: save its file first (left "
         + "column, under the picker) as arrangements/NAME.json, then:" : ":") }),
@@ -1749,7 +1779,7 @@ function renderRanking() {
   const away = el("div", { class: "away" }, state.takeAway.length ? el("span", { class: "hint", style: "border:0;cursor:default",
     text: "take away:" }) : el("div", { class: "hint", text: "Click a wire, here or in the drawing, to take it away." }));
   for (const name of state.takeAway) away.append(el("span", { text: name + " ×", title: "keep it", onclick: () => toggleTakeAway(name) }));
-  box.append(away);
+  if (!STATIC) box.append(away);
   if (state.takeAway.length) {
     box.append(el("div", { class: "ask" },
       el("button", { type: "button", text: "Run without these", disabled: state.busy || cannot ? "" : null,
@@ -1813,6 +1843,8 @@ function showTab(name) {
 
 async function start() {
   state.info = await api("/api/info");
+  // an exported page is of one run: it carries that run's arrangement (its drawing and its nodes) and no other
+  if (STATIC && STATIC.run.arrangement) state.arrangement = STATIC.run.arrangement.name;
   state.v5nodes = state.info.nodes;                // V5's own, whatever arrangement is picked later
   state.ohms = state.info.ohms;
   $("ohms").value = state.ohms;
@@ -1871,8 +1903,12 @@ async function start() {
   $("drop-hint").hidden = Boolean(STATIC);
 
   if (STATIC) {
-    document.querySelector('#tabs button[data-tab="ranking"]').hidden = true;      // a ranking is asked of the server
+    document.querySelector('#tabs button[data-tab="ranking"]').hidden = !STATIC.rank;      // there when one travelled
     for (const id of ["variant", "baseline", "arrangement", "run", "live"]) $(id).disabled = true;
+    // what cannot be changed here is said once, in words ("Shown:"), and takes no room: the table is what there is to use
+    for (const id of ["variant", "arrangement"]) $(id).closest("label").hidden = true;
+    $("baseline").closest("label").hidden = !STATIC.run.baseline;
+    $("run").closest(".row").hidden = true;
     $("classes").hidden = true;
     $("exported").hidden = false;
     $("exported").textContent = "exported " + STATIC.when + " from " + STATIC.run.variant.name;
