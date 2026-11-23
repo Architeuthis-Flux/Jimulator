@@ -745,6 +745,17 @@ class Server(unittest.TestCase):
             for k in ("primaries", "routed_primaries", "crosspoints", "routed_duplicates"):
                 self.assertEqual(got[k], row["metrics"][k], (row["case"], k))
 
+    def test_bridges_added_to_a_case_go_after_all_of_its_own(self):   # verification round 3, W3: a pair listed three times
+        crafted = server.cases.Case("crafted", "dense", [(1, 2, -1), (1, 2, -1), (1, 2, -1), (10, 20, -1), (30, 40, -1)])
+        sent = []
+        real = server.runner.run_battery
+        with mock.patch.object(server.lab, "battery", return_value=[crafted]), \
+                mock.patch.object(server.runner, "run_battery", side_effect=lambda v, cs, **kw: sent.append(cs) or real(v, cs, **kw)):
+            r = self.c.post("/api/route", {"variant": "worktree", "arrangement": "v5", "bridges": [[1, 2], [10, 20], [30, 40], [50, 55]],
+                                           "from": {"cls": "dense", "case": "crafted"}})
+        self.assertEqual(r.status, 200, r.body)
+        self.assertEqual([b[:2] for b in sent[-1][0].bridges], [(1, 2), (10, 20), (30, 40), (50, 55)])
+
     def test_a_ranking_of_copper_the_file_no_longer_has_is_marked(self):          # verification, F2/R
         with tempfile.TemporaryDirectory() as tmp:
             arr, rk = server.Path(tmp) / "arr", server.Path(tmp) / "rank"

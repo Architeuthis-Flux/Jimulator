@@ -404,10 +404,12 @@ twice in one object (JSON would keep only the last); a pin written another
 way than `A.X7` (no `A.X07`); a key a chip or a node does not have; a name
 with spaces at its ends; and a new wire name on a single X pin with no node
 on it, under `"pins"` or in a new chip's own list, which is nearly always a
-misspelt name (`TOP_RIAL`). A one-pin wire on a Y pin is a bounce row, a
-shape V5 has eight of, so it is taken for a slip only when it is a near copy
-of a name V5 has. A misspelling repeated on two pins or more is not caught,
-nor is one unlike any name (`3O` for `30`).
+misspelt name (`TOP_RIAL`). A spare pin left as a no-connect is named as V5
+names one, `unconnected-...` (as V5's bounce rows are), and is no slip. A
+one-pin wire on a Y pin is a bounce row, a shape V5 has eight of, so it is
+taken for a slip only when it is a near copy of a name V5 has. A misspelling
+repeated on two pins or more is not caught, nor is one unlike any name (`3O`
+for `30`).
 
 Two ship. `v6_feed_off` is V5's copper with the probe feed off the fabric.
 `v6_rails_on_chips` is the worked example, P1 + P2 of

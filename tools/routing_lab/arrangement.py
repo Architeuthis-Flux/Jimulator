@@ -44,7 +44,8 @@ FEED_NODE = copper.FEED_NODE
 # dense cases feed from GPIO 6). The harness keeps the top OLED on, which holds GPIO 7 and 8, but a board with it off
 # does not. With the feed on the fabric, every one needs a pin.
 FEED_ENDS = (106,) + tuple(range(131, 139))         # DAC0, GPIO_1 to GPIO_8
-NEAR = 0.8                                          # how like a base wire's name a new one-pin name must be to be a slip
+NEAR = 0.81                                         # how like a base wire's name a new one-pin name must be to be a slip
+                                                    # (more than 0.8, which AY0 is to A0 and N10 to 10)
 PIN = re.compile(r"([A-Z])\.([XY])(0|[1-9][0-9]?)")  # A.X7, written one way only (no A.X07, no other digits)
 NODE = re.compile(r"0|[1-9][0-9]{0,5}")
 
@@ -146,7 +147,7 @@ def _build(name, data):
     """(arrangement or None, problems). One pass, so check() and parse() cannot disagree."""
     if not isinstance(data, dict):
         return None, ["an arrangement is one JSON object, with at least \"base\": \"v5\""]
-    problems = ['unknown key "%s" (the keys are %s)' % (k, ", ".join(KEYS)) for k in data if k not in KEYS]
+    problems = ['unknown key "%s" (the keys are %s)' % (str(k)[:40], ", ".join(KEYS)) for k in data if k not in KEYS]
     if data.get("base") != "v5":
         problems.append('"base" must be "v5", not %s' % _shown(data.get("base")))
     if not isinstance(data.get("about", ""), str):
@@ -168,7 +169,7 @@ def _build(name, data):
 
     for letter, spec in part["chips"].items():
         if not re.fullmatch("[A-Z]", letter):
-            problems.append('chip "%s": a chip is one capital letter' % letter)
+            problems.append('chip "%s": a chip is one capital letter' % str(letter)[:40])
             continue
         if letter in chips:
             problems.append("chip %s is already a chip of the base; change its pins with \"pins\"" % letter)
@@ -242,19 +243,21 @@ def _build(name, data):
         if len(pins) >= 2 and wire not in owned and len(live.get(wire, ())) == 1:
             problems.append('wire %s is left on one pin (%s): take the wire away with "remove", or give the pin another wire'
                             % (wire, _pin_name(*live[wire][0])))
-    # A name V5 has not, on one pin, with no node on it, is most likely a slip of a name (TOP_RIAL) when it is on an X
-    # pin, where V5 has no such wire. On a Y pin it is a bounce row, a shape V5 has eight of, unless it is plainly a
-    # slip: spaces at its ends, or a near copy of a name V5 has.
+    # A name with spaces at its ends is a slip wherever it is. A name V5 has not, on one pin, with no node on it, is
+    # most likely a slip of a name (TOP_RIAL) when it is on an X pin, where V5 has no such wire, unless it is named as
+    # V5 names a no-connect ("unconnected-..."). On a Y pin it is a bounce row, a shape V5 has eight of, unless it is a
+    # near copy of a name V5 has.
     for wire, pins in sorted(live.items()):
-        if wire in base_wires or len(pins) != 1 or wire in node_net.values():
+        if wire != wire.strip():
+            problems.append("wire %s has spaces at its ends: a name is the same everywhere, spaces and all" % json.dumps(wire))
             continue
-        near = difflib.get_close_matches(wire.strip(), base_wires_named, n=1, cutoff=NEAR)
-        if wire in named_x or wire != wire.strip() or near:
+        if wire in base_wires or len(pins) != 1 or wire in node_net.values() or wire.startswith("unconnected-"):
+            continue
+        near = difflib.get_close_matches(wire, base_wires_named, n=1, cutoff=NEAR)
+        if wire in named_x or near:
             problems.append("wire %s is on one pin only (%s) and is no node's: a misspelt name%s? Join it to another pin, "
-                            "put a node on it, or take the pin away with null" % (
+                            "put a node on it, name it as a no-connect (unconnected-...), or take the pin away with null" % (
                                 json.dumps(wire), _pin_name(*pins[0]), " of %s" % near[0] if near else ""))
-    for wire in sorted(w for w in live if w != w.strip() and len(live[w]) > 1):
-        problems.append("wire %s has spaces at its ends: a name is the same everywhere, spaces and all" % json.dumps(wire))
     dropped = [n for n, wire in node_net.items() if n not in placed and wire not in live]
     for node in dropped:                            # a base node whose last pin was taken away drops out
         del node_net[node]
@@ -306,10 +309,13 @@ def load(name):
     twice = []
 
     def pairs(items):                               # JSON lets a key be given twice and keeps the last: say so instead
-        seen = set()
+        seen, said = set(), set()
         for k, _ in items:
-            if k in seen:
-                twice.append('the key "%s" is given twice in one object; JSON keeps only the last' % k[:40])
+            if k in seen and k not in said:         # once for each object it is repeated in
+                others = ", ".join(sorted({str(o)[:20] for o, _ in items} - {k})[:3])
+                twice.append('the key "%s" is given twice in one object%s; JSON keeps only the last'
+                             % (k[:40], " (the one with %s)" % others if others else ""))
+                said.add(k)
             seen.add(k)
         return dict(items)
 
@@ -321,7 +327,7 @@ def load(name):
         a, problems = _build(path.stem, data)
     except Exception as e:                          # a mistake no rule foresaw is still the file's, and must stop nothing else
         a, problems = None, ["%s cannot be read as an arrangement (%s: %s)" % (path.name, type(e).__name__, str(e)[:200])]
-    problems = list(dict.fromkeys(twice)) + problems    # every problem, a key given twice among them, each said once
+    problems = twice + problems                     # every problem, a key given twice among them
     if problems:
         raise Bad(path.stem, problems)
     return a

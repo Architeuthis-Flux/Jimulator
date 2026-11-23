@@ -232,9 +232,13 @@ def path(variant_hash, name):
 
 
 def nodes_as_v5(a):
-    """Are an arrangement's nodes V5's own, each on V5's wire? (Rankings from
-    before the digest were only ever made on such copper.)"""
-    return a.NODE_NET == arrangement.V5.NODE_NET
+    """Are an arrangement's nodes V5's own, each on V5's wire and that wire on
+    V5's pins? (Rankings from before the digest were only ever made on such
+    copper.)"""
+    if a.NODE_NET != arrangement.V5.NODE_NET:
+        return False
+    v5, mine = arrangement.V5.pins(), a.pins()
+    return all(mine.get(w) == v5[w] for w in set(arrangement.V5.NODE_NET.values()))
 
 
 def same_copper(old, fabric, feed, wires, plain_nodes):
@@ -294,14 +298,17 @@ def save(ranking):
         ranking = dict(ranking, set_aside=str(aside))
     tmp = where.with_name(where.name + ".tmp%d" % os.getpid())      # whole or not at all: it may hold hours of the solver's work
     aside_tmp = where.with_name(where.name + ".aside%d" % os.getpid())
+    done = False
     try:
         if aside is not None:                       # a copy, not a move: the kept file stays where it is until replaced
             aside_tmp.write_text(old_text)
             os.replace(aside_tmp, aside)
         tmp.write_text(json.dumps(ranking) + "\n")
         os.replace(tmp, where)
+        done = True
     finally:
-        for scrap in (tmp, aside_tmp):
+        # on a failure the kept file is still the old one, so its copy beside it would be claimed by nothing
+        for scrap in (tmp, aside_tmp) + ((aside,) if aside is not None and not done else ()):
             if scrap.exists():
                 scrap.unlink()
     return json.loads(json.dumps(ranking))          # as a reader of the file gets it: pins as lists

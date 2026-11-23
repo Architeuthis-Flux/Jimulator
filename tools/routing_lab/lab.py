@@ -448,7 +448,8 @@ def engines(a):
 
 
 NEXT_WORDS = {"not_routable": "not routable, proved", "unknown": "not known after %g s", "dropped": "the firmware drops a bridge",
-              "unplaced": "it uses a node the arrangement does not have", "end": "none left in the list"}
+              "unplaced": "it uses a node the arrangement does not have", "end": "none left in the list",
+              "failed": "the firmware's harness crashed or timed out on it"}
 
 
 def cmd_score(args, a):

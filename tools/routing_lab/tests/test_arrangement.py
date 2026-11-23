@@ -164,6 +164,21 @@ class Files(unittest.TestCase):
             self.assertTrue(any(slip.strip() in p for p in problems), (slip, problems))
         self.assertEqual(arrangement.check({"base": "v5", "feed": False, "pins": {"A.Y0": "A_BOUNCE"}}), [])
 
+    def test_what_round_three_found_in_the_misspelling_rule(self):      # verification round 3, W2
+        lanes = ["/%s1" % p for p in ("AB", "CD", "EF", "GH")]
+        pins = {"%s.X%d" % (c, fabric_v5.X_NET[c].index("/%s1" % p)): c + "M" for p in ("AB", "CD", "EF", "GH") for c in p}
+        spare = ["unconnected-(M1-X%d-Pad%d)" % (x, 20 + x) for x in range(3, 16)]      # V5's own way to name a no-connect
+        a1 = {"base": "v5", "feed": False, "remove": lanes, "pins": pins,
+              "chips": {"M": {"role": "sf", "x": ["TOP_RAIL", "BOTTOM_RAIL", "GND"] + spare, "y": [c + "M" for c in "ABCDEFGH"]}}}
+        self.assertEqual(arrangement.check(a1), [])
+        for bounce in ("AY0", "DY0"):                                   # exactly as like A0 or D0 as the cutoff: no slip
+            self.assertEqual(arrangement.check({"base": "v5", "feed": False, "pins": {bounce[0] + ".Y0": bounce}}), [], bounce)
+        hub = {"base": "v5", "feed": False, "chips": {"N": {"role": "sf", "x": [None] * 16, "y": ["N1%d" % r for r in range(8)]}}}
+        self.assertEqual(arrangement.check(hub), [])
+        spaced = {"base": "v5", "feed": False, "chips": {"M": {"role": "sf", "x": [" PORT_0"] + [None] * 15, "y": [None] * 8}},
+                  "nodes": {"150": {"wire": " PORT_0"}}}
+        self.assertTrue(any("spaces" in p for p in arrangement.check(spaced)), arrangement.check(spaced))
+
     def test_every_problem_is_listed_and_kept_short(self):             # verification round 2, V3 (disputed, cheap)
         both = self.write("both.json", '{"base": "v5", "feed": false, "feed": false, "pins": {"A.X7": "TOP_RIAL", "Q.X1": null}}')
         with self.assertRaises(arrangement.Bad) as cm:
@@ -182,9 +197,14 @@ class Files(unittest.TestCase):
             inner = inner[0]
         problems = arrangement.check(deep)
         self.assertTrue(any('"about"' in p for p in problems) and any("TOP_RIAL" in p for p in problems), problems)
+        two = self.write("two.json", '{"base": "v5", "feed": false, "chips": {"M": {"role": "sf", "role": "sf", "x": [], "y": []}, '
+                                     '"N": {"role": "sf", "role": "sf", "x": [], "y": []}}}')
+        with self.assertRaises(arrangement.Bad) as cm:                  # one line for each object with a key given twice
+            arrangement.load(two)
+        self.assertEqual(sum("twice" in p for p in cm.exception.problems), 2, cm.exception.problems)
         long_key = "k" * 5000
         for odd in ({"chips": {"M": {"role": "sf", "x": [None] * 16, "y": [None] * 8, long_key: 1}}},
-                    {"nodes": {"150": {"wire": "1", long_key: 1}}}):
+                    {"nodes": {"150": {"wire": "1", long_key: 1}}}, {long_key: 1}, {"chips": {long_key: {}}}):
             self.assertTrue(all(len(p) < 300 for p in arrangement.check(dict({"base": "v5", "feed": False}, **odd))))
 
     def test_a_key_given_twice_in_a_file_is_listed(self):               # verification, F3: JSON keeps the last silently

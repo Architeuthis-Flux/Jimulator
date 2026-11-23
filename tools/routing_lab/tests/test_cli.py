@@ -264,7 +264,8 @@ class Cli(unittest.TestCase):
                 "rows": [dict(table, case="c", cls="x")], "summary": summary}
         grown = [{"list": 0, "a": {"bridges": 67, "next_is": "unknown"}, "b": {"bridges": 0, "next_is": None}},
                  {"list": 1, "a": {"bridges": 18, "next_is": "unplaced"}, "b": {"bridges": 54, "next_is": "not_routable"}},
-                 {"list": 2, "a": {"bridges": 0, "next_is": "unplaced"}, "b": {"bridges": 0, "next_is": "not_routable"}}]
+                 {"list": 2, "a": {"bridges": 0, "next_is": "unplaced"}, "b": {"bridges": 0, "next_is": "not_routable"}},
+                 {"list": 3, "a": {"bridges": 9, "next_is": "failed"}, "b": {"bridges": 9, "next_is": "dropped"}}]
         with mock.patch.object(ceiling, "solver_installed", return_value=True), \
                 mock.patch.object(lab.score, "compare", return_value=said) as compared, \
                 mock.patch.object(lab.score, "lengths", return_value=grown) as lengths:
@@ -281,6 +282,8 @@ class Cli(unittest.TestCase):
                       "54 bridges proved on v5 (one more: not routable, proved)", out)
         self.assertIn("random list 2: not one on v6_feed_off (the first: it uses a node the arrangement does not have), "
                       "not one on v5 (the first: not routable, proved)", out)
+        self.assertIn("random list 3: 9 bridges proved on v6_feed_off (one more: the firmware's harness crashed or timed out on it)",
+                      out)
         with mock.patch.object(ceiling, "solver_installed", return_value=True), \
                 mock.patch.object(lab.score, "compare", return_value=dict(said, seconds=10.0)) as compared, \
                 mock.patch.object(lab.score, "lengths", return_value=grown) as lengths:

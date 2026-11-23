@@ -134,7 +134,11 @@ class Kept(unittest.TestCase):
                 with self.assertRaises(OSError):
                     rank.save(dict(old, fabric="two"))
             self.assertEqual(rank.path("a" * 64, "x").read_text(), before)     # still the whole old ranking
-            self.assertFalse([p for p in Path(tmp).iterdir() if ".tmp" in p.name])
+            self.assertEqual([p.name for p in Path(tmp).iterdir()], [rank.path("a" * 64, "x").name])   # and nothing else
+        swapped = arrangement.parse("s", {"base": "v5", "feed": False, "pins": {"A.Y1": "8", "B.Y1": "1"}})   # rows 1 and 8 swapped
+        gnd_on_l = arrangement.parse("g", {"base": "v5", "feed": False, "pins": {"K.X15": None}})
+        self.assertEqual((rank.nodes_as_v5(swapped), rank.nodes_as_v5(gnd_on_l), rank.nodes_as_v5(arrangement.load("v6_feed_off"))),
+                         (False, False, True))                          # round 3: the nodes' pins, not only their wires
 
     def test_a_ranking_from_before_the_stamp_is_not_carried_onto_other_nodes(self):     # verification round 2, V2/R2
         off = arrangement.load("v6_feed_off")

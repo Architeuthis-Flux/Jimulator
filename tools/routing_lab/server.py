@@ -330,7 +330,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             place = {}                                                    # and its place: the firmware routes in order
             for i, b in enumerate(found[0].bridges):
                 place.setdefault(frozenset(b[:2]), i)
-            bridges = sorted(bridges, key=lambda p: place.get(frozenset(p), len(place)))     # the added ones after, as sent
+            bridges = sorted(bridges, key=lambda p: place.get(frozenset(p), len(found[0].bridges)))   # added ones after, as sent
             case = dataclasses.replace(
                 found[0], name=DRAWN, cls=DRAWN, must_route=False, taps_required=False,
                 bridges=[(n1, n2, own.get(frozenset((n1, n2)), -1)) for n1, n2 in bridges],

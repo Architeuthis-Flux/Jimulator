@@ -70,6 +70,21 @@ class Edge(unittest.TestCase):
         self.assertEqual((len(case.bridges), info["next_is"]), (5, "unplaced"))
         self.assertIn("one more bridge: it uses a node the arrangement does not have", case.notes)
 
+    def test_a_harness_that_crashes_or_times_out_is_no_proof(self):  # verification round 3: no netlist, so nothing proved
+        for status in ("crash", "timeout"):
+            reasons = {}
+            with mock.patch.object(runner, "run_case", side_effect=lambda binary, case, **kw: runner._result(case, status)), \
+                    mock.patch.object(ceiling, "ask", side_effect=AssertionError("asked")):
+                self.assertIsNone(edge.grow(None, random.Random(1), "edge_t", longest=20, reasons=reasons))
+            self.assertEqual(reasons, {"next_is": "failed"}, status)
+        ok = {"rejected": [], "refused": [], "left_out": []}
+        fails_past_5 = lambda binary, case, **kw: runner._result(case, "crash") if len(case.bridges) > 5 else dict(ok)
+        with mock.patch.object(runner, "run_case", side_effect=fails_past_5), \
+                mock.patch.object(ceiling, "verdict", return_value={"verdict": "routable", "closed": [["A", 0, 0, 6]], "error": None}):
+            case, info = edge.grow(None, random.Random(1), "edge_t", longest=20)
+        self.assertEqual((len(case.bridges), info["next_is"]), (5, "failed"))
+        self.assertIn("one more bridge: the firmware's harness crashed or timed out on it", case.notes)
+
     def test_a_prefix_that_needs_no_crosspoint_is_proved(self):       # verification round 2, V5: not "not known"
         case, info = self.grown(lambda n: "nothing" if n <= 3 else "not_routable")
         self.assertEqual((len(case.bridges), info["next_is"], info["closed"]), (3, "not_routable", []))
