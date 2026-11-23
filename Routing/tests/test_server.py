@@ -821,6 +821,10 @@ class Server(unittest.TestCase):
             self.assertEqual(r.status, 200)
             self.assertIn("svg", r.headers["Content-Type"])
             self.assertIs(self.c.get("/api/info").json["sheet"], True)
+            self.assertEqual(self.c.get("/sheet/backdrop.png", token=None).status, 404)      # no bitmap was made
+            (Path(tmp) / "backdrop.png").write_bytes(b"\x89PNG")
+            r = self.c.get("/sheet/backdrop.png", token=None)
+            self.assertEqual((r.status, r.headers["Content-Type"]), (200, "image/png"))
 
     def test_unknown_api_path_is_404_and_bad_json_is_400(self):
         self.assertEqual(self.c.get("/api/nope").status, 404)

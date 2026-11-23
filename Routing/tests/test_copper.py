@@ -38,6 +38,21 @@ class Copper(unittest.TestCase):
                          ["row", "lane", "lane", "hub", "special"])
         self.assertEqual(copper.wire_kind(copper.wire("A", "Y", 0)), "bounce")
 
+    def test_ground_and_the_rails_wear_the_firmwares_colours(self):
+        # as the board's own LEDs show them (LEDs.cpp, assignNetColors): ground green, a power rail red, and
+        # blue while that rail is set negative; every other net keeps one of the sixteen
+        def colours(power):
+            case = cases.Case("t", "x", [(100, 3, 0), (101, 10, 0), (102, 40, 0), (1, 8, 0)], power=power, probe=(0, 0))
+            p = copper.paint(runner.run_case(BIN, case))
+            return {n["label"]: n["colour"] for n in p["nets"].values()}
+        got = colours((5.0, 3.3, 0.0, 0.0))
+        self.assertEqual((got["Gn"], got["T"], got["B"]), (copper.GND_COLOUR, copper.RAIL_COLOUR, copper.RAIL_COLOUR))
+        self.assertIn(got["6"], copper.NET_COLOURS)
+        got = colours((-3.0, 3.3, 0.0, 0.0))
+        self.assertEqual((got["T"], got["B"]), (copper.RAIL_NEGATIVE_COLOUR, copper.RAIL_COLOUR))
+        # a result with no word of the rails' voltages (a board's own report) is taken as positive
+        self.assertEqual(copper.net_colour(2), copper.RAIL_COLOUR)
+
     def test_paint_of_one_direct_bridge(self):
         p = copper.paint(runner.run_case(BIN, cases.Case("t", "x", [(1, 8, 0)])))      # dup 0: one path
         b = bridge(p, 1, 8)

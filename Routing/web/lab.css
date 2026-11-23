@@ -212,7 +212,7 @@ table.battery { border-collapse: collapse; width: 100%; }
 .key .ring { width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--problem); }
 .key .dash { width: 14px; height: 0; border-top: 2px dashed var(--ink); }
 .key .dash.grey { border-color: var(--dim); }
-.key .dash.thru { border-top: 3px dashed var(--r8); }
+.key .dash.thru { height: 4px; border: 0; background: repeating-linear-gradient(135deg, var(--r8) 0 4px, #fff 4px 5.5px); }
 .key .ring.thin { border: 1px solid var(--ink); }
 .key .cross { font-style: normal; font-weight: 600; }
 #sheet-note { padding: 6px 12px; color: var(--dim); border-bottom: 1px solid var(--line); }
@@ -226,7 +226,8 @@ table.battery { border-collapse: collapse; width: 100%; }
 .wire.live { stroke-width: 2.2; }
 .wire.under:not(.heat) { stroke: var(--ink); }
 .wire.under { stroke-width: 3; }
-.wire.short { stroke: var(--problem) !important; stroke-width: 3.5; }
+/* A problem's red has a white edge: a power rail is red too (the firmware's colour for it), and has none. */
+.wire.short { stroke: var(--problem) !important; stroke-width: 3.5; filter: drop-shadow(0 0 1.5px #fff); }
 .hit { fill: none; stroke: transparent; stroke-width: 7; pointer-events: stroke; }
 .pad circle { fill: var(--pad); stroke: var(--bg); stroke-width: 1; }
 .pad text { fill: var(--dim); font-size: 8px; }
@@ -259,10 +260,9 @@ svg.isolating .s-curve:not(.iso), svg.isolating .s-held:not(.iso), svg.isolating
 .s-wire, .s-tag, .s-curve, .s-ring, .s-held, .s-want { fill: none; vector-effect: non-scaling-stroke; }
 .s-wire { stroke-width: 3; stroke-linecap: round; }
 .s-tag { stroke-width: 7; stroke-linecap: round; }
-.s-wire.short, .s-tag.short { stroke: var(--problem); }
-/* past a wire's op-amp, where a buffer or a scaling stage has changed the signal: striped; at a label, a dashed ring */
-.s-wire.thru { stroke-dasharray: 5 4; stroke-linecap: butt; }
-.s-tag.thru { stroke-width: 2; stroke-dasharray: 2.5 2; stroke-linecap: butt; }
+.s-wire.short, .s-tag.short { stroke: var(--problem); filter: drop-shadow(0 0 1.5px #fff); }
+/* past a wire's op-amp, where a buffer or a scaling stage has changed the signal: the net's colour with thin white
+   stripes across it (lab.js, stripeOf). Dashes stay a duplicate path's. */
 .s-curve { stroke-width: 1.8; }
 .s-curve.dup { stroke-dasharray: 5 3; }
 .s-ring { stroke: var(--problem); stroke-width: 2; fill: rgba(255, 82, 82, .25); }

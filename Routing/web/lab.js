@@ -1339,8 +1339,8 @@ function hover(node, text) {
   node.addEventListener("pointerleave", () => { $("tip").hidden = true; });
 }
 
-function wireTip(name) {
-  if (ranking()) return rankTip(name);
+function wireTip(name, ofCase = false) {
+  if (ranking() && !ofCase) return rankTip(name);
   const paint = shownPaint();
   const w = paint && paint.wires[name];
   const kind = state.info.fabric.wires[name] ? state.info.fabric.wires[name].kind : "";
@@ -1711,10 +1711,29 @@ function sheetCurve(c) {
   return "M" + a[0] + " " + a[1] + "C" + deep + " " + a[1] + " " + deep + " " + b[1] + " " + b[0] + " " + b[1];
 }
 
-// The backdrop is 10 MB: it is fetched when the sheet tab is first opened, not with the page.
+// The backdrop is 10 MB: it is fetched when the sheet tab is first opened, not with the page. Its bitmap, when one
+// was made, is beside it and named alike.
 function loadBackdrop() {
-  const image = document.querySelector("#sheet-svg image");
-  if (image && !image.getAttribute("href")) image.setAttribute("href", sheet.backdrop);
+  for (const image of document.querySelectorAll("#sheet-svg image")) {
+    if (image.getAttribute("href")) continue;
+    image.setAttribute("href", image === sheet.fast ? sheet.backdrop.replace(/\.svg$/, ".png") : sheet.backdrop);
+  }
+}
+
+// The plot is some 160,000 paths and takes about an eighth of a second to draw again at each step of a zoom or a
+// drag. So while the view moves a bitmap of the same plot stands in for it, and the plot comes back once the view
+// has been still for a moment (and has arrived: it is the bigger of the two to fetch).
+function sheetMoved() {
+  sizeStripes();
+  if (!sheet.fast) return;
+  sheet.fast.style.visibility = "";
+  sheet.sharp.style.visibility = "hidden";
+  clearTimeout(sheet.still);
+  sheet.still = setTimeout(() => {
+    if (!sheet.sharpHere) return;
+    sheet.sharp.style.visibility = "";
+    sheet.fast.style.visibility = "hidden";
+  }, 220);
 }
 
 async function drawSheetBase() {
@@ -1736,9 +1755,17 @@ async function drawSheetBase() {
   const s = sheet.data;
   const view = svg("svg", { id: "sheet-svg", preserveAspectRatio: "xMidYMid meet" });
   sheet.live = svg("g", {});
-  view.append(svg("image", { x: 0, y: 0, width: s.size[0], height: s.size[1],
-    class: s.theme ? null : "light" }), sheet.live);
+  sheet.defs = svg("defs", {});
+  const light = s.theme ? "" : " light";
+  sheet.fast = s.bitmap ? svg("image", { class: "fast" + light, x: 0, y: 0, width: s.size[0], height: s.size[1] }) : null;
+  sheet.sharp = svg("image", { class: "sharp" + light, x: 0, y: 0, width: s.size[0], height: s.size[1] });
+  sheet.sharpHere = false;
+  sheet.sharp.addEventListener("load", () => { sheet.sharpHere = true; sheetMoved(); });
+  if (sheet.fast) sheet.sharp.style.visibility = "hidden";       // until it has arrived and the view is still
+  view.append(sheet.defs, sheet.fast, sheet.sharp, sheet.live);
   $("sheet").replaceChildren(view);
+  new MutationObserver(sheetMoved).observe(view, { attributes: true, attributeFilter: ["viewBox"] });
+  new ResizeObserver(sizeStripes).observe(view);
   const bodies = Object.values(s.bodies);                    // a double-click fits the crossbar blocks
   const x0 = Math.min(...bodies.map((b) => b[0])) - 40;
   const y0 = Math.min(...bodies.map((b) => b[1])) - 30;
@@ -1753,6 +1780,31 @@ function pastTip(wire, t) {
   const stage = t.by + " (" + (t.kind === "buffer" ? "a buffer" : "scaled" + (t.gain ? ": " + t.gain : "")) + ")";
   return t.net + "\n" + (t.kind === "same" ? "the same signal as " + wire + ", across " + t.by
     : t.way === "in" ? "drives " + wire + " through " + stage : wire + " after " + stage);
+}
+
+// The paint of copper past an op-amp: a colour with thin white diagonal stripes, as a pattern of the sheet's own
+// (one a colour, made when first asked for). The stripes are sized in screen pixels: sizeStripes keeps them so.
+const STRIPE = 9;                                  // the pattern's period, px
+function stripeOf(colour) {
+  const id = "stripe-" + colour.replace(/[^0-9a-z]/gi, "");
+  if (!sheet.defs.querySelector("#" + id)) {
+    sheet.defs.append(svg("pattern", { id: id, patternUnits: "userSpaceOnUse", width: STRIPE, height: STRIPE },
+      svg("rect", { width: STRIPE, height: STRIPE, fill: colour }),
+      svg("rect", { width: 1.6, height: STRIPE, fill: "#fff" })));
+    sizeStripes();
+  }
+  return "url(#" + id + ")";
+}
+
+// One pattern unit is one screen pixel at any zoom: the sheet's units to a pixel, by the view box and the room.
+function sizeStripes() {
+  const view = $("sheet-svg");
+  if (!view || !sheet.defs) return;
+  const box = view.viewBox.baseVal;
+  const room = view.getBoundingClientRect();
+  if (!box.width || !room.width) return;
+  const k = Math.max(box.width / room.width, box.height / room.height);       // "meet": the tighter of the two
+  for (const pattern of sheet.defs.children) pattern.setAttribute("patternTransform", "rotate(45) scale(" + k + ")");
 }
 
 function sheetDot(cls, [x, y], attrs) {                      // a dot that stays one size on screen
@@ -1783,7 +1835,7 @@ function drawSheet(paint) {
       }
       for (const p of points.values()) parts.push(sheetDot("s-tag" + (short ? " short" : ""), p, look));
       for (const part of parts) {
-        hover(part, () => wireTip(name));
+        hover(part, () => wireTip(name, true));
         if (!short) part.addEventListener("click", () => isolate(w.nets[0]));
         copper.append(part);
       }
@@ -1794,12 +1846,11 @@ function drawSheet(paint) {
         const far = s.nets[t.net];
         if (!far || (paint.wires[t.net] && paint.wires[t.net].nets.length)) continue;
         const cls = (t.kind === "same" ? "" : " thru") + (short ? " short" : "");
+        // after a stage: the same colour, whole, with thin white stripes across it (dashes are a duplicate path's)
+        const paint2 = t.kind === "same" || short ? look : Object.assign({}, look, { stroke: stripeOf(look.stroke) });
         const past = far.segments.map(([ax, ay, bx, by]) => svg("path",
-          Object.assign({ class: "s-wire" + cls, d: "M" + ax + " " + ay + "L" + bx + " " + by }, look)));
-        for (const p of far.labels) {                        // a label has no length to stripe: a dashed ring
-          past.push(t.kind === "same" ? sheetDot("s-tag" + cls, p, look)
-            : svg("circle", Object.assign({ class: "s-tag" + cls, cx: p[0], cy: p[1], r: 1.2 }, look)));
-        }
+          Object.assign({ class: "s-wire" + cls, d: "M" + ax + " " + ay + "L" + bx + " " + by }, paint2)));
+        for (const p of far.labels) past.push(sheetDot("s-tag" + cls, p, paint2));
         for (const part of past) {
           hover(part, () => pastTip(name, t));
           if (!short) part.addEventListener("click", () => isolate(w.nets[0]));
@@ -1812,7 +1863,7 @@ function drawSheet(paint) {
       if (!p) continue;
       if (pin.mark === "mismatch") {
         const ring = svg("circle", { class: "s-ring", cx: p[0], cy: p[1], r: 2.2 });
-        hover(ring, () => wireTip(name));
+        hover(ring, () => wireTip(name, true));
         marks.append(ring);
       } else {                                               // held: claimed, but no net rides the wire
         marks.append(svg("rect", { class: "s-held", x: p[0] - 0.9, y: p[1] - 0.9, width: 1.8, height: 1.8,

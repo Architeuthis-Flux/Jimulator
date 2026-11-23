@@ -80,28 +80,41 @@ click a case.
   curve inside its chip from the X pin to the Y pin. A lit wire is followed
   past the crossbar too: across a closed jumper, the 0R or the 2 ohm shunt
   it is drawn as the wire is, and on the far side of its op-amp it is
-  **striped**, since a buffer or a scaling stage has changed the signal by
-  then (the ADCs' followers and dividers, the DACs' and the rails' gain
-  stages, the routable buffer); a label there wears a dashed ring, and the
-  tip says the part and what it does. The legend's "after an op-amp" shows
-  these alone. The table is `BEYOND` in `sheet.py`, read from the r7
-  schematic on 2026-11-23: eleven wires have a stage, and R88 (the probe's
-  feed onto `ROUTABLE_BUFFER_IN`) is taken as fitted, as the schematic has
-  it. Build the sheet once with
+  **striped**: the net's colour, whole, with thin white stripes across it,
+  since a buffer or a scaling stage has changed the signal by then (the
+  ADCs' followers and dividers, the DACs' gain stages, the routable
+  buffer). The tip says the part and what it does, and the legend's "after
+  an op-amp" shows these alone. A rail is not followed so: it is drawn in
+  the rail's own colour up to its supply's op-amp, and not into the DAC
+  behind that. The table is `BEYOND` in `sheet.py`, read from the r7
+  schematic on 2026-11-23: eleven wires have a stage, nine are followed
+  through theirs, and R88 (the probe's feed onto `ROUTABLE_BUFFER_IN`) is
+  taken as fitted, as the schematic has it. Build the sheet once with
   `python3 Routing/lab.py sheet [board.kicad_sch] [--theme NAME]`
   (needs KiCad's `kicad-cli`; the default is the V5 r7 sheet in
   `~/Documents/GitHub/JumperlessV5`), and again after a change to `BEYOND`.
-- **Marks, fabric and sheet.** Red is a problem and nothing else is red: a wire
+  The plot is some 160,000 paths and takes about an eighth of a second to
+  draw again at each step of a zoom or a drag, so the build also draws it
+  once as a bitmap (with a headless Chrome, Chromium or Edge, when one is
+  installed): the page shows the bitmap while its view moves and the plot
+  once it rests. An export carries both beside the page.
+- **Colours.** Ground and the two power rails wear the firmware's own
+  colours, as the board's LEDs show them: ground green, a rail red, and
+  blue while that rail is set negative. Every other net has one of sixteen
+  colours, none of them red, and they repeat after sixteen nets.
+- **Marks, fabric and sheet.** A problem is red with a white edge (a rail's
+  red has none): a wire
   carrying two nets (a short), a net on a node that is in no net (a stray),
   or a ring where the chip status and the copper disagree (a closed pin
   nobody claims, a claim for another net, or, in the cases judged strictly,
-  a claim with no copper). Lighting one net alone never dims what is red. A
-  hollow dot or dashed curve is a duplicate path's crosspoint. A small
+  a claim with no copper). Lighting one net alone never dims a problem. A
+  hollow dot, or on the sheet a dashed curve inside a chip, is a duplicate
+  path's crosspoint: one of the extra copies of a jumper. A small
   square is a pin claimed while no net rides its wire, where that is
   allowed. A dashed ring marks the ends of a bridge that is not there: in
   the net's colour when the router failed it (not routed, or listed as
   routed while its copper does not connect), grey when the firmware refused
-  or dropped it by rule. Net colours repeat after sixteen nets.
+  or dropped it by rule.
 - Click a net, a lit wire or a crosspoint to light that net alone; it holds
   across the tabs. The wheel (or a pinch) zooms about the pointer, by as
   much as you scroll, so a trackpad and a wheel feel the same; drag pans;

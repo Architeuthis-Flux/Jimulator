@@ -302,7 +302,11 @@ def cmd_sheet(args):
         where = sheet.build(args.schematic or sheet.DEFAULT_SCH, args.theme)
     except sheet.SheetUnavailable as e:
         raise ValueError("%s\n  then: %s" % (e, e.hint))
-    print("%s: overlay.json, backdrop.svg  (reload the page)" % where)
+    made = (where / "backdrop.png").is_file()
+    print("%s: overlay.json, backdrop.svg%s  (reload the page)" % (where, ", backdrop.png" if made else ""))
+    if not made:
+        print("no bitmap of the sheet was made (no Chrome, Chromium or Edge was found to draw it): the page will "
+              "zoom and pan the sheet more slowly")
     return 0
 
 

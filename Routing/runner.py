@@ -120,9 +120,10 @@ def _named(result, case, arrangement):
     ("v5" when none was given), whether the probe feed was on the fabric, and
     the engine. Given afresh to a result read from the cache, which is kept
     by what was run (the feed, the blocked pins) and not by a name. For the
-    same reason what the case says of itself (its notes) is given afresh."""
+    same reason what the case says of itself (its notes, and the rails'
+    voltages, which colour them) is given afresh."""
     result.update(arrangement=arrangement.name if arrangement is not None else "v5", feed=bool(case.probe[0]),
-                  engine="router", about=case.notes)
+                  engine="router", about=case.notes, power=list(case.power))
     return result
 
 

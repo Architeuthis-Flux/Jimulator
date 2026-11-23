@@ -4,7 +4,8 @@
 The file is the page (index.html with lab.css and lab.js inlined) plus
 window.LAB_STATIC = {info, run, cases, rank, when}: what the server would have
 answered. It carries no token, no path under the home directory, and not the
-KiCad sheet backdrop (10 MB); the sheet tab says so.
+KiCad sheet backdrop (10 MB, and its bitmap) unless asked to; the sheet tab
+says so.
 """
 import json
 import os
@@ -65,6 +66,7 @@ def write(path, variant_spec, baseline_spec=None, classes=("example", "dense", "
         if not (built.is_file() and overlay.is_file()):
             raise ValueError("the KiCad sheet has not been built: python3 Routing/lab.py sheet")
         sheet_data = json.loads(overlay.read_text())
+        sheet_data["bitmap"] = (server.SHEET_DIR / "backdrop.png").is_file()      # what the page shows while its view moves
     case_list = lab.battery(list(classes))
     a = arrangement.load(arrangement_name)
     v = variants.resolve(variant_spec)
@@ -87,5 +89,7 @@ def write(path, variant_spec, baseline_spec=None, classes=("example", "dense", "
                  "cases": {r["case"]: {"result": r, "paint": ceiling.painted(r, a)} for r in results}})
     if backdrop:
         shutil.copyfile(server.SHEET_DIR / "backdrop.svg", Path(path).parent / backdrop)
+        if sheet_data["bitmap"]:                    # the plot's bitmap, beside it and named alike
+            shutil.copyfile(server.SHEET_DIR / "backdrop.png", (Path(path).parent / backdrop).with_suffix(".png"))
     Path(path).write_text(html, encoding="utf-8")
     return len(html.encode())

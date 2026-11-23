@@ -46,7 +46,7 @@ MAX_DRAWN = 200         # bridges in it, at most
 IDLE = {"what": None, "done": 0, "of": 0, "wire": None}        # /api/job when nothing long is running
 RANK_HINT = "python3 Routing/lab.py rank --needed"
 TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
-         ".css": "text/css; charset=utf-8", ".svg": "image/svg+xml", ".json": "application/json"}
+         ".css": "text/css; charset=utf-8", ".svg": "image/svg+xml", ".json": "application/json", ".png": "image/png"}
 
 
 class Refused(Exception):
@@ -166,8 +166,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if path == "/":
             page = (WEB_DIR / "index.html").read_text().replace("__LAB_TOKEN__", self.server.token)
             return self.send(200, page.encode(), TYPES[".html"])
-        if path == "/sheet/backdrop.svg":
-            target = SHEET_DIR / "backdrop.svg"
+        if path in ("/sheet/backdrop.svg", "/sheet/backdrop.png"):       # the plot, and its bitmap when one was made
+            target = SHEET_DIR / path.rsplit("/", 1)[1]
         else:
             try:
                 target = (WEB_DIR / urllib.parse.unquote(path).lstrip("/")).resolve()

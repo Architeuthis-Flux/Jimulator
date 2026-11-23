@@ -35,6 +35,11 @@ KICAD_CLI = ("kicad-cli", "/Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cl
 PAPER = {"A0": (1189.0, 841.0), "A1": (841.0, 594.0), "A2": (594.0, 420.0), "A3": (420.0, 297.0),
          "A4": (297.0, 210.0), "A5": (210.0, 148.0)}
 HINT = "python3 Routing/lab.py sheet [path/to/board.kicad_sch]"
+# a Chrome-family browser, to draw the plot once as a bitmap (bitmap() below)
+BROWSERS = ("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", "google-chrome", "google-chrome-stable",
+            "chromium", "chromium-browser", "/Applications/Chromium.app/Contents/MacOS/Chromium",
+            "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge", "microsoft-edge")
+PIXELS_PER_MM = 4
 
 
 
@@ -49,8 +54,9 @@ def _past(net, by, kind, way, gain=None):
 #   kind  "same": the same signal, across a closed jumper, a 0R or a 2 ohm shunt
 #         "buffer": after an op-amp follower;  "scale": after a stage that scales and shifts it (gain says how)
 #   way   "out": the wire feeds the stage;  "in": the stage drives the wire
-# Only these eleven wires have an op-amp stage (the UART, AREF, the Nano header, the rows and the lanes have none),
-# and the sheet has no level shifter. The page draws "same" as the wire is drawn and the other two striped.
+# Eleven wires have an op-amp stage (the UART, AREF, the Nano header, the rows and the lanes have none), and the
+# sheet has no level shifter. Nine are followed through theirs; the two rails are not (below). The page draws
+# "same" as the wire is drawn and the other two striped.
 _ADC_8V = "x0.182 + 1.65 V (+-8 V reads 0.19 to 3.11 V)"
 _DAC = "x4.05 - 8.3 V"
 BEYOND = {
@@ -66,8 +72,10 @@ BEYOND = {
                             _past("ADC_BUFFERED_5V_4", "R87 and R82", "scale", "out", "x0.667")],
     "DAC_0": [_past("R_SENSE+", "R57 (the 2 ohm shunt)", "same", "in"), _past("DAC_0_OUT", "U10A", "scale", "in", _DAC)],
     "DAC_1": [_past("after U10B", "U12", "same", "in"), _past("DAC_1_OUT", "U10B", "scale", "in", _DAC)],
-    "TOP_RAIL": [_past("after U1807A", "JP3", "same", "in"), _past("DAC_2_OUT", "U1807A", "scale", "in", _DAC)],
-    "BOTTOM_RAIL": [_past("after U1807B", "JP4", "same", "in"), _past("DAC_3_OUT", "U1807B", "scale", "in", _DAC)],
+    # A rail is a rail up to its supply's op-amp, in the rail's own colour. It is not followed into the DAC behind
+    # that op-amp (DAC_2_OUT, DAC_3_OUT): nothing a user routes rides there.
+    "TOP_RAIL": [_past("after U1807A", "JP3", "same", "in")],
+    "BOTTOM_RAIL": [_past("after U1807B", "JP4", "same", "in")],
     "Net-(I1-X11)": [_past("CURR_SENSE+", "JP5", "same", "out")],
     "Net-(J6-X11)": [_past("CURR_SENSE-", "JP6", "same", "out")],
     **{"GPIO_%d" % n: [_past("RP_GPIO_%d" % n, "its jumper (JP23 to JP30)", "same", "out")] for n in range(20, 28)},
@@ -337,8 +345,42 @@ def kicad_cli():
     return None
 
 
+def browser():
+    """A Chrome-family browser to run headless, or None."""
+    for candidate in BROWSERS:
+        found = shutil.which(candidate)
+        if found:
+            return found
+    return None
+
+
+def bitmap(svg_path, png_path, size):
+    """The plotted sheet as a PNG, PIXELS_PER_MM to the millimetre, drawn by a
+    headless browser; False when there is none or it fails (the page then
+    shows the plot alone, as before). The plot is some 160,000 paths and takes
+    about an eighth of a second to draw again at each step of a zoom or a
+    drag, so the page shows this bitmap while its view moves and the plot when
+    it rests."""
+    chrome = browser()
+    if chrome is None:
+        return False
+    width, height = (round(v * PIXELS_PER_MM) for v in size)
+    with tempfile.TemporaryDirectory() as tmp:
+        page, shot = Path(tmp) / "plot.html", Path(tmp) / "plot.png"
+        page.write_text('<!doctype html><body style="margin:0"><img src="%s" style="display:block;width:100vw;height:100vh">'
+                        % Path(svg_path).resolve().as_uri())
+        p = subprocess.run([chrome, "--headless=new", "--disable-gpu", "--hide-scrollbars", "--force-device-scale-factor=1",
+                            "--window-size=%d,%d" % (width, height), "--screenshot=%s" % shot, page.as_uri()],
+                           capture_output=True, text=True, timeout=120)
+        if p.returncode != 0 or not shot.is_file():
+            return False
+        shutil.copyfile(shot, png_path)
+    return True
+
+
 def build(sch_path=DEFAULT_SCH, theme=None):
-    """Writes build/sheet/overlay.json and backdrop.svg; returns the directory."""
+    """Writes build/sheet/overlay.json, backdrop.svg and, when a browser is
+    there to draw it, backdrop.png; returns the directory."""
     sch_path = Path(sch_path).expanduser()
     if not sch_path.is_file():
         raise SheetUnavailable("the schematic is not at %s" % sch_path)
@@ -357,6 +399,8 @@ def build(sch_path=DEFAULT_SCH, theme=None):
         shutil.copyfile(plotted, SHEET_DIR / "backdrop.svg")
     data = overlay(sch_path)
     data["theme"] = theme           # None: KiCad's own light theme, which the page shows inverted on its dark ground
+    (SHEET_DIR / "backdrop.png").unlink(missing_ok=True)
+    data["bitmap"] = bitmap(SHEET_DIR / "backdrop.svg", SHEET_DIR / "backdrop.png", data["size"])
     with open(SHEET_DIR / "overlay.json", "w") as f:
         json.dump(data, f)
     return SHEET_DIR

@@ -183,14 +183,27 @@ class Export(unittest.TestCase):
         # a tab dragged out to a panel swallows the click that ends the drag, and no later one
         self.assertRegex(js, r"setTimeout\(\(\) => \{ delete handle\.dataset\.dragged; \}")
 
+    def test_the_sheet_moves_on_a_bitmap_and_rests_on_the_plot(self):
+        js = (server.WEB_DIR / "lab.js").read_text()
+        self.assertIn("function sheetMoved(", js)                          # hides the plot while the view box changes
+        self.assertIn('class: "fast', js)
+        self.assertIn('class: "sharp', js)
+        self.assertIn('.replace(/\\.svg$/, ".png")', js)                   # the bitmap is beside the plot, named alike
+
     def test_the_sheet_follows_a_wire_past_its_op_amp(self):
         js = (server.WEB_DIR / "lab.js").read_text()
         css = (server.WEB_DIR / "lab.css").read_text()
         html = (server.WEB_DIR / "index.html").read_text()
         self.assertIn("s.beyond", js)                                      # what sheet.py found past each wire
         self.assertIn("function pastTip(", js)
-        self.assertRegex(css, r"\.s-wire\.thru \{[^}]*stroke-dasharray")     # striped once a stage has changed the signal
-        self.assertRegex(css, r"\.s-tag\.thru \{[^}]*stroke-dasharray")      # and at a label, where there is no wire to stripe
+        # striped once a stage has changed the signal: the net's colour with thin white diagonal stripes, whole,
+        # not dashes with gaps (those are a duplicate path's)
+        self.assertIn("function stripeOf(", js)
+        self.assertIn('svg("pattern"', js)
+        self.assertNotRegex(css, r"\.s-(wire|tag)\.thru \{[^}]*stroke-dasharray")
+        # the sheet shows the case also while the ranking is open, so its tips are the case's, not the ranking's
+        self.assertEqual(js.count("wireTip(name, true)"), 2)
+        self.assertIn("function wireTip(name, ofCase = false)", js)
         self.assertIn('data-kind="thru"', html)                           # with a key in the legend that shows it alone
         self.assertIn('svg[data-only="thru"] .thru', css)
 
@@ -222,6 +235,11 @@ class Export(unittest.TestCase):
             self.assertEqual(data["sheet"]["size"], [10, 20])              # what /api/sheet answers
             self.assertEqual(data["backdrop"], "sheet-r7.svg")             # fetched from beside the page, by this name
             self.assertEqual((out.parent / "sheet-r7.svg").read_text(), (built / "backdrop.svg").read_text())
+            self.assertIs(data["sheet"]["bitmap"], False)                  # none was built, and the page is told so
+            (built / "backdrop.png").write_bytes(b"\x89PNG")
+            export.write(out, "worktree", classes=("real",), backdrop="sheet-r7.svg")
+            self.assertIs(carried(out)["sheet"]["bitmap"], True)           # the plot's bitmap travels beside it, named alike
+            self.assertEqual((out.parent / "sheet-r7.png").read_bytes(), b"\x89PNG")
             with contextlib.redirect_stdout(io.StringIO()):
                 self.assertEqual(lab.main(["export", str(out), "--classes", "real", "--backdrop", "r7.svg"]), 0)
             self.assertTrue((out.parent / "r7.svg").is_file())

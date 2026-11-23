@@ -25,9 +25,25 @@ RAIL_NODES = (100, 101, 102)                # GND, TOP_RAIL, BOTTOM_RAIL
 FEED_NODE = 139                             # ROUTABLE_BUFFER_IN: the probe feed's end of an infra bridge
 NET_LABEL = {v: k for k, v in rc.NET_TOKEN.items() if k != "E"}     # 1 -> "Gn", 2 -> "T", ...
 
-# Sixteen colours that stay apart on a dark ground. None is red: red means a problem.
+# Ground and the two power rails wear the firmware's own colours, as the board's LEDs show them (LEDs.cpp,
+# assignNetColors: railNetColors, and 0x03031e for a rail sitting negative), brightened for a screen: ground green,
+# a rail red, a rail set negative blue. They are nets 1, 2 and 3.
+GND_COLOUR, RAIL_COLOUR, RAIL_NEGATIVE_COLOUR = "#00ff44", "#ff2222", "#5f5fff"
+
+# Sixteen colours for every other net, that stay apart on a dark ground. None is red: on a wire red is a rail's
+# colour, and a problem's red is drawn with a white edge (lab.css).
 NET_COLOURS = ["#4fc3f7", "#aed581", "#ffb74d", "#ba68c8", "#4db6ac", "#fff176", "#7986cb", "#f48fb1",
                "#81d4fa", "#c5e1a5", "#ffcc80", "#ce93d8", "#80cbc4", "#e6ee9c", "#9fa8da", "#bcaaa4"]
+
+
+def net_colour(net, power=None):
+    """A net's colour. `power` is the case's (top rail, bottom rail, ...) in volts; without it a rail is taken as
+    positive."""
+    if net == 1:
+        return GND_COLOUR
+    if net in (2, 3):
+        return RAIL_NEGATIVE_COLOUR if power and power[net - 2] < -0.1 else RAIL_COLOUR
+    return NET_COLOURS[net % len(NET_COLOURS)]
 
 
 def wire(chip, axis, pin):
@@ -169,7 +185,7 @@ def paint(result):
     nets = {}
     for n1, n2, net in array:
         entry = nets.setdefault(str(net), {"label": NET_LABEL.get(net, str(net)),
-                                           "colour": NET_COLOURS[net % len(NET_COLOURS)], "nodes": []})
+                                           "colour": net_colour(net, result.get("power")), "nodes": []})
         for node in (n1, n2):
             if node not in entry["nodes"]:
                 entry["nodes"].append(node)

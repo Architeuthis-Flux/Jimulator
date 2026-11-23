@@ -144,10 +144,13 @@ class Sheet(unittest.TestCase):
                 self.assertIn(t["way"], ("in", "out"), wire)
         named = {t["net"] for past in sheet.BEYOND.values() for t in past}
         self.assertEqual([a for a in sheet.ANCHOR if a not in named], [])       # every point named is used
-        # the eleven wires with an op-amp stage: the routable buffer's two, five ADCs, two DACs, the two rails
+        # the nine wires drawn on past an op-amp stage: the routable buffer's two, five ADCs, two DACs
         staged = sorted(w for w, past in sheet.BEYOND.items() if any(t["kind"] != "same" for t in past))
-        self.assertEqual(staged, sorted(["ROUTABLE_BUFFER_IN", "ROUTABLE_BUFFER_OUT", "ADC_UNBUFFERED_5V_4", "DAC_0", "DAC_1",
-                                         "TOP_RAIL", "BOTTOM_RAIL"] + ["ADC_UNBUFFERED_+-8V_%d" % n for n in range(4)]))
+        self.assertEqual(staged, sorted(["ROUTABLE_BUFFER_IN", "ROUTABLE_BUFFER_OUT", "ADC_UNBUFFERED_5V_4", "DAC_0", "DAC_1"]
+                                        + ["ADC_UNBUFFERED_+-8V_%d" % n for n in range(4)]))
+        # a rail is a rail up to its supply's op-amp, in the rail's own colour, and is not followed into the DAC behind it
+        for rail in ("TOP_RAIL", "BOTTOM_RAIL"):
+            self.assertEqual([t["kind"] for t in sheet.BEYOND[rail]], ["same"])
 
     @unittest.skipUnless(sheet.DEFAULT_SCH.exists(), "the r7 schematic is not on this machine")
     def test_the_real_sheet_past_the_crossbars(self):
@@ -158,8 +161,8 @@ class Sheet(unittest.TestCase):
         self.assertEqual([t["net"] for t in o["beyond"]["ADC_UNBUFFERED_+-8V_0"]], ["after U11A", "ADC_BUFFERED_+-8V_0"])
         self.assertGreaterEqual(len(o["nets"]["ADC_BUFFERED_+-8V_0"]["segments"]), 8)
         self.assertGreaterEqual(len(o["nets"]["after U11A"]["segments"]), 4)
-        self.assertEqual(o["nets"]["DAC_2_OUT"]["segments"], [])     # drawn as two labels and no wire
-        self.assertEqual(len(o["nets"]["DAC_2_OUT"]["labels"]), 2)
+        self.assertEqual(o["nets"]["DAC_0_OUT"]["labels"].__len__(), 2)   # the DAC chip's own output, by its two labels
+        self.assertNotIn("DAC_2_OUT", o["nets"])                     # the rails' DACs are not drawn: a rail is a rail
         self.assertGreater(len(o["nets"]["DAC_0"]["segments"]), 1)   # with the copper at the shunt, labelled R_SENSE-
 
     @unittest.skipUnless(sheet.DEFAULT_SCH.exists(), "the r7 schematic is not on this machine")
@@ -182,6 +185,24 @@ class Sheet(unittest.TestCase):
         ends |= {(round(x, 2), round(y, 2)) for n in o["nets"].values() for x, y in n["labels"]}
         on_copper = sum(1 for x, y in o["pins"].values() if (round(x, 2), round(y, 2)) in ends)
         self.assertGreaterEqual(on_copper, 270)                 # 288 less the eight unconnected Y0 pins and a margin
+
+    def test_a_bitmap_of_the_plot_is_made_by_a_browser_when_there_is_one(self):
+        # the plot is too heavy to draw again at every step of a zoom: the page shows a bitmap of it while it moves
+        with tempfile.TemporaryDirectory() as tmp:
+            svg, png = Path(tmp) / "backdrop.svg", Path(tmp) / "backdrop.png"
+            svg.write_text("<svg xmlns='http://www.w3.org/2000/svg'/>")
+            with mock.patch.object(sheet, "browser", return_value=None):
+                self.assertIs(sheet.bitmap(svg, png, [841.0, 594.0]), False)       # no browser: no bitmap, and no error
+
+            def run(cmd, **kw):
+                self.assertEqual(cmd[0], "/a/browser")
+                self.assertIn("--window-size=3364,2376", cmd)                      # four pixels to the millimetre
+                shot = [a for a in cmd if a.startswith("--screenshot=")][0].split("=", 1)[1]
+                Path(shot).write_bytes(b"png")
+                return mock.Mock(returncode=0)
+            with mock.patch.object(sheet, "browser", return_value="/a/browser"), mock.patch.object(sheet.subprocess, "run", run):
+                self.assertIs(sheet.bitmap(svg, png, [841.0, 594.0]), True)
+            self.assertEqual(png.read_bytes(), b"png")
 
     def test_missing_schematic_says_what_to_do(self):
         with self.assertRaises(sheet.SheetUnavailable) as cm:

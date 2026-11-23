@@ -77,10 +77,11 @@ The page remembers where you left it: the layout, the view and the example.
 ### 4. Follow a signal through the op-amps
 
 Open **DAC and ADCs** and the **KiCad sheet**, and zoom in on the analog section. A crossbar wire does not end at
-the chip: an ADC input goes through a buffer and a divider before it reaches the microcontroller, and a DAC or a
-rail is driven through a gain stage. The page follows each lit wire through its op-amp and draws the far side
-striped, because the signal there is no longer the same voltage. Rest the pointer on a striped piece for the part
-and what it does.
+the chip: an ADC input goes through a buffer and a divider before it reaches the microcontroller, and a DAC
+is driven through a gain stage. The page follows each lit wire through its op-amp and draws the far side in the
+same colour with thin white stripes across it, because the signal there is no longer the same voltage. Rest the
+pointer on a striped piece for the part and what it does. (A dashed curve inside a chip is something else: one of
+the extra copies of a jumper.)
 
 ![ADC and DAC paths striped past their op-amps](Routing/docs/img/through-the-op-amps.png)
 
@@ -88,7 +89,8 @@ and what it does.
 
 Open **More than fits**. Nine signals all leave from the analog chip, which has eight lanes out. The router routes
 eight; the ninth is listed in red in the right panel as not routed, and its two ends are ringed in the drawing.
-Nothing else on the page is red: red always means a problem.
+Ground and the power rails are drawn in the colours the board's own LEDs give them: ground green, a rail red (blue
+while it is set negative). A problem's red is told apart by its white edge.
 
 ![Eight of nine routed](Routing/docs/img/more-than-fits.png)
 
