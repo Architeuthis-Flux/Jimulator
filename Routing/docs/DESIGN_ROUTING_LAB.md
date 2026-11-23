@@ -603,6 +603,101 @@ says what each would take.
   (the tests that need them skip, saying why, as the solver's do).
 - The names of the files in the folder.
 
+## Piece 7: a live board
+
+*Written 2026-11-23, after Kevin answered the draft plan's six questions. The plan is
+`PLAN_ROUTING_LAB_7_LIVE_BOARD.md`; the firmware reading behind this section is
+`NOTES_2026-11-23_FIRMWARE_PORT7_AND_TAPS.md` (by reading, on no board). Not built.*
+
+Kevin's ask (2026-11-23): "connect to a jumperless from the browser and show a live updating view of the
+routing on a real jumperless".
+
+### What it is
+
+A button on the page connects to one Jumperless V5 over Web Serial, on the board's fourth USB serial port (the
+machine backchannel, "port 7"). The page then shows that board's routing as a case named `live_board`, in every
+view, judged against the schematic like any board's own output, and redraws it when the routing changes, with what
+changed lit in a colour that is not a problem's. The page only reads. It never routes, clears or loads anything on
+the board.
+
+### Kevin's answers, and what each decides
+
+1. **One bench sitting: yes.** The plan's last task is one sitting with a V5 on the Mac. With the firmware calls
+   below it means flashing that board once, and flashing is asked for at the time, as always.
+2. **No line on his terminal because the page looked.** Asked whether a "Couldn't find a path" line per change was
+   acceptable: "in general no unless it really can't find a path", and "if it's for the probe and there's an alt
+   route with the dac that's fine if it reroutes it". By the firmware (notes A1, A2): `b` re-runs no routing, but
+   every `b` (and every `n`) calls `couldntFindPath(1)`, which prints one line per failed primary on the main port
+   and marks those paths again. So **the page never sends `b` or `n`**. It reads the report through a new call that
+   prints the same three blocks and nothing else. A line the firmware prints when a routing pass really fails is
+   the firmware's own and stays.
+   The probe's own connection has no reroute of the kind Kevin describes (notes A3): its candidates (DAC 0, then a
+   free GPIO) are chosen by what is claimed, never by whether the pair routed, and a feed that does not route gets
+   only the generic line. That is a gap in the firmware, listed below; this piece shows it as it is.
+3. **The firmware may gain calls on port 7.** Three, all reads:
+   - `:gen` prints `gen{<routingGeneration>,<idle>}`: the counter that moves at every rebuild and send, and
+     whether the second core is idle. The page asks this, twice a second, and nothing else while the number
+     stands.
+   - `:paths` prints what `b` prints (the bridge array, the path table, the chip status, same headings, so
+     `Routing/board.py` reads it unchanged) without `couldntFindPath` and with terminal colours off.
+   - `:crossbar` waits for the second core before it copies the chips' state, so a scan tap in flight is never in
+     the dump.
+
+   Old firmware answers `unknown_verb`. The page then says the board's firmware is too old for a live view and
+   which version has it. It does not fall back to `b`.
+4. **"Sent equals planned" is checked.** Kevin: "if there's no room for the scan it'll use it for user routing (if
+   not, it should do that)". By the firmware (notes B1, B2): a tap is planned fresh on copper that is free, held
+   about a millisecond and opened; the router never sees taps, and a primary is never refused for one. So with the
+   tap-free `:crossbar`, the dump equals the path table's crosspoints whenever `:gen` says idle, and the page
+   checks exactly that. One thing differs from what he remembers: stacked copies (not primaries) give way to a
+   reserve kept for taps, and that reserve applies even with the scan off. Listed below; his call.
+5. **One board, read-only.** One link, one case. Every V5 has the same serial identity, so two could not be told
+   apart anyway.
+6. **OG boards are out for now.** An OG's report is refused with the lab's usual message.
+
+### How the page talks to the board
+
+- Nothing is sent until the user clicks Connect, and a reload does not reconnect by itself. What the page sends is
+  written beside the button, and every byte sent and received is kept in a trace the user can save.
+- The picker is filtered to the Jumperless's USB identity (`1D50:ACAB`). All four of the board's ports share it,
+  so the page proves it has the right one before anything else: it sends the single byte `N` and wants a net list
+  back. Never a `:` before that: on the main port `:` sets a DAC voltage. The port is opened at 115200 and at no
+  other speed.
+- Then `:ver`, then `:gen` every half second. When the number has moved and the board is idle: `:paths` and
+  `:crossbar`, one query unanswered at a time. A board that is silent (by reading, port 7 is not answered in probe
+  mode, the menus or an app) is "waiting", not an error and not red.
+- The text goes to the lab's own judge: the local server's `/api/board` today, the engine in the tab when piece 6
+  is built. Nothing new is needed in the page for that.
+- Browsers without Web Serial (Safari, Firefox) get the button disabled with the reason; paste and drop stay.
+
+### How we know piece 7 works
+
+A fake port that replays recorded traces drives the page's port code under `node` and the whole page in a browser
+(`serve --replay`). The bench sitting records a real trace, which becomes a fixture. On the bench: Kevin's
+terminal on the main port stays silent while the page is connected and the board is still; a change by probe, by
+terminal and by slot shows on the page within a second of the board going idle; a bridge that cannot route is
+shown as not routed with one line on his terminal, when it fails, and none after.
+
+### The firmware's part
+
+In JumperlOS, on a branch in a worktree of its own (never Kevin's main checkout, which holds someone else's
+uncommitted work), built for both targets, the bench suite run, and not pushed without Kevin's word. This
+repository's submodule moves to that commit only once it is on GitHub. Until then the page's side is built and
+tested against traces.
+
+### Asked of the firmware, and not in this piece
+
+- Port 7 answered in probe mode and the menus (a service of its own with a guard against re-entry; medium risk).
+- `b` and `n` printing "Couldn't find a path" only to the port that asked.
+- The probe's connection falling back to its next candidate when the chosen pair does not route.
+- The tap reserve applying to stacked copies only while the scan is on.
+- A list of the planned taps (`:taps`), for drawing them.
+
+### Not in piece 7
+
+Writing to the board. Two boards. The OG. A stand-in for Web Serial. The board's LEDs, OLED and voltages (that is
+Jumperlessim's viewer). The published page, until piece 6.
+
 ## How we know it works
 
 - At `main`, every must-route dense case routes and the judge is clean.
@@ -627,7 +722,8 @@ The two historical checks hold only if those commits build against the stubs.
 Four plans, each usable when it lands: (1) harness, battery, judge, CLI;
 (2) server and page, both views, resistance; (3) ceilings and edge cases;
 (4) lane ranking. Added on 2026-11-22: (5) V6 arrangement choices, and
-(6) the lab on the web. Neither waits for the other.
+(6) the lab on the web. Neither waits for the other. Added on 2026-11-23:
+(7) a live board, which needs calls added to the firmware first.
 
 ## Left to the builder
 

@@ -3,9 +3,10 @@
 | File | What it is |
 |---|---|
 | `FINDINGS.md` | What the lab has measured so far, each finding with its date, arrangement, engine and probe feed |
-| `DESIGN_ROUTING_LAB.md` | The design, piece by piece. Pieces 1 to 4 are built. Piece 5 (V6 arrangement choices) is not designed. Piece 6 (the lab running in the browser tab, no server) is designed and waits for approval |
+| `DESIGN_ROUTING_LAB.md` | The design, piece by piece. Pieces 1 to 4 are built. Piece 5 (V6 arrangement choices) is not designed. Piece 6 (the lab running in the browser tab, no server) is designed and waits for approval. Piece 7 (a live board) is designed from Kevin's answers of 2026-11-23 and not built |
 | `PLAN_ROUTING_LAB_1_HARNESS.md` to `PLAN_ROUTING_LAB_4_ARRANGEMENTS.md` | The four implementation plans, as carried out |
-| `PLAN_ROUTING_LAB_7_LIVE_BOARD.md` | A draft plan, not started and not reviewed on a board: connect to a Jumperless from the browser and show its routing live. Its design section is still to be written and approved |
+| `PLAN_ROUTING_LAB_7_LIVE_BOARD.md` | The plan for piece 7: connect to a Jumperless from the browser and show its routing live. Not started; written by reading, on no board, and being revised to the design |
+| `NOTES_2026-11-23_FIRMWARE_PORT7_AND_TAPS.md` | The firmware reading piece 7 rests on: what asking for the routing report costs on a board, the probe's connection, and how the voltage scan's taps share copper with the user's routing |
 | `HANDOFF_2026-11-22_ROUTING_LAB_5.md` | Handoff for the next phase, V6 arrangement choices |
 | `HANDOFF_2026-11-22_ROUTING_LAB_HOSTING.md` | What the lab needs of a server, which is nothing but the exact solver on demand (since built: `Routing/solver/service/`) |
 | `jumperlos-side-changes.patch` | Two changes the lab once made to JumperlOS's own files, kept here because they were never pushed there: the bench test importing its cases from a shared `routing_cases.py`, and a paragraph in `CodeDocs/V6_CROSSBAR_MATRIX.md` pointing at the lab. `git -C <JumperlOS checkout> apply` puts them back; the paragraph's paths would then want this repository's |
