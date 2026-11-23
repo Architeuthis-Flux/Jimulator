@@ -157,6 +157,12 @@ A pair given twice is one bridge, merged as the firmware's loader merges it.
   and buses on the root sheet, as r7 uses them. A board drawn another way
   (crossbars on a sub-sheet, for instance) may light less than it should;
   the fabric tab does not depend on it.
+- **A live board between its rebuilds.** The page reads a board's routing
+  when its counter has moved and the board is idle, not during a rebuild. A
+  crosspoint closed and opened again between two polls is not seen.
+- **FakeGPIO's writes in the dump.** Whether the firmware's writes to the chips
+  through FakeGPIO are kept out of a live board's crossbar dump is not known.
+- **Net voltages.** A live board's nets are shown without voltages.
 - **The firmware's router on a changed fabric.** It is never run on one. It
   has V5's chips and pins written into it, so an arrangement that moves a
   pin is answered by the solver alone, and a pin taken away is the only

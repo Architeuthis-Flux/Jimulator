@@ -5,7 +5,8 @@ Written 2026-11-17, approved the same day. Its four pieces are built
 2026-11-21, and piece 4 on 2026-11-22 from `PLAN_ROUTING_LAB_4_ARRANGEMENTS.md`.
 Two more were added on 2026-11-22 and are not built: piece 5 (V6 arrangement
 choices, not designed yet) and piece 6 (the lab on the web, designed below,
-waiting for Kevin's approval).
+waiting for Kevin's approval). Piece 7 (a live board) was designed and then built on 2026-11-23, on recorded traces
+and the local server; see "Piece 7 as built" under it.
 Piece 4's section below was widened that day, and "Piece 4 as built" under
 it says where the build differs from the text. "Learned building piece 1" at
 the end changes what the later pieces must do. Piece 3 as built leaves out one thing the text below puts in it: the
@@ -607,7 +608,7 @@ says what each would take.
 
 *Written 2026-11-23, after Kevin answered the draft plan's six questions. The plan is
 `PLAN_ROUTING_LAB_7_LIVE_BOARD.md`; the firmware reading behind this section is
-`NOTES_2026-11-23_FIRMWARE_PORT7_AND_TAPS.md` (by reading, on no board). Not built.*
+`NOTES_2026-11-23_FIRMWARE_PORT7_AND_TAPS.md` (by reading, on no board). Built since, on recorded traces: see "Piece 7 as built" below.*
 
 Kevin's ask (2026-11-23): "connect to a jumperless from the browser and show a live updating view of the
 routing on a real jumperless".
@@ -692,6 +693,36 @@ tested against traces.
 - The probe's connection falling back to its next candidate when the chosen pair does not route.
 - The tap reserve applying to stacked copies only while the scan is on.
 - A list of the planned taps (`:taps`), for drawing them.
+
+### Piece 7 as built (2026-11-23)
+
+Status: built and tested on recorded traces, on the local server (`lab.py serve`). The bench check on a real
+board has not been made, so nothing here is known of a board's own behaviour, and there are no bench findings. The
+firmware's three calls are on a branch of JumperlOS (`port7-routing-reads`, commit `f963e4c`, in a worktree), not
+released and not on GitHub, so no released firmware answers them. The submodule is not moved to it, and
+`BOARD_PORT.NEEDS` still names a release that is not out. The page's code is `web/board_port.js` (the replies read,
+`FakePort`, `BoardLink`) and `connectBoard` and `showReading` in `web/lab.js`; the server gained `board.changed` and a
+linked board with nothing on it (`POST /api/board` takes `about` and `live`); `serve --replay TRACE` plays a trace
+through the page. "How the page talks to the board" above is built as written, except in these points, where the
+build says more or says otherwise:
+
+- `:gen` is asked once more right after the dump, and a reading counts only when both answers say idle with the same
+  number.
+- **read again** reads the report and the dump whatever the counter says.
+- A reply counts as begun only once the board has echoed the query. A stray line is neither an answer nor a reason
+  to ask again. A reply that begins and stops for three seconds is thrown away and asked once more. A board that
+  does not answer is waited for with no limit, and only Disconnect ends that.
+- The wait between polls is not cut short by anything the board sends.
+- Only the timings can be overridden. The speed, the buffer and the five things sent are fixed.
+- What changed is ringed in all three views in the colour of a change (not red). A redraw keeps the zoom, a docked
+  view and the lit net, by its number: a board that renumbers its nets has another net lit.
+- Running the battery while linked keeps the battery on screen. The status line then says the board changed, and a
+  click on that brings the board's case back.
+- A failed connect (busy, wrong port, firmware too old) leaves the page not linked. "Save trace" is a button.
+- An exported page hides the Connect row.
+
+Still to do: the bench sitting (Task 6 of the plan), and the submodule and `NEEDS` once the firmware's commit is on
+GitHub and released.
 
 ### Not in piece 7
 

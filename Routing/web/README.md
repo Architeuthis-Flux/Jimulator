@@ -156,6 +156,9 @@ click a case.
   on both tabs, with the case panel, the missed paths and the Ceiling
   section as for any case. Press Run to go back to the battery. Details
   under "A board's own output" below.
+- **A live board.** **Connect a board** reads a Jumperless V5's routing over
+  Web Serial and redraws it when it changes, as the case `live_board`. It
+  only reads. Details under "A live board" below.
 - **ohm** is the worst signal bridge's resistance and **rail** the worst
   bridge to GND or a rail, counted in crosspoints and multiplied by the
   "ohms per crosspoint" box (42 by default, as measured on a board; duplicates in parallel lower
@@ -234,3 +237,89 @@ copied out of a real terminal window and pasted on the page read correctly
 `tests/fixtures/terminal_copy_2026-11-22.txt` is that report rebuilt from its
 text, not the clipboard's own bytes. Another terminal may copy differently;
 if a report does not read, the message says which part did not come through.
+
+## A live board
+
+**Connect a board** (Chrome, Edge, Opera or Brave, on `https` or on
+`127.0.0.1`) reads a Jumperless V5's routing from the board itself and shows it
+as the case `live_board`, in every view, judged as a pasted report is. When the
+board's routing changes the page reads it again and redraws it. The page only
+reads: it never routes, clears or loads anything on the board, and it never
+sends `b`, which prints on the board's own terminal. Built and tested on
+recorded traces, on the local server; it has not yet been tried on a board.
+
+- **The port.** The board shows four USB serial ports, and they look alike.
+  The page reads the fourth, the machine backchannel ("port 7"). Pick the
+  one whose name ends `port7` (macOS), or the last of the four. The picker is
+  filtered to the board's USB id, which all four share, so the page proves
+  the port first: it sends one `N` and wants a net list back. A port that
+  does not answer is closed and forgotten, and nothing else was sent to it.
+  Once the browser has let the page open one port, the button reads "Connect
+  the board again" and uses it without the picker. The port is opened at
+  115200 and at no other speed.
+- **What the page sends**, as the page says it beside the button:
+
+  > To the board's fourth port only, and only after you press Connect. N once: its net list, which proves the port is the right one. :ver once: its firmware version. :gen twice a second: a counter that moves when the board rebuilds its routing, and whether it has finished sending it. :paths and :crossbar when that counter has moved: its routing report, and which crosspoints are closed. All five are questions. None makes, removes or reroutes a connection, and none prints on the board's own terminal. Nothing is sent to any other port. The picker lists the board's four ports and they look alike: pick the one whose name ends port7 (macOS), or the last of the four. A wrong port gets the one N and is closed. Opening the second one by mistake can reset an Arduino plugged into the board.
+
+  Only the timings can be overridden (in the tests); the speed, the buffer
+  and the five things sent are fixed, and the code refuses to send anything
+  else.
+- **The firmware it needs.** `:gen`, `:paths` and a `:crossbar` that waits for
+  the second core. They are three read-only calls added to JumperlOS on the
+  branch `port7-routing-reads` (commit `f963e4c`, in a worktree), which is not
+  on GitHub and not in a release: no released firmware answers them yet, and
+  the submodule here is not moved to it. A board without them answers
+  `unknown_verb`; the page then says the firmware is too old for a live view
+  and which release has them (`BOARD_PORT.NEEDS`, still a placeholder
+  naming a release that is not out), and does not ask `b` in their place.
+- **What the board does not answer.** Port 7 is answered from the board's
+  main loop only: not in probe mode, in a menu or in an app. The page then
+  says "waiting", with how long and when it last read, dims the view's title
+  and keeps the last reading on screen. It is not an error and it is not red.
+  A board that does not answer is waited for, with no limit, and only
+  **Disconnect** ends that. A reply counts as begun only once the board has
+  echoed the query; a stray line is neither an answer nor a reason to ask
+  again. A reply that begins and then stops for three seconds is thrown away
+  and asked once more. The pause between polls is not cut short by anything
+  the board sends.
+- **What a reading is.** `:gen` gives the routing's counter and whether the
+  board has finished sending it. When it has moved and the board is idle, the
+  page asks `:paths` and `:crossbar`, one query at a time, then asks `:gen`
+  once more. A reading counts only when both answers say idle with the same
+  number; otherwise the page tries again. **read again** reads the report and
+  the dump whatever the counter says.
+- **Sent equals planned is checked on every reading.** The dump is the chips'
+  own state and goes to the judge with the report, so what was sent is
+  compared with the path table each time, which a pasted `b` report cannot do
+  without a dump.
+- **What changed.** From the second reading on, the crosspoints closed since
+  the reading before are ringed and those opened are drawn hollow and grey, in
+  the fabric, on the KiCad sheet and in the crossbars, in the colour of a
+  change (cyan), never red. The case panel counts them ("at the board's last
+  change: 3 closed, 1 opened, 2 bridges changed") and a count shows them
+  alone; a bridge whose state changed is marked in the table. A net that only
+  got another number is no change. A redraw keeps the zoom, a docked view and
+  the lit net, by its number: a board that renumbers its nets has another net
+  lit.
+- **Running the battery while linked.** The battery stays on screen. The
+  status line then says "the board changed at HH:MM:SS", and a click on that
+  brings the board's case back. A board with nothing connected is shown as
+  such, with a note, where a pasted report with no bridge is refused.
+- **When it fails.** A port held by another program or tab (a Jumperlessim
+  viewer, a script), a port that is not the fourth, and firmware too old each
+  say so under the button and leave the page not linked. **Disconnect** stops
+  every query. A cable pulled says "lost". Nothing reconnects by itself, and a
+  reload does not.
+- **Save trace** is a button. It downloads every byte sent and received since
+  Connect as JSON Lines, one exchange a line (`port7_DATE_TIME.jsonl`).
+- **`serve --replay TRACE`.** `python3 Routing/lab.py serve --replay FILE`
+  makes Connect read a recorded trace through a fake port in place of a
+  board, with no port opened and no Web Serial needed. It is for the tests and
+  the browser check, not for visitors. `tests/fixtures/port7_built.jsonl` is
+  a trace built from four captures.
+- **What it is not.** V5 only: an OG's report is refused with the lab's usual
+  message. One board at a time, since every V5 has the same serial identity.
+  It reads routing: no LEDs, OLED or voltages (that is Jumperlessim's
+  viewer). An exported page hides the Connect row, since it has no judge.
+  Safari and Firefox have no Web Serial: the button is disabled, with the
+  reason, and paste and drop stay.
