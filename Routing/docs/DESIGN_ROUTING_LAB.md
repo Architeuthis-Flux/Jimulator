@@ -878,17 +878,18 @@ nowhere: the harness does not run `Commands.cpp` or `configManager.cpp`. Both fi
 
 The heads, none of them pushed (the firmware, documentation site and canonical skill branches have no upstream):
 
-- Firmware: `port7-routing-reads` in the worktree `JumperlOS-port7`, at `6892af5` (the skill's section on port 7,
-  `4f4ef56`, and its corrections). The plan's commits on it: `67e1fe0` (F2), `bf249ce` (F1), `3f6a3c4` (the watch), `5c9a649` and its fix `0d8b866`
+- Firmware: `port7-routing-reads` in the worktree `JumperlOS-port7`, at `9356cc1` (the skill's section on port 7,
+  `4f4ef56`, its corrections `6892af5`, and the whole-branch review's fixes). The plan's commits on it: `67e1fe0` (F2), `bf249ce` (F1), `3f6a3c4` (the watch), `5c9a649` and its fix `0d8b866`
   (F3), `d2a11a1` (F5), `527c988` (F4). No release has them; they need firmware newer than 5.7.11.5, and a build of
   the branch still says 5.7.11.5 to `:ver`.
 - Documentation site: `port7-watch` in the worktree `Jumperless-docs-port7`, off `origin/main` (`7707c2a6`), at
-  `e7a8597b` (`673494ee` and its corrections): `docs/07.5-automation.md` and `docs/jumperless-agent-skill.md`. It
+  `887f6b46` (`673494ee`, its corrections and the whole-branch review's fixes): `docs/07.5-automation.md` and `docs/jumperless-agent-skill.md`. It
   documents verbs no released firmware has, and the main checkout has uncommitted edits to both pages that it will meet at merge.
 - Canonical skill: `port7-watch` in the worktree `Large-Breadboard-Model-port7`, off `origin/main` (`437e7c0`), at
-  `e30751c` (`2d1831e` and its corrections).
-- Jimulator: `main`, this commit, on `8a37b2e` (the documents), on `eac0e36`. The plan's lab commits: `f8bd936` and its fix `270acff` (the page),
-  `fd06a38` (the plan's text after review), `4a10c7c` (`Reserve`), `eac0e36` (`Feed`).
+  `7429777` (`2d1831e`, its corrections and the whole-branch review's fixes).
+- Jimulator: `main`. The plan's lab commits: `f8bd936` and its fix `270acff` (the page), `fd06a38` (the plan's text
+  after review), `4a10c7c` (`Reserve`), `eac0e36` (`Feed`), `8a37b2e` and `7dd4ede` (the documents and their
+  corrections), `b042c36` (the whole-branch review's fixes).
 
 Built: all eight tasks (F2, F1, the watch, F5, F4, F3, the page, these documents), and an addition to the last:
 the same section went into the canonical skill, `SKILL.md` and a new `reference/port7-backchannel.md` in
@@ -927,6 +928,34 @@ built as written, except in these points, where the build says more or says othe
 Still to do: the bench sitting (the plan's checklist "When a board is on the bench"), a
 push and a release of the firmware, the submodule's move and `BOARD_PORT.NEEDS`, and the merge of the documentation
 site's branch and of the canonical skill's branch. Each waits for Kevin.
+
+Open from the whole-branch review (2026-11-23). It found no difference between the bytes the firmware writes and the
+bytes the page reads, and nothing that must be fixed before a flash. These it left open, each Kevin's call:
+
+- **A glance in the Slots picker can set F4 off.** Every detent on a slot that has a file is a rebuild that
+  `infraEvaluate` begins (`previewSlotColors` in `LEDs.cpp`, then `loadSlot` in `States.cpp`), so its routing is
+  noted like any other. If a slot glanced at leaves the feed's pair unrouted, the candidate can be barred, the feed
+  moved, and `[infra] probe_power: ... did not route` printed for a slot that was never loaded; back on the user's
+  own slot the feed can stay on its other candidate until a bridge is removed or a reboot. There is no loop and the
+  probe keeps its power. Not fixed here: a fix is new state in the feed or the slot manager that nothing on a host
+  can run. Two ways to do it: clear the bar where a slot's bridges are loaded (`infraScrubLoadedBridges`), or take
+  no note and move no bar while a preview is up. F4 reverts alone (`527c988`).
+- **The service table is full.** `MAX_SERVICES` is 24 and a V5 now registers 23, or 24 with the file cache.
+  `registerService` drops a service past the limit without a word. Raise the limit before another service is added.
+- **A client that polls in probe mode.** A verb off the short list is refused `busy` there, where released firmware
+  says nothing. Jumperlessim's viewer asks `:leds:all` every 50 ms, so in probe mode it gets a refusal each time,
+  and each one takes time from the probe's loop. Bench.
+- **The page does not ask for the watch again.** If a board's watch ends without the page's doing, the page reads
+  changes by its 3 s `:gen` for the rest of the link.
+- **Older than this piece, seen while reviewing it.** With `serial_1.function = 0` at boot `USBSer1` is not begun,
+  so the fourth port is not the backchannel and the watch's DTR test reads the wrong interface. Previewing a slot
+  that has no file leaves the last slot's crosspoints closed (`enterPreviewMode` in `States.cpp`), which the page
+  can now show while a menu is up. The firmware's comments say a slot preview never calls `infraEvaluate`; the
+  path through `loadSlot` does.
+- **For the bench, besides the plan's checklist.** Item 6 with Jumperlessim's viewer attached as well. Scroll the
+  Slots picker with the page connected. In item 7, browse past the dense slot to one with as many bridges, cancel,
+  and look at `i@` and the terminal. Watch the first `:paths` asked in probe mode for a crash: how deep the stack
+  is there could not be told by reading.
 
 ### Not in piece 8
 
