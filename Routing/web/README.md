@@ -248,9 +248,10 @@ as the case `live_board`, in every view, judged as a pasted report is. When the
 board's routing changes the page reads it again and redraws it. The page only
 reads: it never routes, clears or loads anything on the board, and it never
 sends `b`, which prints on the board's own terminal. Built and tested on
-a trace built from the board captures of 2026-11-21, with made-up `N` and
-`:gen` answers, on the local server. No port 7 exchange has been recorded from
-a board yet, and it has not been tried on one.
+traces built from the board captures of 2026-11-21, with made-up `N`, `:gen`
+and `:watch` answers and made-up `changed{}` lines, on the local server. No
+port 7 exchange has been recorded from a board yet, and it has not been tried
+on one.
 
 - **The port.** The board shows four USB serial ports, and they look alike.
   The page reads the fourth, the machine backchannel ("port 7"). Pick the
@@ -267,35 +268,67 @@ a board yet, and it has not been tried on one.
   115200 and at no other speed.
 - **What the page sends**, as the page says it beside the button:
 
-  > To the board's fourth port only, and only after you press Connect. N once: its net list, which proves the port is the right one. :ver once: its firmware version. :gen twice a second: a counter that moves when the board rebuilds its routing, and whether it has finished sending it. :paths and :crossbar when that counter has moved: its routing report, and which crosspoints are closed. All five are questions. None makes, removes or reroutes a connection, and none prints on the board's own terminal. Nothing is sent to any other port. The picker lists the board's four ports and they look alike: pick the one whose name ends port7 (macOS), or the last of the four. A wrong port gets the one N and is closed. Opening the second one by mistake can reset an Arduino plugged into the board.
+  > To the board's fourth port only, and only after you press Connect. N once: its net list, which proves the port is the right one. :ver once: its firmware version. :watch:routing:on once: it asks the board to say when its routing has changed. :gen: a counter that moves when the board rebuilds its routing, and whether it has finished sending it; every three seconds while a watching board is still, twice a second while its routing is changing and on firmware that cannot watch. :paths and :crossbar when the routing has changed: its routing report, and which crosspoints are closed. :watch:routing:off when you disconnect. Five are questions and the two :watch lines switch the board's own line on and off; none makes, removes or reroutes a connection, and none prints on the board's own terminal. Nothing is sent to any other port. The picker lists the board's four ports and they look alike: pick the one whose name ends port7 (macOS), or the last of the four. A wrong port gets the one N and is closed. Opening the second one by mistake can reset an Arduino plugged into the board.
 
   Only the timings can be overridden (in the tests); the speed, the buffer
-  and the five things sent are fixed, and the code refuses to send anything
+  and the seven things sent are fixed, and the code refuses to send anything
   else.
 - **The firmware it needs.** `:gen`, `:paths` and a `:crossbar` that waits for
-  the second core. They are three read-only calls added to JumperlOS on the
-  branch `port7-routing-reads` (commit `f963e4c`, in a worktree), which is not
-  on GitHub and not in a release: no released firmware answers them yet, and
-  the submodule here is not moved to it. A board without them answers
-  `unknown_verb`; the page then says the firmware is too old for a live view
-  and which release has them (`BOARD_PORT.NEEDS`, still a placeholder
-  naming a release that is not out), and does not ask `b` in their place.
-- **What the board does not answer.** Port 7 is answered from the board's
-  main loop only: not in probe mode, in a menu or in an app. The page then
-  says "waiting", with how long and when it last read, dims the view's title
-  and keeps the last reading on screen. It is not an error and it is not red.
+  the second core (commit `f963e4c`), and for the board to say when its
+  routing changed, `:watch` (commit `3f6a3c4`). They are on the JumperlOS
+  branch `port7-routing-reads`, in a worktree, which is not on GitHub and not
+  in a release: no released firmware answers them yet (they need firmware
+  newer than 5.7.11.5), and the submodule here is not moved to it. A board
+  without `:gen` answers `unknown_verb`; the page then says the firmware is
+  too old for a live view and which release has them (`BOARD_PORT.NEEDS`,
+  still a placeholder naming a release that is not out), and does not ask `b`
+  in their place. A board with `:gen` and without `:watch` answers
+  `:watch:routing:on` with `unknown_verb`: the page reads it all the same,
+  asks `:gen` twice a second as before, and says "asking every half second:
+  this firmware has no :watch".
+- **What the board does not answer.** Firmware with the branch's changes
+  answers the page's seven sends in probe mode and the menus too, and says
+  nothing in an app or a running script until it ends. Older firmware
+  answers port 7 from its main loop only, so it says nothing in probe mode,
+  a menu, an app or a script. Neither has been tried on a board. The status
+  sentence the page shows then still says the older firmware's words (main
+  loop only: not in probe mode, a menu or an app). The page says "waiting",
+  with how long and when it last read, dims the view's title and keeps the
+  last reading on screen. It is not an error and it is not red.
   A board that does not answer is waited for, with no limit, and only
   **Disconnect** ends that. A reply counts as begun only once the board has
   echoed the query; a stray line is neither an answer nor a reason to ask
   again. A reply that begins and then stops for three seconds is thrown away
-  and asked once more. The pause between polls is not cut short by anything
-  the board sends.
+  and asked once more. The pause between polls is cut short only by a
+  `changed{}` line and by **read again**, never inside the 100 ms after a
+  round.
 - **What a reading is.** `:gen` gives the routing's counter and whether the
   board has finished sending it. When it has moved and the board is idle, the
   page asks `:paths` and `:crossbar`, one query at a time, then asks `:gen`
   once more. A reading counts only when both answers say idle with the same
   number; otherwise the page tries again. **read again** reads the report and
   the dump whatever the counter says, when the board is idle.
+- **Told, not asked.** After `N`, `:ver` and `:gen` the page sends
+  `:watch:routing:on`. When the board acknowledges it, the board writes
+  `changed{routing,<n>}` by itself when its routing has changed and it is
+  idle. The page finds that line by its whole shape on a line of its own, in
+  everything the port receives, whatever else is out; it is never taken as
+  the answer to a query. The line ends the wait: the page asks `:paths`, then
+  `:crossbar`, then `:gen`, and the reading counts only when that `:gen` says
+  idle at `<n>`; if it does not, the round goes on from that answer. A line
+  that comes while a query is out starts the next round. Three timings are
+  new: while a watching board is still (its last answer idle, at the
+  generation shown), the page asks it nothing but `:gen` every 3 s
+  (`WATCH_POLL_MS`), only to notice a board gone silent or a line that was
+  lost; after every round it waits at least 100 ms (`GAP_MS`); on
+  **Disconnect** it sends `:watch:routing:off` and waits at most 300 ms
+  (`OFF_MS`) for the answer before it closes the port, and with a query
+  still unanswered it closes without sending. Three seconds because a still
+  board then gets 20 questions a minute where it got 120, a lost line costs
+  at most 3 s, and silence is said within 4.5 s (the 3 s and the 1.5 s the
+  page already waits before it says "waiting"). A board whose routing is
+  changing, and firmware that cannot watch, are asked `:gen` twice a second
+  (`POLL_MS`), as before.
 - **Sent equals planned is checked on every reading.** The dump is the chips'
   own state and goes to the judge with the report, so what was sent is
   compared with the path table each time, which a pasted `b` report cannot do
@@ -322,7 +355,10 @@ a board yet, and it has not been tried on one.
 - **Save trace** is a button. It downloads every byte sent and received since
   Connect as JSON Lines, one exchange a line (`port7_DATE_TIME.jsonl`). A
   query still unanswered, or cut off by Disconnect or a pulled cable, is a
-  line with what had come (`"got": null` for nothing). The first line's
+  line with what had come (`"got": null` for nothing). Bytes that arrive
+  unasked and end in a `changed{}` line are a line of their own with
+  `"sent": null`; bytes that arrive unasked while a query is out stay in that
+  query's `got`. The first line's
   `source` is `board`, or `replay` when it was made under `serve --replay`
   (not a recording from a board).
 - **`serve --replay TRACE`.** `python3 Routing/lab.py serve --replay FILE`
@@ -330,7 +366,9 @@ a board yet, and it has not been tried on one.
   board, with no port opened and no Web Serial needed. It is for the tests and
   the browser check, not for visitors. `tests/fixtures/port7_built.jsonl` is
   a trace built, not recorded, from four captures (its `N` and `:gen` answers
-  are made up).
+  are made up). `tests/fixtures/port7_watch_built.jsonl` is built the same
+  way for a watching board: its `:watch` answers and `changed{}` lines are
+  made up too, and the fake port sends each `changed{}` line by itself.
 - **What it is not.** V5 only: an OG's report is refused with the lab's usual
   message. One board at a time, since every V5 has the same serial identity.
   It reads routing: no LEDs, OLED or voltages (that is Jumperlessim's

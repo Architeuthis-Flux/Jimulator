@@ -160,6 +160,18 @@ A pair given twice is one bridge, merged as the firmware's loader merges it.
 - **A live board between its rebuilds.** The page reads a board's routing
   when its counter has moved and the board is idle, not during a rebuild. A
   crosspoint closed and opened again between two polls is not shown as a change.
+  On a watching board the same holds between two idle moments: a change made
+  and undone before the board is idle again gives one `changed{}` line and
+  one reading, which shows neither.
+- **The probe feed's fallback.** On a board whose feed did not route, the
+  firmware asks for one more rebuild and moves the feed to its next candidate.
+  The lab's own rebuild does not: the harness does not retry, so the lab shows
+  the first rebuild's answer, the feed unrouted. The fallback is shown only
+  by tests that send the same case to one harness process three times.
+- **The net scan off.** The lab always routes with the scan on
+  (`measurement.net_currents` at its default); the harness has no knob for it.
+  With the scan off the firmware lifts the tap reserve, so a board with it off
+  may stack copies the lab does not show.
 - **FakeGPIO's writes in the dump.** Whether the firmware's writes to the chips
   through FakeGPIO are kept out of a live board's crossbar dump is not known.
 - **Net voltages.** A live board's nets are shown without voltages.

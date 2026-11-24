@@ -735,7 +735,7 @@ Jumperlessim's viewer). The published page, until piece 6.
 
 *Written 2026-11-23. The plan is `PLAN_ROUTING_LAB_8_WATCH_AND_FIRMWARE.md`. Nothing here is built. The firmware was read
 in the worktree `JumperlOS-port7` at `44b1ba9`; the router numbers below were measured in the lab on scratch variants of
-the pinned router (`5374d38` with files replaced), on no board.*
+the pinned router (`5374d38` with files replaced), on no board. Built since, and run on no board: see "Piece 8 as built" below.*
 
 Kevin's ask (2026-11-23): "How does it poll for updates to the routing on port 7? maybe we need a command that says 'send
 me a message when [thing, in this case routing] changes', if it doesn't exist, add it and make sure it's documented in
@@ -863,6 +863,59 @@ from pyserial; port 1 silent while `b` and `n` are asked on port 7; Chip Status 
 scan on; port 7 answered in probe mode and in each menu, and the probe's tick gap (`X`) with and without the page
 connected; the feed falling back on a board set GPIO-first, with one extra rebuild and no more; copies and taps with
 the scan off, and after it is turned on again.
+
+### Piece 8 as built (2026-11-23)
+
+Status: built, and proved only as far as a host can. Nothing has run on a board: no firmware here is flashed, no port
+7 exchange of the watch has been recorded, and the bench checks are written and compiled and not run. The port's rules
+(what `:watch` asks, when a line is due, what probe mode and the menus answer) are checked by a host program,
+`test/test_ser3_rules`; the page is tested on traces built by its tests (`tests/fixtures/port7_watch_built.jsonl`);
+F4 and F5 are shown in the lab on the host router (`tests/test_firmware_fixes.py`, classes `Feed` and `Reserve`). F1 and
+F2 have no host test. The extra rebuild F4 asks for and the rebuild F5 asks for on a change of the setting are proved
+nowhere: the harness does not run `Commands.cpp` or `configManager.cpp`. Both firmware targets build and
+`test/test_routing_og/run.sh` passes.
+
+The heads, none of them pushed (the firmware and documentation site branches have no upstream):
+
+- Firmware: `port7-routing-reads` in the worktree `JumperlOS-port7`, at `4f4ef56` (the skill's section on port 7).
+  The plan's commits on it: `67e1fe0` (F2), `bf249ce` (F1), `3f6a3c4` (the watch), `5c9a649` and its fix `0d8b866`
+  (F3), `d2a11a1` (F5), `527c988` (F4). No release has them; they need firmware newer than 5.7.11.5, and a build of
+  the branch still says 5.7.11.5 to `:ver`.
+- Documentation site: `port7-watch` in the worktree `Jumperless-docs-port7`, off `origin/main` (`7707c2a6`), at
+  `673494ee`: `docs/07.5-automation.md` and `docs/jumperless-agent-skill.md`. It documents verbs no released firmware
+  has, and the main checkout has uncommitted edits to both pages that it will meet at merge.
+- Jimulator: `main`, this commit, on `eac0e36`. The plan's lab commits: `f8bd936` and its fix `270acff` (the page),
+  `fd06a38` (the plan's text after review), `4a10c7c` (`Reserve`), `eac0e36` (`Feed`).
+
+Built: all eight tasks (F2, F1, the watch, F5, F4, F3, the page, these documents). None was dropped. What is above is
+built as written, except in these points, where the build says more or says otherwise:
+
+- **Which menu answers how.** The short list holds in the click menu's columns view on the terminal (what `K` opens)
+  and in a menu on the board alone. Only a menu printed on the terminal without that view, with line buffering on,
+  runs the main loop's entry; there every verb is answered and the modal service stands down. The spec's words, that
+  a click menu on the terminal with line buffering on runs the main loop's entry, describe that rarer path. The main
+  loop's entry is stamped when its pass ends as well as when it starts, so a long normal pass keeps the modal one out.
+- **Refused in a modal pass:** `:repeat` and `.` too, with `b`, `n`, `:help` and `:cmds`. A `:` line there is waited
+  for 25 ms from its last byte, so a host that trickles bytes can hold the probe longer; the page sends whole lines.
+- **F4.** The failed candidate is not kept out for good. While the feed has fallen back, each removal of a user bridge
+  lets it be tried once more: if it still does not route, the feed goes to it and back one rebuild later (two
+  rebuilds and a short gap in the feed for that removal). The extra rebuild is asked by a tick that does not run in
+  probe mode, so there it waits for the next rebuild or the end of probe mode.
+- **F5.** The rebuild on a change of `measurement.net_currents` happens for a change made through the config's set
+  path (the `i`-style config command, the settings menu's edits, pasted settings, the reset of one option). `config
+  reset` and the settings menu's full reset replace the whole config and skip it: after one of those, copies made
+  with the scan off keep the taps' copper until the next rebuild. By code reading only.
+- **The page.** Its paragraph on what it sends says five of the seven are questions, and that `:gen` is asked every
+  three seconds while a watching board is still and twice a second while its routing is changing and on firmware
+  that cannot watch. A `changed{}` line that comes while a round's first `:gen` is out is kept and starts the next
+  round. The status sentence the page shows while a board is silent still says the older firmware's words (port 7
+  answered from the main loop only: not in probe mode, a menu or an app); with F3 that is true only of older
+  firmware.
+- `:watch:` with a trailing colon answers the list of watches.
+
+Still to do: the bench sitting (the plan's checklist "When a board is on the bench"), the page's status sentence, a
+push and a release of the firmware, the submodule's move and `BOARD_PORT.NEEDS`, and the merge of the documentation
+site's branch. Each waits for Kevin.
 
 ### Not in piece 8
 
