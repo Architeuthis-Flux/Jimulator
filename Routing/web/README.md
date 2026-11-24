@@ -290,9 +290,9 @@ on one.
   answers the page's seven sends in probe mode and the menus too, and says
   nothing in an app or a running script until it ends. Released firmware (5.7.11.5 and before) answers port 7 from its main loop
   only, so it says nothing in probe mode, a menu, an app or a script. Neither
-  has been tried on a board. The status sentence the page shows then still
-  says the released firmware's words (main
-  loop only: not in probe mode, a menu or an app). The page says "waiting",
+  has been tried on a board. The page says "waiting", with the words "It does
+  not answer port 7 in an app or a running script, nor, on released firmware,
+  in probe mode or a menu", which are true of both. It says it
   with how long and when it last read, dims the view's title and keeps the
   last reading on screen. It is not an error and it is not red.
   A board that does not answer is waited for, with no limit, and only

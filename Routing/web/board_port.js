@@ -74,7 +74,7 @@ function refusedVerb(text) {
 }
 
 // The answer to :watch:<topic>:on|off, from the last whole line that gives one: {topic, on, gen}, or {error} for a
-// refusal (unknown_verb from firmware without :watch, busy in probe mode), or null before either.
+// refusal (unknown_verb from firmware without :watch; :watch is on the modal list, so not busy), or null before either.
 function watchOf(text) {
   const lines = text.split("\n").slice(0, -1);
   for (let i = lines.length - 1; i >= 0; i--) {
@@ -381,8 +381,8 @@ class BoardLink {
         if (quiet >= this.t.WAIT_SAY_MS && Math.floor(quiet / 1000) !== said) {
           said = Math.floor(quiet / 1000);
           this.silent = true;
-          this.say("waiting", "the board has not answered for " + said + " s. It answers port 7 from its main loop only: "
-            + "not in probe mode, a menu or an app." + this.lastRead());
+          this.say("waiting", "the board has not answered for " + said + " s. It does not answer port 7 in an app or a "
+            + "running script, nor, on released firmware, in probe mode or a menu." + this.lastRead());
         }
         const next = [quiet < this.t.WAIT_SAY_MS ? this.t.WAIT_SAY_MS - quiet : 1000 - (quiet % 1000)];
         if (began && again) next.push(this.t.STALL_MS - quiet);

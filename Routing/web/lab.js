@@ -825,7 +825,8 @@ async function connectBoard() {
     if (kind === "not_port_7") {
       try { if (port.forget) await port.forget(); } catch (e) { /* the browser keeps it */ }
       linkSaid("idle", "That port did not answer N with a net list: it is not the board's fourth port, or the board was not "
-        + "answering just then (it answers from its main loop only: not in probe mode, a menu or an app). "
+        + "answering just then (it does not answer port 7 in an app or a running script, nor, on released "
+        + "firmware, in probe mode or a menu). "
         + "Nothing but one N was sent to it. Pick the one whose name ends port7 (macOS), or the last of the four.");
     } else if (kind === "busy") {
       linkSaid("idle", "The port you picked is open in another program or tab (a Jumperlessim viewer, a script). Close it there, then connect again.");

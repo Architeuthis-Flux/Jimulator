@@ -63,7 +63,7 @@ async function failed(port, state, words) {
   // a port that answers N with no net list: the main port's menu, or port 7 of a board in a menu, an app or probe mode
   const menu = fake([{ sent: "N", got: "\r\n\tMenu\r\n\tm = show this menu\r\n" }]);
   await failed(menu, "idle", ["it is not the board's fourth port, or the board was not answering just then",
-    "it answers from its main loop only: not in probe mode, a menu or an app", "Nothing but one N was sent to it."]);
+    "it does not answer port 7 in an app or a running script, nor, on released firmware, in probe mode or a menu", "Nothing but one N was sent to it."]);
   assert.deepStrictEqual([menu.written, menu.forgotten, menu.closed], [["N"], true, true]);
 
   // firmware too old: the port is the board's fourth, so it is kept for the next click

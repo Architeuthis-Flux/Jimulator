@@ -169,7 +169,8 @@ test("a silent board is waited for, not asked again", async () => {             
   await sleep(200);
   assert.ok(port.written.length <= sent + 1);                                   // at most the one that was on its way
   assert.equal(seen.states.at(-1)[0], "waiting");
-  assert.match(seen.states.at(-1)[1], /probe mode/);
+  assert.ok(seen.states.at(-1)[1].includes("It does not answer port 7 in an app or a running script, nor, on released "
+    + "firmware, in probe mode or a menu."), seen.states.at(-1)[1]);
   port.speak();
   while (seen.states.at(-1)[0] !== "live") await sleep(5);
   await link.close();

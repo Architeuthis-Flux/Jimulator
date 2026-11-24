@@ -773,7 +773,8 @@ the build.
   the port where the host had raised DTR. `:oled:stream` and `:padgate` do not do the last: they stay on until turned
   off (`Ser3Backchannel.cpp:801-849`, `oled.cpp:4035`). The watch differs because the next program on the port did not
   ask for its lines. The line is read with `tud_cdc_n_get_line_state`, not `USBSer3.dtr()`, which the `ignore_dtr`
-  setting fakes. A host that never raises DTR keeps its watch until `:off`. Not established: that Chrome raises DTR on
+  setting fakes. A host that never raises DTR keeps its watch until `:off`, but hears its lines only with
+  `usb_cdc.ignore_dtr` on: by default the board drops what it writes to a port whose DTR is down. Not established: that Chrome raises DTR on
   open and drops it on close. Nothing depends on it: a line nobody reads is dropped, not waited on.
 - **`:stop`, `:repeat`, `:every`.** `:stop` cancels a capture and leaves a watch as it is, as it leaves the OLED stream.
   `:repeat` and `.` run the last inquiry again, so after `:watch:routing:on` they acknowledge again. `:every` holds the
@@ -898,7 +899,8 @@ round of corrections after review, in all four repositories. What is above is
 built as written, except in these points, where the build says more or says otherwise:
 
 - **Which menu answers how.** Only a menu printed on the terminal without the columns view and with line buffering
-  on runs the main loop's entry; there every verb is answered and the modal service stands down. Every other menu
+  on runs the main loop's entry, from its list loops only: there a verb off the short list is answered while the
+  menu's list is showing, and may be refused as busy on its option, node and yes/no screens. Every other menu
   (the columns view that `K` opens, a menu on the board alone, a terminal menu with line buffering off) gets the
   short list, as probe mode does. The spec's words, that
   a click menu on the terminal with line buffering on runs the main loop's entry, describe that rarer path. The main
@@ -917,12 +919,12 @@ built as written, except in these points, where the build says more or says othe
 - **The page.** Its paragraph on what it sends says five of the seven are questions, and that `:gen` is asked every
   three seconds while a watching board is still and twice a second while its routing is changing and on firmware
   that cannot watch. A `changed{}` line that comes while a round's first `:gen` is out is kept and starts the next
-  round. The status sentence the page shows while a board is silent still says the older firmware's words (port 7
-  answered from the main loop only: not in probe mode, a menu or an app); with F3 that is true only of released
-  firmware (5.7.11.5 and before).
+  round. The status sentence the page shows while a board is silent says words true of both firmwares: the board
+  does not answer port 7 in an app or a running script, nor, on released firmware (5.7.11.5 and before), in probe
+  mode or a menu.
 - `:watch:` with a trailing colon answers the list of watches.
 
-Still to do: the bench sitting (the plan's checklist "When a board is on the bench"), the page's status sentence, a
+Still to do: the bench sitting (the plan's checklist "When a board is on the bench"), a
 push and a release of the firmware, the submodule's move and `BOARD_PORT.NEEDS`, and the merge of the documentation
 site's branch and of the canonical skill's branch. Each waits for Kevin.
 
