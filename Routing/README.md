@@ -163,8 +163,9 @@ A pair given twice is one bridge, merged as the firmware's loader merges it.
   On a watching board the same holds between two idle moments: a change made
   and undone before the board is idle again gives one `changed{}` line and
   one reading, which shows neither.
-- **The probe feed's fallback.** On a board whose feed did not route, the
-  firmware asks for one more rebuild and moves the feed to its next candidate.
+- **The probe feed's fallback.** On a board whose feed did not route, the firmware asks for one more rebuild
+  and moves the feed to its next candidate, when another candidate is free
+  and viable and the feed is neither forced nor already fallen back once.
   The lab's own rebuild does not: the harness does not retry, so the lab shows
   the first rebuild's answer, the feed unrouted. The fallback is shown only
   by tests that send the same case to one harness process three times.

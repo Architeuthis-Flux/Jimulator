@@ -288,10 +288,10 @@ on one.
   this firmware has no :watch".
 - **What the board does not answer.** Firmware with the branch's changes
   answers the page's seven sends in probe mode and the menus too, and says
-  nothing in an app or a running script until it ends. Older firmware
-  answers port 7 from its main loop only, so it says nothing in probe mode,
-  a menu, an app or a script. Neither has been tried on a board. The status
-  sentence the page shows then still says the older firmware's words (main
+  nothing in an app or a running script until it ends. Released firmware (5.7.11.5 and before) answers port 7 from its main loop
+  only, so it says nothing in probe mode, a menu, an app or a script. Neither
+  has been tried on a board. The status sentence the page shows then still
+  says the released firmware's words (main
   loop only: not in probe mode, a menu or an app). The page says "waiting",
   with how long and when it last read, dims the view's title and keeps the
   last reading on screen. It is not an error and it is not red.
