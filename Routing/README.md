@@ -28,7 +28,7 @@ on which arrangement, and whether the probe feed is on the fabric:
 
 | Folder | What is in it | Read |
 |---|---|---|
-| `web/` | the page: `index.html`, `lab.js`, `lab.css` | `web/README.md`: views, marks, hands, panels, a board's own output |
+| `web/` | the page: `index.html`, `lab.js`, `lab.css` (the lab's own layout and marks), `console.css` (the look, a copy) | `web/README.md`: views, marks, hands, panels, a board's own output |
 | `cases/` | the case files, one folder per class; `example/` is what the page lists first | `cases/README.md`: classes, how to add an example |
 | `solver/` | the exact solver (`solve.py`) and its web service (`service/`) | `solver/README.md`: ceilings; `solver/service/README.md` |
 | `arrangements/` | crossbar copper other than V5's, as files of what differs | `arrangements/README.md`: the files, scoring, the lane ranking |

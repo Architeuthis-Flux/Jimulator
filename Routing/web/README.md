@@ -1,7 +1,7 @@
 # The page
 
 What `python3 Routing/lab.py serve` opens, and what an exported page (`lab.py export`) is: one file, `index.html`
-with `lab.css` and `lab.js` inlined and the run's data beside them. The picture guide for a first visit is the
+with `console.css`, `lab.css` and `lab.js` inlined and the run's data beside them. The picture guide for a first visit is the
 repository's README; this is the reference.
 
 ```bash
@@ -149,7 +149,12 @@ click a case.
   a ship's console: name plates, cut corners, narrow capital labels. Red
   still means a problem and nothing else. The fonts (Archivo Narrow, IBM
   Plex Mono, Michroma) are used where a site has them; the lab's own page
-  falls back to the system's.
+  falls back to the system's. The look is `console.css`, a copy of the
+  console section of slopswap's `styles/jumperless.css`, the one place it
+  is changed for every Jumperless tool. Do not edit the copy: change the
+  sheet there and run its `.tools/console_copy.py` on this file. `lab.css`
+  holds only what is the lab's own, and an exported page carries the copy
+  in `<style id="console-copy">`, which a site that has the sheet takes out.
 - **A board's own output.** Drop a file holding what a Jumperless prints for
   `b`, or copy it out of a terminal and paste it anywhere on the page. It is
   judged by the same checker and shown as a run of its own, class `board`,
