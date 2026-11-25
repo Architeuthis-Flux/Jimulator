@@ -310,16 +310,38 @@ class Export(unittest.TestCase):
         self.assertIn("touch-action: none", css)                       # the drawing, not the page, takes the fingers
         self.assertIn("const zoomAbout", js)                           # the wheel and two fingers zoom the same way
         self.assertIn("fingers.size === 2", js)
+        look = (server.WEB_DIR / "console.css").read_text()
         for ground in ("--head:", "--hover:", "--sel:", "--btn:", "--pad:", "--tip:"):
-            self.assertEqual(css.count(ground), 1, ground)             # each ground is named once, so a theme can swap it
+            self.assertEqual((look + css).count(ground), 1, ground)    # each ground is named once, so a theme can swap it
+
+    def test_the_look_is_one_copy_of_the_sites_console_and_the_lab_adds_only_its_own(self):
+        look = (server.WEB_DIR / "console.css").read_text()
+        own = (server.WEB_DIR / "lab.css").read_text()
+        html = (server.WEB_DIR / "index.html").read_text()
+        self.assertIn('<html lang="en" class="console">', html)       # the page asks for the look,
+        self.assertLess(html.index('href="console.css"'), html.index('href="lab.css"'))   # and its own rules come after it
+        self.assertIn("Do not edit", look.split("*/")[0])              # a copy: it is changed where it came from
+        self.assertIn("/* console:begin", look)
+        self.assertTrue(look.rstrip().endswith("/* console:end */"))
+        for line in look.split("/* console:begin")[1].splitlines():   # weightless, so the lab's own rules win ties
+            if "{" in line and not line.lstrip().startswith(("@", "/*", "--", "}")) and line[:1] not in " \t":
+                self.assertTrue(line.startswith((":where(.console)", ".console{")), line)
+        # the furniture is not written a second time here: what the lab says about it is only what differs
+        for again in ("button {", "button:hover {", ".plate b {", "h2::before", "h2 {", ".fold {", ".bar {", ".panel {"):
+            self.assertIsNone(re.search("(?m)^" + re.escape(again), own), again)
+        for name in ("--accent:", "--label:", "--cut:", "--panel:"):
+            self.assertNotIn(name, own)
+        page = export.page({})
+        self.assertIn('<style id="console-copy">', page)               # an exported page carries it in an element of its own
+        self.assertLess(page.index('<style id="console-copy">'), page.index(own[:60]))
 
     def test_the_page_looks_like_jumperless_on_a_ships_console(self):
         js = (server.WEB_DIR / "lab.js").read_text()
-        css = (server.WEB_DIR / "lab.css").read_text()
+        css = (server.WEB_DIR / "console.css").read_text() + (server.WEB_DIR / "lab.css").read_text()
         html = (server.WEB_DIR / "index.html").read_text()
         # the palette is the Jumperless one, under the names its stylesheet sets: greys and never black, the rainbow, the magenta
-        for token in ("var(--jl-bg, #27272b)", "var(--jl-surface, #323238)", "var(--jl-accent-3, #fc0289)", "var(--jl-r1, #f03060)",
-                      "var(--jl-r12, #e86828)"):
+        for token in ("var(--jl-bg,#27272b)", "var(--jl-surface,#323238)", "var(--jl-accent-3,#fc0289)", "var(--jl-r1,#f03060)",
+                      "var(--jl-r12,#e86828)"):
             self.assertIn(token, css)
         for black in ("#000;", "#000 ", "#16171f", "#0f1017"):
             self.assertNotIn(black, css)

@@ -138,7 +138,7 @@ class Server(unittest.TestCase):
         self.assertIn(info["sheet"], (True, False))
 
     def test_page_files_are_served_and_parse(self):
-        for path, kind in (("/lab.js", "javascript"), ("/lab.css", "css")):
+        for path, kind in (("/lab.js", "javascript"), ("/lab.css", "css"), ("/console.css", "css")):
             r = self.c.get(path, token=None)
             self.assertEqual(r.status, 200, path)
             self.assertIn(kind, r.headers["Content-Type"])

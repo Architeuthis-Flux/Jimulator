@@ -1,88 +1,37 @@
 /* SPDX-License-Identifier: MIT */
-/* Routing lab page. Red means a problem and nothing else is red.
-   The look: Jumperless's own greys (never black), its rainbow and its pink, on panels shaped as a ship's console
-   is: cut corners, name plates, narrow capital labels, thin lines. The pink is the magenta, which stays clear of
-   the red. A site that has the Jumperless stylesheet sets the --jl-* names; without it the values here stand. */
+/* Routing lab page: the lab's own layout and marks. Red means a problem and nothing else is red.
+   The look itself (the greys, the rainbow and the pink, panels with name plates, cut corners, narrow capital
+   labels, buttons, tables) is console.css, which the page loads first. */
+/* The lab's own grounds and marks. The look's names (--bg, --panel, --ink, --accent, --label, --cut and the rest) are
+   set in console.css. Grounds: a class row, a pad, the tip. */
 :root {
-  --bg: var(--jl-bg, #27272b); --panel: var(--jl-surface, #323238); --panel-2: var(--jl-surface-2, #3d3d44);
-  --line: var(--jl-line, #4b4b54); --ink: var(--jl-fg, #f3f3f5); --dim: var(--jl-muted, #aaaab5);
-  --accent: var(--jl-accent-3, #fc0289); --focus: var(--jl-accent-2, #00fced);
-  --r1: var(--jl-r1, #f03060); --r2: var(--jl-r2, #f12fbf); --r3: var(--jl-r3, #c728f8); --r4: var(--jl-r4, #7647f2);
-  --r5: var(--jl-r5, #5174ed); --r6: var(--jl-r6, #50beeb); --r7: var(--jl-r7, #68f4d7); --r8: var(--jl-r8, #70f899);
-  --r9: var(--jl-r9, #7af85c); --r10: var(--jl-r10, #c0f848); --r11: var(--jl-r11, #e8cb40); --r12: var(--jl-r12, #e86828);
-  --rainbow: linear-gradient(90deg, var(--r1), var(--r2), var(--r3), var(--r4), var(--r5), var(--r6), var(--r7), var(--r8),
-    var(--r9), var(--r10), var(--r11), var(--r12));
-  --wire: #64646f; --chip: #2d2d32; --problem: #ff4d3d; --better: var(--r8); --worse: var(--r11); --changed: var(--focus);
-  /* grounds: a class row, a row under the pointer, the row or net picked, a button that is on, a pad, the tip */
-  --head: var(--panel-2); --hover: #39393f; --sel: #4d3a47; --btn: var(--panel-2); --pad: #5a5a65; --tip: var(--panel-2);
-  --label: "Archivo Narrow", "Arial Narrow", "Helvetica Neue", Arial, sans-serif;      /* capital labels */
-  --display: Michroma, "Eurostile Extended", "Avenir Next", "Helvetica Neue", Arial, sans-serif;
-  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  --cut: 8px;                                       /* the corner cut off a panel's furniture */
-  font-size: 13px;
+  --wire: #64646f; --chip: #2d2d32; --changed: var(--focus);
+  --head: var(--panel-2); --pad: #5a5a65; --tip: var(--panel-2);
 }
-* { box-sizing: border-box; }
-[hidden] { display: none !important; }
-html, body { height: 100%; margin: 0; background: var(--bg); color: var(--ink); font-family: var(--mono);
-  font-variant-numeric: tabular-nums; scrollbar-color: var(--line) transparent; scrollbar-width: thin; }
-h1 { font-family: var(--display); font-size: 14px; margin: 0 0 8px; font-weight: 400; letter-spacing: .02em; }
-/* a heading inside a panel: a small plate on a rule, each the next colour of the rainbow */
-h2 { display: flex; align-items: center; gap: 8px; font-family: var(--label); font-size: 12px; margin: 14px 0 5px; color: var(--ink);
-  font-weight: 600; text-transform: uppercase; letter-spacing: .09em; }
-h2::before { content: ""; flex: none; width: 9px; height: 9px; background: var(--c, var(--accent));
-  clip-path: polygon(0 0, 100% 0, 100% 100%, 45% 100%, 0 55%); }
-h2::after { content: ""; flex: 1; height: 1px; background: var(--line); }
-.body > h2:nth-of-type(6n+1) { --c: var(--r2); } .body > h2:nth-of-type(6n+2) { --c: var(--r3); }
-.body > h2:nth-of-type(6n+3) { --c: var(--r7); } .body > h2:nth-of-type(6n+4) { --c: var(--r8); }
-.body > h2:nth-of-type(6n+5) { --c: var(--r10); } .body > h2:nth-of-type(6n+6) { --c: var(--r11); }
+html, body { height: 100%; }
+body { padding-top: 3px; }                           /* the rainbow along the top edge */
+h1 { margin: 0 0 8px; }
+p, ul, table, pre { margin: 0; }
 h2.trouble { color: var(--problem); --c: var(--problem); }
 h2.trouble::after { height: 5px; background: repeating-linear-gradient(135deg, var(--problem) 0 5px, transparent 5px 10px); opacity: .7; }
-button, input, select { font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--line); border-radius: 0; padding: 3px 7px; }
-/* a button is a plate with one corner cut; under the pointer it lights, pressed it turns over */
-button { cursor: pointer; font-family: var(--label); font-weight: 600; text-transform: uppercase; letter-spacing: .07em; font-size: 12px;
-  padding: 3px 12px 3px 9px; border: 0; background: var(--btn); color: var(--ink);
-  clip-path: polygon(0 0, 100% 0, 100% calc(100% - var(--cut)), calc(100% - var(--cut)) 100%, 0 100%); }
-button:hover { background: var(--line); }
-button:active { background: var(--ink); color: var(--bg); }
-button.on, button[aria-pressed="true"] { background: var(--accent); color: var(--bg); }
-button:disabled { opacity: .45; cursor: default; }
-input:hover, select:hover { border-color: var(--dim); }
-:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
-button:focus-visible { outline: 0; box-shadow: inset 0 0 0 2px var(--focus); }      /* a cut corner would clip an outline */
-.hint { color: var(--dim); }
 @media (prefers-reduced-motion: no-preference) {
-  button, input, select, .battery tr.case td, .net, .split, .key, .plate { transition: background-color .12s, color .12s, border-color .12s, opacity .12s; }
+  .battery tr.case td, .net, .split, .key { transition: background-color .12s, color .12s, border-color .12s, opacity .12s; }
 }
 
 /* ---------------------------------------------------------------- the panels
    Three panels in rows and stacks (lab.js, buildLayout). Each has a bar with its plate: the plate drags the panel
    onto a side of another, the lines between panels size them, and a panel folds to its bar. */
-main { display: flex; height: 100vh; }
+main { display: flex; height: calc(100vh - 3px); height: calc(100dvh - 3px); }
 .vrow, .vcol { display: flex; flex: 1 1 0; min-width: 0; min-height: 0; }
 .vcol { flex-direction: column; }
 /* the one of a row or a stack that takes what the others leave is never squeezed to nothing: the others give way */
 @media (min-width: 1201px) { .vrow > .flexi { min-width: 340px; } .vcol > .flexi { min-height: 180px; } }
-.panel { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--panel); }
-.panel > .body { flex: 1 1 0; min-height: 0; overflow: auto; padding: 10px; scrollbar-color: var(--line) transparent; scrollbar-width: thin; }
-.panel.shut > .body { display: none; }
 .panel.moving { opacity: .4; }
 #panel-tests { --c: var(--r2); } #centre { --c: var(--r7); } #panel-case { --c: var(--r10); }
-.bar { flex: none; display: flex; align-items: center; gap: 8px; min-height: 26px; padding-right: 6px; background: var(--bg);
-  border-bottom: 1px solid var(--line); box-shadow: inset 0 -2px 0 -1px var(--c, var(--line)); }
-/* the name plate: the panel's number on its colour, its name beside it, the far corner cut */
-.plate { flex: none; display: inline-flex; align-items: center; gap: 7px; align-self: stretch; padding: 0 16px 0 0; cursor: grab;
-  touch-action: none; user-select: none; -webkit-user-select: none; font-family: var(--label); font-weight: 600; font-size: 12px;
-  text-transform: uppercase; letter-spacing: .12em; color: var(--ink); background: var(--panel-2);
-  clip-path: polygon(0 0, 100% 0, calc(100% - 11px) 100%, 0 100%); }
-.plate b { align-self: stretch; display: inline-flex; align-items: center; padding: 0 7px 0 8px; font-family: var(--display); font-weight: 400;
-  font-size: 10px; letter-spacing: 0; color: var(--bg); background: var(--c, var(--accent)); }
+/* a name plate here is a handle: it drags its panel onto a side of another */
+.plate { cursor: grab; touch-action: none; }
 .plate:hover, .plate:focus-visible { background: var(--line); }
 .plate:focus-visible { outline: 0; box-shadow: inset 0 0 0 2px var(--focus); }
-.bar-note { flex: 1; min-width: 0; color: var(--dim); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.fold { flex: none; width: 22px; height: 18px; padding: 0; clip-path: none; background: none; color: var(--dim); font-family: var(--mono); font-size: 14px; line-height: 1; }
-.fold::before { content: "\2212"; }
-.panel.shut .fold::before { content: "+"; }
-.fold:hover { background: none; color: var(--ink); }
 /* a shut panel in a row stands on end */
 .vrow > .panel.shut > .bar { flex: 1; flex-direction: column; writing-mode: vertical-rl; padding: 0 0 6px; border-bottom: 0;
   box-shadow: inset -2px 0 0 -1px var(--c, var(--line)); }
@@ -100,10 +49,6 @@ main { display: flex; height: 100vh; }
 .example .how { float: right; margin: 1px 12px 0 8px; font-family: var(--mono); font-size: 11px; color: var(--dim); }
 .example.short .how { color: var(--problem); }
 .example p { margin: 3px 0 0; color: var(--dim); font-size: 12px; line-height: 1.35; }
-/* a quiet button: one of the lesser choices on a bar */
-button.quiet { padding: 2px 7px; clip-path: none; background: none; color: var(--dim); font-size: 11px; }
-button.quiet:hover { background: none; color: var(--ink); }
-button.quiet.on { background: none; color: var(--ink); box-shadow: inset 0 -2px 0 var(--accent); }
 #side-tabs { flex: none; display: inline-flex; }
 /* a view given a panel of its own */
 .viewpanel { --c: var(--r8); background: var(--bg); }
@@ -173,10 +118,8 @@ body.sizing, body.sizing * { user-select: none; -webkit-user-select: none; }
 #filters { display: flex; gap: 14px; margin: 8px 0 4px; color: var(--dim); align-items: center; }
 #busy { color: var(--changed); }
 
-table.battery { border-collapse: collapse; width: 100%; }
 .battery th, .battery td { padding: 2px 4px; text-align: right; white-space: nowrap; font-size: 12px; }
-.battery th { color: var(--dim); font-family: var(--label); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .08em;
-  position: sticky; top: 0; z-index: 1; background: var(--panel); border-bottom: 1px solid var(--line); }
+.battery th { position: sticky; top: 0; z-index: 1; background: var(--panel); }
 .battery td:first-child, .battery th:first-child { text-align: left; max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
 .battery tr.class { background: var(--head); cursor: pointer; font-weight: 600; }
 .battery tr.class td:first-child { box-shadow: inset 3px 0 0 var(--c, var(--dim)); padding-left: 9px; font-family: var(--label); text-transform: uppercase;
@@ -314,10 +257,7 @@ body.dropping #left { outline: 2px dashed var(--changed); outline-offset: -4px; 
 .net.on { box-shadow: inset 3px 0 0 var(--accent); }
 .net:hover, .net.on { background: var(--sel); }
 .swatch { width: 10px; height: 10px; flex: none; align-self: center; clip-path: polygon(0 0, 100% 0, 100% 60%, 60% 100%, 0 100%); }
-table.bridges { border-collapse: collapse; width: 100%; }
 .bridges td, .bridges th { padding: 1px 4px; text-align: right; white-space: nowrap; font-size: 12px; }
-.bridges th { color: var(--dim); font-family: var(--label); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .08em;
-  border-bottom: 1px solid var(--line); }
 .bridges td:first-child, .bridges th:first-child { text-align: left; }
 .bridges tr.no td { color: var(--dim); }
 .bridges .state { color: var(--dim); font-size: 11px; padding-left: 15px; white-space: normal; }
