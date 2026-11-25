@@ -3,9 +3,9 @@
 Jumperless, off the board. The first piece here is **Routing**: the Jumperless V5 firmware's own router, running on
 a computer instead of the board, with everything it decides drawn for you.
 
-**[Open it in your browser: slopswap.org/routing-lab/v5.html](https://slopswap.org/routing-lab/v5.html)**.
+**[Open it in your browser: slopswap.org/V6/routing-lab-v5.html](https://slopswap.org/V6/routing-lab-v5.html)**.
 Nothing to install. The same thing on the copper V6 is heading for, with the probe's feed off the crossbars:
-[v6-feed-off.html](https://slopswap.org/routing-lab/v6-feed-off.html).
+[routing-lab-v6-feed-off.html](https://slopswap.org/V6/routing-lab-v6-feed-off.html).
 
 ![The page: examples on the left, the routing drawn in the middle, the case on the right](Routing/docs/img/examples.png)
 
