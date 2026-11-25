@@ -325,7 +325,7 @@ class Export(unittest.TestCase):
         self.assertTrue(look.rstrip().endswith("/* console:end */"))
         for line in look.split("/* console:begin")[1].splitlines():   # weightless, so the lab's own rules win ties
             if "{" in line and not line.lstrip().startswith(("@", "/*", "--", "}")) and line[:1] not in " \t":
-                self.assertTrue(line.startswith((":where(.console)", ".console{")), line)
+                self.assertTrue(line.startswith((":where(.console)", ":where(.console.embedded)", ".console{")), line[:80])
         # the furniture is not written a second time here: what the lab says about it is only what differs
         for again in ("button {", "button:hover {", ".plate b {", "h2::before", "h2 {", ".fold {", ".bar {", ".panel {"):
             self.assertIsNone(re.search("(?m)^" + re.escape(again), own), again)
